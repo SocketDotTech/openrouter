@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity =0.8.25;
+pragma solidity ^0.8.19;
 
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
@@ -33,6 +33,18 @@ contract AcrossERC20AmountManipulator {
 
         inputAmount = ERC20(token).balanceOf(balanceHolder);
         outputAmount = deriveOutputAmount(inputAmount, bridgeFee, inputTokenDecimals, outputTokenDecimals);
+    }
+
+    /// @notice Derives Across input/output amounts from a caller-provided input amount.
+    /// @dev Use this when a previous OpenRouter action already returned the final post-fee amount.
+    function acrossAmountsFromInput(
+        uint256 inputAmount,
+        uint256 bridgeFee,
+        uint256 inputTokenDecimals,
+        uint256 outputTokenDecimals
+    ) external pure returns (uint256, uint256 outputAmount) {
+        outputAmount = deriveOutputAmount(inputAmount, bridgeFee, inputTokenDecimals, outputTokenDecimals);
+        return (inputAmount, outputAmount);
     }
 
     /// @notice Derives Across outputAmount from a runtime inputAmount.
