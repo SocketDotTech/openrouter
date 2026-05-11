@@ -4,7 +4,8 @@ pragma solidity =0.8.25;
 contract DummyRouter {
     enum CallType {
         CALL,
-        STATICCALL
+        STATICCALL,
+        CALL_WITH_NATIVE
     }
 
     struct Splice {
@@ -24,6 +25,7 @@ contract DummyRouter {
     error FutureSplice(uint256 actionIndex, uint256 sourceActionIndex);
     error SpliceOutOfBounds(uint256 actionIndex, uint256 spliceIndex);
     error CallFailed(uint256 actionIndex, bytes returndata);
+    error MissingNativeValue(uint256 actionIndex);
 
     function execute(Action[] calldata actions) external payable returns (bytes[] memory results) {
         results = new bytes[](actions.length);
@@ -51,6 +53,15 @@ contract DummyRouter {
 
             if (actions[i].callType == CallType.STATICCALL) {
                 (success, ret) = actions[i].target.staticcall(callData);
+            } else if (actions[i].callType == CallType.CALL_WITH_NATIVE) {
+                if (callData.length < 32) revert MissingNativeValue(i);
+                uint256 callValue;
+                bytes memory payload = new bytes(callData.length - 32);
+                assembly ("memory-safe") {
+                    callValue := mload(add(callData, 0x20))
+                    mcopy(add(payload, 0x20), add(callData, 0x40), mload(payload))
+                }
+                (success, ret) = actions[i].target.call{value: callValue}(payload);
             } else {
                 (success, ret) = actions[i].target.call(callData);
             }
@@ -60,4 +71,6 @@ contract DummyRouter {
             results[i] = ret;
         }
     }
+
+    receive() external payable {}
 }
