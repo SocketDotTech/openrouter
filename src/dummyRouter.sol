@@ -2,7 +2,6 @@
 pragma solidity =0.8.25;
 
 contract DummyRouter {
-
     enum CallType {
         CALL,
         STATICCALL
@@ -10,18 +9,21 @@ contract DummyRouter {
 
     struct Splice {
         uint256 sourceActionIndex; // which previous return data to read from
-        uint256 srcOffset;         // offset inside previous returndata
-        uint256 dstOffset;         // offset inside current calldata
-        uint256 length;            // bytes to copy
+        uint256 srcOffset; // offset inside previous returndata
+        uint256 dstOffset; // offset inside current calldata
+        uint256 length; // bytes to copy
     }
 
     struct Action {
         CallType callType;
         address target;
-        uint256 value;
         bytes data;
         Splice[] splices;
     }
+
+    error FutureSplice(uint256 actionIndex, uint256 sourceActionIndex);
+    error SpliceOutOfBounds(uint256 actionIndex, uint256 spliceIndex);
+    error CallFailed(uint256 actionIndex, bytes returndata);
 
     function execute(Action[] calldata actions) external payable returns (bytes[] memory results) {
         results = new bytes[](actions.length);
@@ -32,16 +34,16 @@ contract DummyRouter {
             // Patch this action's calldata using earlier action results.
             for (uint256 j = 0; j < actions[i].splices.length; j++) {
                 Splice calldata s = actions[i].splices[j];
+                if (s.sourceActionIndex >= i) revert FutureSplice(i, s.sourceActionIndex);
 
                 bytes memory source = results[s.sourceActionIndex];
+                if (s.srcOffset + s.length > source.length || s.dstOffset + s.length > callData.length) {
+                    revert SpliceOutOfBounds(i, j);
+                }
 
-                _copyBytes({
-                    src: source,
-                    dst: callData,
-                    srcOffset: s.srcOffset,
-                    dstOffset: s.dstOffset,
-                    length: s.length
-                });
+                for (uint256 k = 0; k < s.length; k++) {
+                    callData[s.dstOffset + k] = source[s.srcOffset + k];
+                }
             }
 
             bool success;
@@ -50,7 +52,7 @@ contract DummyRouter {
             if (actions[i].callType == CallType.STATICCALL) {
                 (success, ret) = actions[i].target.staticcall(callData);
             } else {
-                (success, ret) = actions[i].target.call{value: actions[i].value}(callData);
+                (success, ret) = actions[i].target.call(callData);
             }
 
             if (!success) revert CallFailed(i, ret);
