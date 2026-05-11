@@ -100,7 +100,10 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
             manipulator, inputAmount, nativeFee, _openOceanSwapCalldata(inputAmount), _stargateCalldata(nativeFee)
         );
 
+        uint256 gasBeforeExecute = gasleft();
         bytes[] memory results = router.execute(actions);
+        uint256 executeGasUsed = gasBeforeExecute - gasleft();
+        emit log_named_uint("router.execute gas used", executeGasUsed);
 
         _assertPocResult(
             router,

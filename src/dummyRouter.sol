@@ -28,47 +28,68 @@ contract DummyRouter {
     error MissingNativeValue(uint256 actionIndex);
 
     function execute(Action[] calldata actions) external payable returns (bytes[] memory results) {
-        results = new bytes[](actions.length);
+        uint256 actionsLength = actions.length;
+        results = new bytes[](actionsLength);
 
-        for (uint256 i = 0; i < actions.length; i++) {
-            bytes memory callData = actions[i].data;
+        for (uint256 i; i < actionsLength;) {
+            Action calldata action = actions[i];
+            bytes memory callData = action.data;
 
             // Patch this action's calldata using earlier action results.
-            for (uint256 j = 0; j < actions[i].splices.length; j++) {
-                Splice calldata s = actions[i].splices[j];
-                if (s.sourceActionIndex >= i) revert FutureSplice(i, s.sourceActionIndex);
+            uint256 splicesLength = action.splices.length;
+            for (uint256 j; j < splicesLength;) {
+                Splice calldata s = action.splices[j];
+                uint256 sourceActionIndex = s.sourceActionIndex;
+                if (sourceActionIndex >= i) revert FutureSplice(i, sourceActionIndex);
 
-                bytes memory source = results[s.sourceActionIndex];
-                if (s.srcOffset + s.length > source.length || s.dstOffset + s.length > callData.length) {
+                uint256 length = s.length;
+                uint256 srcOffset = s.srcOffset;
+                uint256 dstOffset = s.dstOffset;
+                bytes memory source = results[sourceActionIndex];
+                if (srcOffset + length > source.length || dstOffset + length > callData.length) {
                     revert SpliceOutOfBounds(i, j);
                 }
 
-                for (uint256 k = 0; k < s.length; k++) {
-                    callData[s.dstOffset + k] = source[s.srcOffset + k];
+                assembly ("memory-safe") {
+                    mcopy(add(add(callData, 0x20), dstOffset), add(add(source, 0x20), srcOffset), length)
+                }
+
+                unchecked {
+                    ++j;
                 }
             }
 
             bool success;
             bytes memory ret;
+            CallType callType = action.callType;
+            address target = action.target;
 
-            if (actions[i].callType == CallType.STATICCALL) {
-                (success, ret) = actions[i].target.staticcall(callData);
-            } else if (actions[i].callType == CallType.CALL_WITH_NATIVE) {
+            if (callType == CallType.STATICCALL) {
+                (success, ret) = target.staticcall(callData);
+            } else if (callType == CallType.CALL_WITH_NATIVE) {
                 if (callData.length < 32) revert MissingNativeValue(i);
                 uint256 callValue;
-                bytes memory payload = new bytes(callData.length - 32);
+                uint256 payloadLength = callData.length - 32;
                 assembly ("memory-safe") {
                     callValue := mload(add(callData, 0x20))
-                    mcopy(add(payload, 0x20), add(callData, 0x40), mload(payload))
+                    success := call(gas(), target, callValue, add(callData, 0x40), payloadLength, 0, 0)
+
+                    let returnDataSize := returndatasize()
+                    ret := mload(0x40)
+                    mstore(ret, returnDataSize)
+                    returndatacopy(add(ret, 0x20), 0, returnDataSize)
+                    mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f)))
                 }
-                (success, ret) = actions[i].target.call{value: callValue}(payload);
             } else {
-                (success, ret) = actions[i].target.call(callData);
+                (success, ret) = target.call(callData);
             }
 
             if (!success) revert CallFailed(i, ret);
 
             results[i] = ret;
+            unchecked {
+                ++i;
+            }
         }
     }
 
