@@ -253,3 +253,20 @@ All live under `src/common/`.
 **`lib/BytesSpliceLib.sol`** — used by v1 (writing `finalAmount` to multiple positions in bridge calldata) and v2 (the per-splice `mcopy`). Exposes `spliceWord` (32-byte in-place overwrite, same assembly as `GenericStakedRoute`), `spliceWords` (repeat for multiple positions), and `spliceBytes` (arbitrary-length copy via `mcopy`, bounds-checked).
 
 **`allowance/AllowanceHolderContext.sol`**, **`interfaces/IAllowanceHolder.sol`** — imported only by the `*AH` contracts in each variant folder.
+
+
+
+
+0. AllowanceHolder
+1. OpenRouter -> Fee Transfer -> 
+2. OpenRouter (modify input) -> Swap execution -> OpenRouter (modify input) ->
+3. AcrossManipulator -> OpenRouter (modify input) -> 
+4. SpokePool
+
+0. AllowanceHolder
+1. OpenRouter -> Fee Transfer -> 
+2. OpenRouter (modify input) -> Swap execution -> OpenRouter (modify input) ->
+3. AcrossRouter(amount, AcrossBridgeData) -> (modify SpokePool input with output ) -> SpokePool
+
+0. AllowanceHolder
+1. AcrossRouter - should have all the fee, swap, bridge code in this
