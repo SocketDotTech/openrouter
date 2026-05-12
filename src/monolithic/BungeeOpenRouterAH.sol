@@ -52,8 +52,11 @@ contract BungeeOpenRouterAH is BungeeOpenRouter, AllowanceHolderContext {
             let ptr := mload(0x40)
             mstore(add(0x80, ptr), amount)
             mstore(add(0x60, ptr), address())
-            mstore(add(0x4c, ptr), shl(0x60, user)) // clears recipient padding
-            mstore(add(0x2c, ptr), shl(0xa0, token)) // clears owner padding
+            mstore(add(0x4c, ptr), shl(0x60, user)) // clears `recipient`'s padding
+            // `shl(0x60)` (96-bit), NOT `shl(0xa0)` (160-bit): 0xa0 here is literal 160, which
+            // shifts the 20-byte address out of place and corrupts the calldata token. Same as
+            // 0x-settler `Permit2Payment._allowanceHolderTransferFrom`.
+            mstore(add(0x2c, ptr), shl(0x60, token)) // clears `owner`'s padding (settler wording)
             mstore(add(0x0c, ptr), 0x15dacbea000000000000000000000000) // selector + token padding
 
             if iszero(call(gas(), allowanceHolder, 0x00, add(0x1c, ptr), 0x84, 0x00, 0x00)) {
