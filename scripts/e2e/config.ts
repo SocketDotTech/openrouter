@@ -19,7 +19,7 @@ export const CHAIN_IDS = {
 export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
 
 /** Deployed combined unchecked router instance (set via env after deployment) */
-export const ROUTER_ADDRESS: string = '0x98381Fb4dC5c2046558236857181F4e34a9088dC';
+export const ROUTER_ADDRESS: string = '0x33cBEF62f74f5204651D4C5Dcc3fd8E56A01F2aF';
 
 /** Standard ERC-20 "native" sentinel used by CurrencyLib */
 export const NATIVE_TOKEN_ADDRESS =

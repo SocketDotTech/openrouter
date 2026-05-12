@@ -221,12 +221,11 @@ function buildStargateCalldata(
  *   pull USDC → swap USDC→ETH (OO) → post-fee ETH to signer → Stargate send
  *
  * Bridge design:
- *   - amountLD is pre-encoded in stargateData (= estimatedFinalAmount - nativeFee).
- *   - useFinalAmountAsValue=true forwards the actual post-fee ETH as msg.value.
- *   - The caller provides nativeFee as msg.value in the AH.exec call so the router's
- *     ETH balance at bridge time = actualFinalAmount + nativeFee, satisfying
- *     msg.value >= amountLD + nativeFee.
- *   - Any excess ETH refunded to the signer by Stargate via refundAddress.
+ *   - amountLD is pre-encoded in stargateData as (minAmountOut - feeAmount - nativeFeeWithBuffer).
+ *   - useFinalAmountAsValue=true forwards the actual post-fee ETH (finalAmount) as msg.value.
+ *   - Because finalAmount >= minAmountOut - feeAmount = amountLD + nativeFeeWithBuffer >= amountLD + nativeFee,
+ *     the Stargate msg.value check always passes regardless of swap slippage.
+ *   - Any excess ETH (finalAmount - amountLD - nativeFee) is refunded by Stargate to refundAddress.
  *
  * @param signerAddress   Signer/recipient address
  * @param inputAmount     USDC amount in base units
@@ -336,7 +335,7 @@ async function main() {
     throw new Error('PRIVATE_KEY env var required');
   }
 
-  const useModular = true;
+  const useModular = false;
   const provider = new ethers.JsonRpcProvider(RPC.ARBITRUM);
   const signer = new ethers.Wallet(privateKey, provider);
   const signerAddress = await signer.getAddress();
@@ -395,22 +394,38 @@ async function main() {
   const nativeFeeWithBuffer = (nativeFee * 105n) / 100n;
 
   // amountLD to encode in the send() calldata.
-  // Pre-encoded as (estimatedFinalAmount - nativeFeeWithBuffer) so that
-  // Stargate's msg.value check (msg.value >= amountLD + nativeFee) passes even
-  // at the worst-case estimated output.  Any excess (actual > estimated) refunds
-  // to the signer via Stargate's refundAddress mechanism.
-  const amountLD = estimatedFinalAmount - nativeFeeWithBuffer;
+  //
+  // Stargate requires msg.value >= amountLD + nativeFee.  With
+  // useFinalAmountAsValue=true, msg.value = finalAmount = actualSwapOut - feeAmount.
+  //
+  // To guarantee this holds even under maximum OO slippage we base amountLD on
+  // minAmountOut (OO's slippage floor) rather than estimatedOut:
+  //
+  //   amountLD = minAmountOut - feeAmount - nativeFeeWithBuffer
+  //
+  // Because feeAmount is a fixed pre-encoded value and feeAmount <= estimatedOut,
+  // we know actualSwapOut >= minAmountOut, so:
+  //   finalAmount = actualSwapOut - feeAmount >= minAmountOut - feeAmount
+  //              = amountLD + nativeFeeWithBuffer >= amountLD + nativeFee  ✓
+  //
+  // Any excess ETH (finalAmount - amountLD - nativeFee) is refunded to the signer
+  // by Stargate via refundAddress.
+  //
+  // Using estimatedFinalAmount instead here will fail when slippage causes
+  // finalAmount < estimatedFinalAmount (Stargate_InvalidAmount 0x3442dd95).
+  const minFinalAmount = minAmountOut - feeAmount;
+  const amountLD = minFinalAmount - nativeFeeWithBuffer;
   if (amountLD <= 0n) {
     throw new Error(
-      `Estimated final ETH amount (${ethers.formatEther(estimatedFinalAmount)}) ` +
-        `is too small to cover the Stargate nativeFee (${ethers.formatEther(nativeFeeWithBuffer)}). ` +
+      `minAmountOut (${ethers.formatEther(minAmountOut)}) is too small to cover ` +
+        `feeAmount (${ethers.formatEther(feeAmount)}) + nativeFee (${ethers.formatEther(nativeFeeWithBuffer)}). ` +
         'Increase your USDC balance.',
     );
   }
 
   console.log(`Stargate nativeFee:   ${ethers.formatEther(nativeFee)} ETH`);
   console.log(`nativeFee (+5% buf):  ${ethers.formatEther(nativeFeeWithBuffer)} ETH`);
-  console.log(`amountLD (encoded):   ${ethers.formatEther(amountLD)} ETH`);
+  console.log(`amountLD (encoded):   ${ethers.formatEther(amountLD)} ETH  ← based on minAmountOut; excess refunded on-chain`);
   console.log(`Est. received Base:   ${ethers.formatEther(amountReceivedLD)} ETH`);
   console.log('');
 
