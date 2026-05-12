@@ -73,6 +73,10 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
         uint256 value; // ETH forwarded to the bridge target
         bytes data;
         uint256[] amountPositions;
+        // when true, bridge.value is ignored and finalAmount is forwarded as
+        // msg.value instead — needed for native-token bridges (e.g. Arbitrum inbox)
+        // where the bridged amount is only known at runtime.
+        bool useFinalAmountAsValue;
     }
 
     /// @notice Signed payload for the monolithic execution path.
@@ -129,6 +133,7 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
     error InsufficientFunds();
     error InvalidExecution();
     error CallerNotSignedUser();
+    error InsufficientMsgValue();
     error ValueOnNonCall();
     error EmptyActions();
     error UnknownCallType();
@@ -228,7 +233,10 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
         }
 
         // 7. bridge call, bubbling any revert
-        _performAction(exec.bridge.target, exec.bridge.value, bridgeData);
+        // when useFinalAmountAsValue is set, forward finalAmount as msg.value so
+        // native-token bridges (e.g. Arbitrum inbox) receive the exact bridged amount.
+        uint256 bridgeValue = exec.bridge.useFinalAmountAsValue ? finalAmount : exec.bridge.value;
+        _performAction(exec.bridge.target, bridgeValue, bridgeData);
     }
 
     /// @dev Balance-delta swap helper; split out to keep _runMonolithic under 100 lines.
@@ -266,13 +274,22 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
     // =========================================================================
 
     /**
-     * @notice Pulls `amount` of `token` from `user` via AllowanceHolder.
-     * @dev Requires the caller to have routed through `AllowanceHolder.exec`
-     *      so `_msgSender()` resolves to the original user. Mirrors the
-     *      assembly in `0x-settler/src/core/Permit2Payment.sol`.
+     * @notice Pulls `amount` of `token` from `user` into this contract.
+     * @dev For ERC20: enforces `_msgSender() == user` (caller must have routed
+     *      through `AllowanceHolder.exec`) and calls AH.transferFrom via assembly.
      *      AH selector: transferFrom(address,address,address,uint256) = 0x15dacbea
+     *      For native ETH: ETH must already be present as msg.value; we simply
+     *      verify sufficient value was forwarded. No AH call is needed.
      */
     function _pullFromUser(address token, address user, uint256 amount) internal {
+        if (token == CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+            // ETH is already sent as msg.value directly to this contract.
+            if (msg.value < amount) {
+                revert InsufficientMsgValue();
+            }
+            return;
+        }
+
         if (_msgSender() != user) {
             revert CallerNotSignedUser();
         }
@@ -340,11 +357,20 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
      * @dev Named `_dispatchAction` (rather than overloading `_performAction`)
      *      to keep the CALL-only base helper in `OpenRouterAuthBase` distinct
      *      from this three-way dispatcher.
+     *
+     *      `value == type(uint256).max` is a sentinel meaning "use entire contract
+     *      ETH balance". This lets modular callers forward the full native output
+     *      of a swap to a native-token bridge without knowing the exact amount at
+     *      calldata-build time.
      */
     function _dispatchAction(CallType callType, address target, uint256 value, bytes memory data)
         internal
         returns (bytes memory ret)
     {
+        if (value == type(uint256).max) {
+            value = address(this).balance;
+        }
+
         bool ok;
         if (callType == CallType.CALL) {
             (ok, ret) = target.call{value: value}(data);
