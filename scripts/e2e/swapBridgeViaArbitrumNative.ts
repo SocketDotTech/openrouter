@@ -12,8 +12,8 @@
  *      - Monolithic: swap AAVE→ETH (balance delta on NATIVE), take ETH fee,
  *        call Arbitrum inbox with useFinalAmountAsValue=true so finalAmount
  *        becomes msg.value on the depositEth call.
- *      - Modular: pull → approve(oo) → swap(oo) → send ETH fee via low-level call →
- *        depositEth with value=MAX_UINT256 sentinel (forwards address(this).balance).
+ *      - Modular: pull → approve(oo) → swap(oo) → send ETH fee via CALL_WITH_NATIVE →
+ *        depositEth via CALL_WITH_NATIVE.
  *   5. Call AllowanceHolder.exec with msg.value=0 (AAVE is the input token, not ETH).
  *
  * Uses the signer’s full AAVE balance on Ethereum mainnet as swap input.
@@ -50,13 +50,12 @@ import {
 import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { encodeApprove, getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
+import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
+import type { ModularAction } from './utils/modularActionsBuilder/index';
 import {
   MonolithicExecution,
-  Action,
-  CallType,
   NO_FEE,
   ZERO_ADDRESS,
-  USE_CONTRACT_BALANCE,
 } from './utils/contractTypes';
 
 // ─── Arbitrum retryable fee estimation ───────────────────────────────────────
@@ -227,18 +226,18 @@ function buildMonolithicExecution(
  *   [0] Pull AAVE via AH.transferFrom
  *   [1] Approve OpenOcean router for inputAmount
  *   [2] Call OpenOcean to swap AAVE → ETH (lands in router as ETH)
- *   [3] Send ETH fee to signer via low-level call (value=feeAmount)
- *   [4] Call Arbitrum inbox depositEth() with value=MAX_UINT256 sentinel
- *       so _dispatchAction forwards address(this).balance (all remaining ETH)
+ *   [3] Send ETH fee to signer via CALL_WITH_NATIVE
+ *   [4] Call Arbitrum inbox depositEth() via CALL_WITH_NATIVE
  */
 function buildModularActions(
   signerAddress: string,
   routerAddress: string,
   inputAmount: bigint,
   feeAmount: bigint,
+  bridgeValue: bigint,
   ooRouterAddress: string,
   swapData: string,
-): Action[] {
+): ModularAction[] {
   const ahIface = new ethers.Interface([
     'function transferFrom(address token, address owner, address recipient, uint256 amount)',
   ]);
@@ -249,50 +248,13 @@ function buildModularActions(
     inputAmount,
   ]);
 
-  return [
-    // 0: pull AAVE from user via AllowanceHolder
-    {
-      callType: CallType.CALL,
-      target: ALLOWANCE_HOLDER,
-      value: 0n,
-      data: ahTransferFromData,
-      splices: [],
-    },
-    // 1: approve OpenOcean to spend AAVE
-    {
-      callType: CallType.CALL,
-      target: TOKENS.AAVE_ETH,
-      value: 0n,
-      data: encodeApprove(ooRouterAddress, inputAmount),
-      splices: [],
-    },
-    // 2: swap AAVE → ETH via OpenOcean (ETH lands in the router)
-    {
-      callType: CallType.CALL,
-      target: ooRouterAddress,
-      value: 0n,
-      data: swapData,
-      splices: [],
-    },
-    // 3: send ETH fee to signer — target receives feeAmount as msg.value via CALL
-    //    The signer EOA must be payable; any standard address accepts ETH.
-    {
-      callType: CallType.CALL,
-      target: signerAddress,
-      value: feeAmount,
-      data: '0x', // empty calldata = plain ETH transfer
-      splices: [],
-    },
-    // 4: deposit remaining ETH to Arbitrum via inbox.depositEth()
-    //    USE_CONTRACT_BALANCE sentinel → _dispatchAction substitutes address(this).balance
-    {
-      callType: CallType.CALL,
-      target: ARBITRUM_INBOX,
-      value: USE_CONTRACT_BALANCE,
-      data: buildDepositEthCalldata(),
-      splices: [],
-    },
-  ];
+  const exec = new ModularActionsBuilder();
+  exec.call(ALLOWANCE_HOLDER, ahTransferFromData);
+  exec.call(TOKENS.AAVE_ETH, encodeApprove(ooRouterAddress, inputAmount));
+  exec.call(ooRouterAddress, swapData);
+  exec.nativeCall(signerAddress, '0x', feeAmount);
+  exec.nativeCall(ARBITRUM_INBOX, buildDepositEthCalldata(), bridgeValue);
+  return exec.toActions();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -366,6 +328,7 @@ async function main() {
       ROUTER_ADDRESS,
       inputAmount,
       feeAmount,
+      minAmountOut > feeAmount ? minAmountOut - feeAmount : 0n,
       ooRouterAddress,
       swapData,
     );

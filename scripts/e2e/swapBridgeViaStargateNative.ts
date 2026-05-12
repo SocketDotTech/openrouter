@@ -11,7 +11,7 @@
  *      - Monolithic: pull USDC via AH → swap USDC→ETH → post-fee (ETH to signer) →
  *                    Stargate send (useFinalAmountAsValue=true, static amountLD)
  *      - Modular:    pull USDC → approve OO → swap → ETH fee transfer →
- *                    Stargate send (value=USE_CONTRACT_BALANCE, static amountLD)
+ *                    Stargate send via CALL_WITH_NATIVE with static amountLD/msg.value
  *   6. Ensure AllowanceHolder ERC20 allowance for USDC.
  *   7. Execute AllowanceHolder.exec, forwarding nativeFee as msg.value so the
  *      router has enough ETH to cover both the bridge amount and the LZ fee.
@@ -50,10 +50,10 @@ import {
 import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { encodeApprove, getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
+import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
+import type { ModularAction } from './utils/modularActionsBuilder/index';
 import {
   MonolithicExecution,
-  Action,
-  CallType,
   NO_FEE,
   ZERO_ADDRESS,
 } from './utils/contractTypes';
@@ -286,13 +286,10 @@ function buildMonolithicExecution(
  *   [0] AH.transferFrom USDC (pull from user)
  *   [1] USDC.approve(ooRouter, inputAmount)
  *   [2] Call OO router to swap USDC → ETH
- *   [3] Send feeAmount ETH to signer (plain ETH transfer)
- *   [4] Stargate send() with value=MaxUint256 (USE_CONTRACT_BALANCE sentinel)
+ *   [3] Send feeAmount ETH to signer via CALL_WITH_NATIVE
+ *   [4] Stargate send() via CALL_WITH_NATIVE
  *
- * The USE_CONTRACT_BALANCE sentinel causes _dispatchAction to substitute
- * address(this).balance as msg.value.  After action[3], the router holds
- * (actualFinalAmount + nativeFee) ETH — satisfying Stargate's requirement.
- * amountLD in the calldata is pre-encoded and does not need splicing.
+ * amountLD in the calldata and msg.value are pre-encoded and do not need splicing.
  *
  * @param signerAddress   Signer/recipient address
  * @param routerAddress   Router contract address (receives ETH from swap)
@@ -307,10 +304,11 @@ function buildModularActions(
   routerAddress: string,
   inputAmount: bigint,
   feeAmount: bigint,
+  bridgeValue: bigint,
   ooRouterAddress: string,
   swapData: string,
   stargateData: string,
-): Action[] {
+): ModularAction[] {
   const ahIface = new ethers.Interface([
     'function transferFrom(address token, address owner, address recipient, uint256 amount)',
   ]);
@@ -321,51 +319,13 @@ function buildModularActions(
     inputAmount,
   ]);
 
-  return [
-    // 0: pull USDC from user via AllowanceHolder
-    {
-      callType: CallType.CALL,
-      target: ALLOWANCE_HOLDER,
-      value: 0n,
-      data: ahTransferFromData,
-      splices: [],
-    },
-    // 1: approve OpenOcean to spend USDC
-    {
-      callType: CallType.CALL,
-      target: TOKENS.USDC_ARB,
-      value: 0n,
-      data: encodeApprove(ooRouterAddress, inputAmount),
-      splices: [],
-    },
-    // 2: swap USDC → native ETH via OpenOcean (ETH lands in router)
-    {
-      callType: CallType.CALL,
-      target: ooRouterAddress,
-      value: 0n,
-      data: swapData,
-      splices: [],
-    },
-    // 3: send post-swap fee in ETH to signer (plain ETH transfer)
-    {
-      callType: CallType.CALL,
-      target: signerAddress,
-      value: feeAmount,
-      data: '0x',
-      splices: [],
-    },
-    // 4: bridge ETH via Stargate Native Pool
-    //    value=MaxUint256 → _dispatchAction substitutes address(this).balance.
-    //    After action[3] the router has (actualFinalAmount + nativeFee) ETH,
-    //    which satisfies Stargate's msg.value >= amountLD + nativeFee constraint.
-    {
-      callType: CallType.CALL,
-      target: STARGATE_NATIVE_ARB,
-      value: ethers.MaxUint256, // USE_CONTRACT_BALANCE sentinel
-      data: stargateData,
-      splices: [],
-    },
-  ];
+  const exec = new ModularActionsBuilder();
+  exec.call(ALLOWANCE_HOLDER, ahTransferFromData);
+  exec.call(TOKENS.USDC_ARB, encodeApprove(ooRouterAddress, inputAmount));
+  exec.call(ooRouterAddress, swapData);
+  exec.nativeCall(signerAddress, '0x', feeAmount);
+  exec.nativeCall(STARGATE_NATIVE_ARB, stargateData, bridgeValue);
+  return exec.toActions();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -467,6 +427,7 @@ async function main() {
       ROUTER_ADDRESS,
       inputAmount,
       feeAmount,
+      amountLD + nativeFeeWithBuffer,
       ooRouterAddress,
       swapData,
       stargateData,
@@ -496,7 +457,7 @@ async function main() {
   // msg.value = nativeFeeWithBuffer (forwarded to the router alongside USDC pull).
   // The router needs this ETH in its balance so that after the swap:
   //   router.balance = actualFinalAmount + nativeFeeWithBuffer
-  //   Stargate: msg.value = actualFinalAmount >= amountLD + nativeFee ✓
+  //   Stargate action msg.value = prequoted amountLD + nativeFeeWithBuffer
   console.log(
     `Sending AllowanceHolder.exec with msg.value = ${ethers.formatEther(nativeFeeWithBuffer)} ETH (LZ fee)...`,
   );

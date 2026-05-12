@@ -42,10 +42,10 @@ import {
 import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { encodeApprove, encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
+import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
+import type { ModularAction } from './utils/modularActionsBuilder/index';
 import {
   MonolithicExecution,
-  Action,
-  CallType,
   NO_FEE,
   ZERO_ADDRESS,
 } from './utils/contractTypes';
@@ -220,7 +220,7 @@ function buildModularActions(
   swapData: string,
   depositForBurnData: string,
   tokenMessenger: string,
-): Action[] {
+): ModularAction[] {
   const ahIface = new ethers.Interface([
     'function transferFrom(address token, address owner, address recipient, uint256 amount)',
   ]);
@@ -231,71 +231,15 @@ function buildModularActions(
     inputAmount,
   ]);
 
-  return [
-    // 0: pull AAVE from user via AH
-    {
-      callType: CallType.CALL,
-      target: ALLOWANCE_HOLDER,
-      value: 0n,
-      data: ahTransferFromData,
-      splices: [],
-    },
-    // 1: approve OpenOcean to spend AAVE
-    {
-      callType: CallType.CALL,
-      target: TOKENS.AAVE_ARB,
-      value: 0n,
-      data: encodeApprove(ooRouterAddress, inputAmount),
-      splices: [],
-    },
-    // 2: swap AAVE → USDC via OpenOcean
-    {
-      callType: CallType.CALL,
-      target: ooRouterAddress,
-      value: 0n,
-      data: swapData,
-      splices: [],
-    },
-    // 3: send post-swap fee in USDC to signer
-    {
-      callType: CallType.CALL,
-      target: TOKENS.USDC_ARB,
-      value: 0n,
-      data: encodeTransfer(signerAddress, feeAmount),
-      splices: [],
-    },
-    // 4: approve TOKEN_MESSENGER for unlimited USDC (router holds exact balance)
-    {
-      callType: CallType.CALL,
-      target: TOKENS.USDC_ARB,
-      value: 0n,
-      data: encodeApprove(tokenMessenger, ethers.MaxUint256),
-      splices: [],
-    },
-    // 5: staticcall USDC.balanceOf(router) → prevReturn = ABI-encoded uint256 balance
-    {
-      callType: CallType.STATICCALL,
-      target: TOKENS.USDC_ARB,
-      value: 0n,
-      data: encodeBalanceOf(routerAddress),
-      splices: [],
-    },
-    // 6: depositForBurn — splice the 32-byte balance from prevReturn into the
-    //    amount field at dstOffset=4 (first param, after the 4-byte selector)
-    {
-      callType: CallType.CALL,
-      target: tokenMessenger,
-      value: 0n,
-      data: depositForBurnData,
-      splices: [
-        {
-          srcOffset: 0n, // read from start of prevReturn (the ABI uint256)
-          dstOffset: 4n, // write into depositForBurn calldata after selector
-          length: 32n, // uint256 = 32 bytes
-        },
-      ],
-    },
-  ];
+  const exec = new ModularActionsBuilder();
+  exec.call(ALLOWANCE_HOLDER, ahTransferFromData);
+  exec.call(TOKENS.AAVE_ARB, encodeApprove(ooRouterAddress, inputAmount));
+  exec.call(ooRouterAddress, swapData);
+  exec.call(TOKENS.USDC_ARB, encodeTransfer(signerAddress, feeAmount));
+  exec.call(TOKENS.USDC_ARB, encodeApprove(tokenMessenger, ethers.MaxUint256));
+  const balance = exec.staticCall(TOKENS.USDC_ARB, encodeBalanceOf(routerAddress));
+  exec.call(tokenMessenger, depositForBurnData).spliceArg(0, balance.returnWord());
+  return exec.toActions();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────

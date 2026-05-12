@@ -1,5 +1,5 @@
 /**
- * ABI fragment for BungeeOpenRouterV2Unchecked — only the two entrypoints
+ * ABI fragment for the combined unchecked router — only the two entrypoints
  * called from e2e scripts. Structs must exactly match the Solidity definitions.
  */
 export const ROUTER_ABI = [
@@ -16,6 +16,6 @@ export const ROUTER_ABI = [
 
   // Modular path
   `function performModularExecution(
-    (uint8 callType, address target, uint256 value, bytes data, (uint256 srcOffset, uint256 dstOffset, uint256 length)[] splices)[] actions
+    (uint256 actionInfo, bytes data, uint256[] splices)[] actions
   ) external payable`,
 ] as const;

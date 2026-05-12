@@ -1,6 +1,6 @@
 /**
  * TypeScript interfaces that mirror every Solidity struct in
- * BungeeOpenRouterV2Unchecked.  The order and field names must match the ABI
+ * Combined unchecked router. The order and field names must match the ABI
  * produced by the compiler so that ethers.js can encode them correctly.
  */
 
@@ -43,35 +43,9 @@ export interface MonolithicExecution {
   bridge: BridgeData;
 }
 
-// ─── Modular execution types ──────────────────────────────────────────────────
-
-export enum CallType {
-  CALL = 0,
-  DELEGATECALL = 1,
-  STATICCALL = 2,
-}
-
-export interface Splice {
-  srcOffset: bigint;
-  dstOffset: bigint;
-  length: bigint;
-}
-
-export interface Action {
-  callType: CallType;
-  target: string;
-  /** Use MAX_UINT256 sentinel to forward address(this).balance */
-  value: bigint;
-  data: string;
-  splices: Splice[];
-}
-
 // ─── Sentinel / zero helpers ──────────────────────────────────────────────────
 
 export const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
-
-/** Sentinel value: _dispatchAction forwards address(this).balance as msg.value */
-export const USE_CONTRACT_BALANCE = BigInt('0xffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff');
 
 /** Convenience: empty fee (no fee taken) */
 export const NO_FEE: FeeData = { receiver: ZERO_ADDRESS, amount: 0n };
