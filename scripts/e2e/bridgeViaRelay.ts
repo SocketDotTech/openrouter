@@ -281,7 +281,7 @@ async function main() {
   const feeAmount = bpsOf(inputAmount, FEE_BPS);
   const bridgeAmount = inputAmount - feeAmount;
 
-  const useModular = true;
+  const useModular = false;
 
   console.log(`Signer:        ${signerAddress}`);
   console.log(`Router:        ${ROUTER_ADDRESS}`);

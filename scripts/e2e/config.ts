@@ -20,7 +20,7 @@ export const CHAIN_IDS = {
 export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
 
 /** Deployed BungeeOpenRouterV2Unchecked instance (set via env after deployment) */
-export const ROUTER_ADDRESS: string = '0xeB5ae85Fe7e3E272Ac77fd316079589C0Ed91648';
+export const ROUTER_ADDRESS: string = '0x98381Fb4dC5c2046558236857181F4e34a9088dC';
 
 /** Sentinel used in modular actions to forward address(this).balance as msg.value */
 export const MAX_UINT256 = MaxUint256;
@@ -51,7 +51,7 @@ export interface CctpChainConfig {
 
 export const CCTP_CONFIG: Record<number, CctpChainConfig> = {
   [CHAIN_IDS.ARBITRUM]: {
-    tokenMessenger: '0x19330d10D9Cc8751218eaf51E8885D058642E08A',
+    tokenMessenger: '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d',
     cctpDomain: 3,
     usdcAddress: TOKENS.USDC_ARB,
   },

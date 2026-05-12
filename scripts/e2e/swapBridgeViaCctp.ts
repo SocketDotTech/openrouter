@@ -323,7 +323,7 @@ async function main() {
   }
   const arbCctp = CCTP_CONFIG[CHAIN_IDS.ARBITRUM];
   const baseCctp = CCTP_CONFIG[CHAIN_IDS.BASE];
-  const useModular = true;
+  const useModular = false;
 
   console.log(`Signer:        ${signerAddress}`);
   console.log(`Router:        ${ROUTER_ADDRESS}`);
