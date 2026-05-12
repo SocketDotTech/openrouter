@@ -1,9 +1,10 @@
 "use strict";
 
-const DUMMY_ROUTER_EXECUTE_SELECTOR = "0x8749f339";
+const DUMMY_ROUTER_EXECUTE_SELECTOR = "0xd405eacd";
 const WORD_BYTES = 32;
 const WORD_HEX_CHARS = WORD_BYTES * 2;
 const UINT256_MAX = (1n << 256n) - 1n;
+const UINT64_MAX = (1n << 64n) - 1n;
 
 const CallType = Object.freeze({
   CALL: 0,
@@ -43,16 +44,18 @@ class OpenRouterExecution {
     return this.callWithNative(target, payload, value);
   }
 
-  action({ callType, target, data = "0x", splices = [] }) {
+  action({ callType, target, data = "0x", splices = [], storeResult = false }) {
     const actionIndex = this._actions.length;
     const action = {
       callType: checkedCallType(callType),
       target: normalizeAddress(target),
       data: normalizeHex(data, "data"),
+      storeResult: Boolean(storeResult),
       splices: splices.map((splice, index) => normalizeSplice(splice, `splices[${index}]`)),
     };
     for (const splice of action.splices) {
       validateSpliceForAction(actionIndex, action, splice);
+      this._actions[splice.sourceActionIndex].storeResult = true;
     }
     this._actions.push(action);
     return new ActionHandle(this, this._actions.length - 1);
@@ -76,24 +79,35 @@ class OpenRouterExecution {
   }
 
   toActions() {
+    this._markSpliceSources();
+    return this._actions.map(toDummyRouterAction);
+  }
+
+  toLogicalActions() {
+    this._markSpliceSources();
     return this._actions.map(cloneAction);
   }
 
   toJSON() {
+    this._markSpliceSources();
     return this._actions.map((action) => ({
       callType: action.callType,
       target: action.target,
       data: action.data,
+      storeResult: action.storeResult,
+      actionInfo: packActionInfo(action).toString(),
       splices: action.splices.map((splice) => ({
         sourceActionIndex: String(splice.sourceActionIndex),
         srcOffset: String(splice.srcOffset),
         dstOffset: String(splice.dstOffset),
         length: String(splice.length),
+        spliceInfo: packSpliceInfo(splice).toString(),
       })),
     }));
   }
 
   toDummyRouterCalldata() {
+    this._markSpliceSources();
     return concatHex([DUMMY_ROUTER_EXECUTE_SELECTOR, encodeDummyRouterExecuteArgs(this._actions)]);
   }
 
@@ -108,7 +122,16 @@ class OpenRouterExecution {
     const action = this.actionAt(index);
     const normalized = normalizeSplice(splice, "splice");
     validateSpliceForAction(index, action, normalized);
+    this._actions[normalized.sourceActionIndex].storeResult = true;
     action.splices.push(normalized);
+  }
+
+  _markSpliceSources() {
+    for (const action of this._actions) {
+      for (const splice of action.splices) {
+        this._actions[splice.sourceActionIndex].storeResult = true;
+      }
+    }
   }
 }
 
@@ -176,6 +199,11 @@ class ActionHandle {
   patchWord(dstOffset, source) {
     return this.spliceWord(dstOffset, source);
   }
+
+  storeResult(value = true) {
+    this.execution.actionAt(this.index).storeResult = Boolean(value);
+    return this;
+  }
 }
 
 class ActionRef {
@@ -198,7 +226,7 @@ class ActionRef {
 }
 
 function encodeDummyRouterExecuteArgs(actions) {
-  return concatHex([encodeWord(WORD_BYTES), encodeActionArray(actions)]);
+  return concatHex([encodeWord(WORD_BYTES), encodeActionArray(prepareActionsForEncoding(actions))]);
 }
 
 function encodeActionArray(actions) {
@@ -213,14 +241,14 @@ function encodeActionArray(actions) {
 }
 
 function encodeActionTuple(action) {
-  const encodedData = encodeBytes(action.data);
-  const encodedSplices = encodeSpliceArray(action.splices);
-  const dataOffset = WORD_BYTES * 4;
+  const packedAction = isPackedAction(action) ? normalizePackedAction(action) : toDummyRouterAction(action);
+  const encodedData = encodeBytes(packedAction.data);
+  const encodedSplices = encodeUint256Array(packedAction.splices);
+  const dataOffset = WORD_BYTES * 3;
   const splicesOffset = dataOffset + hexByteLength(encodedData);
 
   return concatHex([
-    encodeWord(action.callType),
-    encodeAddressWord(action.target),
+    encodeWord(packedAction.actionInfo),
     encodeWord(dataOffset),
     encodeWord(splicesOffset),
     encodedData,
@@ -228,14 +256,8 @@ function encodeActionTuple(action) {
   ]);
 }
 
-function encodeSpliceArray(splices) {
-  const encodedSplices = splices.flatMap((splice) => [
-    encodeWord(splice.sourceActionIndex),
-    encodeWord(splice.srcOffset),
-    encodeWord(splice.dstOffset),
-    encodeWord(splice.length),
-  ]);
-  return concatHex([encodeWord(splices.length), ...encodedSplices]);
+function encodeUint256Array(values) {
+  return concatHex([encodeWord(values.length), ...values.map(encodeWord)]);
 }
 
 function encodeBytes(value) {
@@ -243,10 +265,6 @@ function encodeBytes(value) {
   const byteLength = hex.length / 2;
   const paddedLength = Math.ceil(byteLength / WORD_BYTES) * WORD_HEX_CHARS;
   return `0x${strip0x(encodeWord(byteLength))}${hex.padEnd(paddedLength, "0")}`;
-}
-
-function encodeAddressWord(value) {
-  return `0x${strip0x(normalizeAddress(value)).padStart(WORD_HEX_CHARS, "0")}`;
 }
 
 function encodeWord(value) {
@@ -263,12 +281,14 @@ function normalizeSplice(splice, label) {
   if (!splice || typeof splice !== "object") throw new Error(`${label} must be an object`);
   const length = checkedIndex(splice.length, `${label}.length`);
   if (length === 0) throw new Error(`${label}.length must be greater than zero`);
-  return {
+  const normalized = {
     sourceActionIndex: checkedIndex(splice.sourceActionIndex, `${label}.sourceActionIndex`),
     srcOffset: checkedIndex(splice.srcOffset, `${label}.srcOffset`),
     dstOffset: checkedIndex(splice.dstOffset, `${label}.dstOffset`),
     length,
   };
+  packSpliceInfo(normalized);
+  return normalized;
 }
 
 function validateSpliceForAction(actionIndex, action, splice) {
@@ -337,8 +357,77 @@ function cloneAction(action) {
     callType: action.callType,
     target: action.target,
     data: action.data,
+    storeResult: action.storeResult,
     splices: action.splices.map((splice) => ({ ...splice })),
   };
+}
+
+function prepareActionsForEncoding(actions) {
+  const prepared = actions.map((action) => (isPackedAction(action) ? action : cloneAction(action)));
+  for (const action of prepared) {
+    if (isPackedAction(action)) continue;
+    for (const splice of action.splices) {
+      if (!prepared[splice.sourceActionIndex] || isPackedAction(prepared[splice.sourceActionIndex])) continue;
+      prepared[splice.sourceActionIndex].storeResult = true;
+    }
+  }
+  return prepared;
+}
+
+function toDummyRouterAction(action) {
+  return {
+    actionInfo: packActionInfo(action).toString(),
+    data: action.data,
+    splices: action.splices.map((splice) => packSpliceInfo(splice).toString()),
+  };
+}
+
+function isPackedAction(action) {
+  return action && Object.prototype.hasOwnProperty.call(action, "actionInfo");
+}
+
+function normalizePackedAction(action) {
+  return {
+    actionInfo: encodeWord(action.actionInfo),
+    data: normalizeHex(action.data, "data"),
+    splices: (action.splices || []).map((splice, index) => encodeWordField(splice, `splices[${index}]`)),
+  };
+}
+
+function encodeWordField(value, label) {
+  try {
+    return encodeWord(value);
+  } catch (error) {
+    throw new Error(`${label}: ${error.message}`);
+  }
+}
+
+function packActionInfo(action) {
+  return (
+    BigInt(action.callType) |
+    (action.storeResult ? 1n << 8n : 0n) |
+    (addressToBigInt(action.target) << 16n)
+  );
+}
+
+function packSpliceInfo(splice) {
+  const sourceActionIndex = checkedUint64(splice.sourceActionIndex, "splice.sourceActionIndex");
+  const srcOffset = checkedUint64(splice.srcOffset, "splice.srcOffset");
+  const dstOffset = checkedUint64(splice.dstOffset, "splice.dstOffset");
+  const length = checkedUint64(splice.length, "splice.length");
+  return sourceActionIndex | (srcOffset << 64n) | (dstOffset << 128n) | (length << 192n);
+}
+
+function checkedUint64(value, label) {
+  const bigint = toBigInt(value);
+  if (bigint < 0n || bigint > UINT64_MAX) {
+    throw new Error(`${label} must fit in uint64`);
+  }
+  return bigint;
+}
+
+function addressToBigInt(value) {
+  return BigInt(normalizeAddress(value));
 }
 
 module.exports = {
@@ -351,4 +440,6 @@ module.exports = {
   concatHex,
   encodeDummyRouterExecuteArgs,
   encodeWord,
+  packActionInfo,
+  packSpliceInfo,
 };

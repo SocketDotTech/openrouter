@@ -208,59 +208,62 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
             DummyRouter.CallType.CALL,
             ARBITRUM_USDC,
             abi.encodeWithSelector(ERC20.approve.selector, OPENOCEAN_EXCHANGE_V2, inputAmount),
-            new DummyRouter.Splice[](0)
+            new uint256[](0),
+            false
         );
 
-        actions[1] =
-            _action(DummyRouter.CallType.CALL, OPENOCEAN_EXCHANGE_V2, swapCalldata, new DummyRouter.Splice[](0));
+        actions[1] = _action(DummyRouter.CallType.CALL, OPENOCEAN_EXCHANGE_V2, swapCalldata, new uint256[](0), true);
 
-        DummyRouter.Splice[] memory feeSplices = new DummyRouter.Splice[](1);
-        feeSplices[0] = DummyRouter.Splice({sourceActionIndex: 1, srcOffset: 0, dstOffset: 4, length: 32});
+        uint256[] memory feeSplices = new uint256[](1);
+        feeSplices[0] = _splice(1, 0, 4, 32);
         actions[2] = _action(
             DummyRouter.CallType.STATICCALL,
             address(manipulator),
             abi.encodeCall(MathManipulator.percent, (uint256(0), ROUTE_FEE_BPS)),
-            feeSplices
+            feeSplices,
+            true
         );
 
-        DummyRouter.Splice[] memory feeTransferSplices = new DummyRouter.Splice[](1);
-        feeTransferSplices[0] = DummyRouter.Splice({sourceActionIndex: 2, srcOffset: 0, dstOffset: 0, length: 32});
+        uint256[] memory feeTransferSplices = new uint256[](1);
+        feeTransferSplices[0] = _splice(2, 0, 0, 32);
         actions[3] = _action(
-            DummyRouter.CallType.CALL_WITH_NATIVE, FEE_RECIPIENT, abi.encodePacked(uint256(0)), feeTransferSplices
+            DummyRouter.CallType.CALL_WITH_NATIVE,
+            FEE_RECIPIENT,
+            abi.encodePacked(uint256(0)),
+            feeTransferSplices,
+            false
         );
 
-        DummyRouter.Splice[] memory postFeeSplices = new DummyRouter.Splice[](2);
-        postFeeSplices[0] = DummyRouter.Splice({sourceActionIndex: 1, srcOffset: 0, dstOffset: 4, length: 32});
-        postFeeSplices[1] = DummyRouter.Splice({sourceActionIndex: 2, srcOffset: 0, dstOffset: 36, length: 32});
+        uint256[] memory postFeeSplices = new uint256[](2);
+        postFeeSplices[0] = _splice(1, 0, 4, 32);
+        postFeeSplices[1] = _splice(2, 0, 36, 32);
         actions[4] = _action(
             DummyRouter.CallType.STATICCALL,
             address(manipulator),
             abi.encodeCall(MathManipulator.subtract, (uint256(0), uint256(0))),
-            postFeeSplices
+            postFeeSplices,
+            true
         );
 
-        DummyRouter.Splice[] memory bridgeAmountSplices = new DummyRouter.Splice[](1);
-        bridgeAmountSplices[0] = DummyRouter.Splice({sourceActionIndex: 4, srcOffset: 0, dstOffset: 4, length: 32});
+        uint256[] memory bridgeAmountSplices = new uint256[](1);
+        bridgeAmountSplices[0] = _splice(4, 0, 4, 32);
         actions[5] = _action(
             DummyRouter.CallType.STATICCALL,
             address(manipulator),
             abi.encodeCall(MathManipulator.subtract, (uint256(0), nativeFee)),
-            bridgeAmountSplices
+            bridgeAmountSplices,
+            true
         );
 
-        DummyRouter.Splice[] memory stargateSplices = new DummyRouter.Splice[](2);
-        stargateSplices[0] = DummyRouter.Splice({sourceActionIndex: 4, srcOffset: 0, dstOffset: 0, length: 32});
-        stargateSplices[1] = DummyRouter.Splice({
-            sourceActionIndex: 5,
-            srcOffset: 0,
-            dstOffset: CALL_WITH_NATIVE_PAYLOAD_OFFSET + STARGATE_AMOUNT_OFFSET,
-            length: 32
-        });
+        uint256[] memory stargateSplices = new uint256[](2);
+        stargateSplices[0] = _splice(4, 0, 0, 32);
+        stargateSplices[1] = _splice(5, 0, uint64(CALL_WITH_NATIVE_PAYLOAD_OFFSET + STARGATE_AMOUNT_OFFSET), 32);
         actions[6] = _action(
             DummyRouter.CallType.CALL_WITH_NATIVE,
             STARGATE_NATIVE_WRAPPER,
             abi.encodePacked(uint256(0), stargateCalldata),
-            stargateSplices
+            stargateSplices,
+            false
         );
     }
 
@@ -300,9 +303,28 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         DummyRouter.CallType callType,
         address target,
         bytes memory data,
-        DummyRouter.Splice[] memory splices
+        uint256[] memory splices,
+        bool storeResult
     ) internal pure returns (DummyRouter.Action memory) {
-        return DummyRouter.Action({callType: callType, target: target, data: data, splices: splices});
+        return
+            DummyRouter.Action({actionInfo: _actionInfo(callType, target, storeResult), data: data, splices: splices});
+    }
+
+    function _actionInfo(DummyRouter.CallType callType, address target, bool storeResult)
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(uint8(callType)) | (storeResult ? uint256(1) << 8 : 0) | (uint256(uint160(target)) << 16);
+    }
+
+    function _splice(uint64 sourceActionIndex, uint64 srcOffset, uint64 dstOffset, uint64 length)
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(sourceActionIndex) | (uint256(srcOffset) << 64) | (uint256(dstOffset) << 128)
+            | (uint256(length) << 192);
     }
 
     function _toBytes32(address addr) internal pure returns (bytes32) {

@@ -8,18 +8,10 @@ contract DummyRouter {
         CALL_WITH_NATIVE
     }
 
-    struct Splice {
-        uint256 sourceActionIndex; // which previous return data to read from
-        uint256 srcOffset; // offset inside previous returndata
-        uint256 dstOffset; // offset inside current calldata
-        uint256 length; // bytes to copy
-    }
-
     struct Action {
-        CallType callType;
-        address target;
+        uint256 actionInfo;
         bytes data;
-        Splice[] splices;
+        uint256[] splices;
     }
 
     error FutureSplice(uint256 actionIndex, uint256 sourceActionIndex);
@@ -38,13 +30,13 @@ contract DummyRouter {
             // Patch this action's calldata using earlier action results.
             uint256 splicesLength = action.splices.length;
             for (uint256 j; j < splicesLength;) {
-                Splice calldata s = action.splices[j];
-                uint256 sourceActionIndex = s.sourceActionIndex;
+                uint256 spliceInfo = action.splices[j];
+                uint256 sourceActionIndex = uint64(spliceInfo);
                 if (sourceActionIndex >= i) revert FutureSplice(i, sourceActionIndex);
 
-                uint256 length = s.length;
-                uint256 srcOffset = s.srcOffset;
-                uint256 dstOffset = s.dstOffset;
+                uint256 srcOffset = uint64(spliceInfo >> 64);
+                uint256 dstOffset = uint64(spliceInfo >> 128);
+                uint256 length = spliceInfo >> 192;
                 bytes memory source = results[sourceActionIndex];
                 if (srcOffset + length > source.length || dstOffset + length > callData.length) {
                     revert SpliceOutOfBounds(i, j);
@@ -60,33 +52,41 @@ contract DummyRouter {
             }
 
             bool success;
-            bytes memory ret;
-            CallType callType = action.callType;
-            address target = action.target;
+            uint256 actionInfo = action.actionInfo;
+            bool storeResult = (actionInfo & 0xff00) != 0;
+            uint256 callType = actionInfo & 0xff;
+            address target = address(uint160(actionInfo >> 16));
 
-            if (callType == CallType.STATICCALL) {
-                (success, ret) = target.staticcall(callData);
-            } else if (callType == CallType.CALL_WITH_NATIVE) {
+            if (callType == uint256(CallType.STATICCALL)) {
+                assembly ("memory-safe") {
+                    success := staticcall(gas(), target, add(callData, 0x20), mload(callData), 0, 0)
+                }
+            } else if (callType == uint256(CallType.CALL_WITH_NATIVE)) {
                 if (callData.length < 32) revert MissingNativeValue(i);
                 uint256 callValue;
                 uint256 payloadLength = callData.length - 32;
                 assembly ("memory-safe") {
                     callValue := mload(add(callData, 0x20))
                     success := call(gas(), target, callValue, add(callData, 0x40), payloadLength, 0, 0)
+                }
+            } else {
+                assembly ("memory-safe") {
+                    success := call(gas(), target, 0, add(callData, 0x20), mload(callData), 0, 0)
+                }
+            }
 
+            if (!success || storeResult) {
+                bytes memory ret;
+                assembly ("memory-safe") {
                     let returnDataSize := returndatasize()
                     ret := mload(0x40)
                     mstore(ret, returnDataSize)
                     returndatacopy(add(ret, 0x20), 0, returnDataSize)
                     mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f)))
                 }
-            } else {
-                (success, ret) = target.call(callData);
+                if (!success) revert CallFailed(i, ret);
+                results[i] = ret;
             }
-
-            if (!success) revert CallFailed(i, ret);
-
-            results[i] = ret;
             unchecked {
                 ++i;
             }

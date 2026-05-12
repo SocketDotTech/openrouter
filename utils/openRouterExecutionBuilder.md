@@ -26,6 +26,20 @@ exec
 const calldata = exec.toDummyRouterCalldata();
 ```
 
+`toActions()` returns the current gas-golfed `DummyRouter.Action[]` ABI shape:
+
+```js
+[
+  {
+    actionInfo, // packed callType | storeResult << 8 | target << 16
+    data,
+    splices, // uint256[] packed as sourceActionIndex | srcOffset << 64 | dstOffset << 128 | length << 192
+  },
+];
+```
+
+Splice sources are marked as `storeResult` automatically. For an action whose returndata should be returned but is not used by a splice, call `.storeResult()` on the handle or pass `storeResult: true` to `action(...)`.
+
 ## Offset Helpers
 
 - `spliceArg(argIndex, source)` writes a 32-byte source into a normal ABI calldata argument. It maps `argIndex` to `4 + argIndex * 32`.
@@ -85,4 +99,4 @@ exec
   .splicePayloadWord(STARGATE_AMOUNT_OFFSET, exec.ref("bridgeAmount").returnWord());
 ```
 
-Use `toActions()` when the caller already has an ABI encoder. Use `toDummyRouterCalldata()` when you need raw calldata for the current `DummyRouter`.
+Use `toActions()` when the caller already has an ABI encoder for the current packed `DummyRouter`. Use `toLogicalActions()` for the readable builder shape. Use `toDummyRouterCalldata()` when you need raw calldata for the current `DummyRouter`.

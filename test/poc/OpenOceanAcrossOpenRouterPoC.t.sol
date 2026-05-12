@@ -24,6 +24,7 @@ interface ISpokePool {
     ) external payable;
 }
 // ref tx 0xc0ba134856d0151eebfeb67aabe0eb12db248974f4d78b9d358a6d46dcaa9700
+
 contract OpenOceanAcrossOpenRouterPoCTest is Test {
     address internal constant OPENOCEAN_EXCHANGE_V2 = 0x6352a56caadC4F1E25CD6c75970Fa768A3304e64;
     address internal constant ACROSS_ARBITRUM_SPOKE_POOL = 0xe35e9842fceaCA96570B734083f4a58e8F7C5f2A;
@@ -65,7 +66,10 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
             _buildActions(manipulator, inputAmount, bridgeFee, vm.parseBytes(OPENOCEAN_SWAP_CALLDATA));
         uint256 spokePoolWethBefore = ERC20(ARBITRUM_WETH).balanceOf(ACROSS_ARBITRUM_SPOKE_POOL);
 
+        uint256 gasBeforeExecute = gasleft();
         bytes[] memory results = router.execute(actions);
+        uint256 executeGasUsed = gasBeforeExecute - gasleft();
+        emit log_named_uint("router.execute gas used", executeGasUsed);
 
         _assertPocResult(router, bridgeFee, spokePoolWethBefore, results[2]);
     }
@@ -81,14 +85,14 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
             DummyRouter.CallType.CALL,
             ARBITRUM_USDC,
             abi.encodeWithSelector(ERC20.approve.selector, OPENOCEAN_EXCHANGE_V2, inputAmount),
-            new DummyRouter.Splice[](0)
+            new uint256[](0),
+            false
         );
 
-        actions[1] =
-            _action(DummyRouter.CallType.CALL, OPENOCEAN_EXCHANGE_V2, swapCalldata, new DummyRouter.Splice[](0));
+        actions[1] = _action(DummyRouter.CallType.CALL, OPENOCEAN_EXCHANGE_V2, swapCalldata, new uint256[](0), true);
 
-        DummyRouter.Splice[] memory outputAmountSplices = new DummyRouter.Splice[](1);
-        outputAmountSplices[0] = DummyRouter.Splice({sourceActionIndex: 1, srcOffset: 0, dstOffset: 4, length: 32});
+        uint256[] memory outputAmountSplices = new uint256[](1);
+        outputAmountSplices[0] = _splice(1, 0, 4, 32);
 
         actions[2] = _action(
             DummyRouter.CallType.STATICCALL,
@@ -96,22 +100,24 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
             abi.encodeCall(
                 AcrossERC20AmountManipulator.deriveOutputAmount, (uint256(0), bridgeFee, uint256(18), uint256(18))
             ),
-            outputAmountSplices
+            outputAmountSplices,
+            true
         );
 
         actions[3] = _action(
             DummyRouter.CallType.CALL,
             ARBITRUM_WETH,
             abi.encodeWithSelector(ERC20.approve.selector, ACROSS_ARBITRUM_SPOKE_POOL, type(uint256).max),
-            new DummyRouter.Splice[](0)
+            new uint256[](0),
+            false
         );
 
-        DummyRouter.Splice[] memory depositSplices = new DummyRouter.Splice[](2);
-        depositSplices[0] = DummyRouter.Splice({sourceActionIndex: 1, srcOffset: 0, dstOffset: 132, length: 32});
-        depositSplices[1] = DummyRouter.Splice({sourceActionIndex: 2, srcOffset: 0, dstOffset: 164, length: 32});
+        uint256[] memory depositSplices = new uint256[](2);
+        depositSplices[0] = _splice(1, 0, 132, 32);
+        depositSplices[1] = _splice(2, 0, 164, 32);
 
         actions[4] = _action(
-            DummyRouter.CallType.CALL, ACROSS_ARBITRUM_SPOKE_POOL, _emptyAcrossDepositCalldata(), depositSplices
+            DummyRouter.CallType.CALL, ACROSS_ARBITRUM_SPOKE_POOL, _emptyAcrossDepositCalldata(), depositSplices, false
         );
     }
 
@@ -158,9 +164,28 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         DummyRouter.CallType callType,
         address target,
         bytes memory data,
-        DummyRouter.Splice[] memory splices
+        uint256[] memory splices,
+        bool storeResult
     ) internal pure returns (DummyRouter.Action memory) {
-        return DummyRouter.Action({callType: callType, target: target, data: data, splices: splices});
+        return
+            DummyRouter.Action({actionInfo: _actionInfo(callType, target, storeResult), data: data, splices: splices});
+    }
+
+    function _actionInfo(DummyRouter.CallType callType, address target, bool storeResult)
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(uint8(callType)) | (storeResult ? uint256(1) << 8 : 0) | (uint256(uint160(target)) << 16);
+    }
+
+    function _splice(uint64 sourceActionIndex, uint64 srcOffset, uint64 dstOffset, uint64 length)
+        internal
+        pure
+        returns (uint256)
+    {
+        return uint256(sourceActionIndex) | (uint256(srcOffset) << 64) | (uint256(dstOffset) << 128)
+            | (uint256(length) << 192);
     }
 
     function _toBytes32(address addr) internal pure returns (bytes32) {
