@@ -13,49 +13,51 @@
  * Omitting --network runs against the in-process Hardhat network.
  */
 
-import { ethers } from "hardhat";
+import { ethers } from 'hardhat';
 
 async function main() {
   const [deployer] = await ethers.getSigners();
 
-  const owner = process.env.OWNER_ADDRESS ?? deployer.address;
-  const openRouterSigner = process.env.OPEN_ROUTER_SIGNER_ADDRESS;
+  const owner = deployer.address;
+  const openRouterSigner = deployer.address;
 
   if (!openRouterSigner) {
-    throw new Error("OPEN_ROUTER_SIGNER_ADDRESS is not set in environment");
+    throw new Error('OPEN_ROUTER_SIGNER_ADDRESS is not set in environment');
   }
 
-  console.log("Deployer:          ", deployer.address);
-  console.log("Owner:             ", owner);
-  console.log("OpenRouterSigner:  ", openRouterSigner);
-  console.log("Network:           ", (await ethers.provider.getNetwork()).name);
-  console.log("");
+  console.log('Deployer:          ', deployer.address);
+  console.log('Owner:             ', owner);
+  console.log('OpenRouterSigner:  ', openRouterSigner);
+  console.log('Network:           ', (await ethers.provider.getNetwork()).name);
+  console.log('');
 
   // -------------------------------------------------------------------------
   // BungeeOpenRouterV2  (monolithic + modular, signature-verified, AH pull)
   // -------------------------------------------------------------------------
-  console.log("Deploying BungeeOpenRouterV2...");
-  const V2Factory = await ethers.getContractFactory("BungeeOpenRouterV2");
-  const v2 = await V2Factory.deploy(owner, openRouterSigner);
-  await v2.waitForDeployment();
-  const v2Address = await v2.getAddress();
-  console.log("BungeeOpenRouterV2 deployed to:", v2Address);
+  // console.log("Deploying BungeeOpenRouterV2...");
+  // const V2Factory = await ethers.getContractFactory("BungeeOpenRouterV2");
+  // const v2 = await V2Factory.deploy(owner, openRouterSigner);
+  // await v2.waitForDeployment();
+  // const v2Address = await v2.getAddress();
+  // console.log("BungeeOpenRouterV2 deployed to:", v2Address);
 
   // -------------------------------------------------------------------------
   // BungeeOpenRouterV2Unchecked  (same logic, no signature verification)
   // -------------------------------------------------------------------------
-  console.log("Deploying BungeeOpenRouterV2Unchecked...");
-  const V2UFactory = await ethers.getContractFactory("BungeeOpenRouterV2Unchecked");
+  console.log('Deploying BungeeOpenRouterV2Unchecked...');
+  const V2UFactory = await ethers.getContractFactory(
+    'BungeeOpenRouterV2Unchecked',
+  );
   const v2u = await V2UFactory.deploy(owner);
   await v2u.waitForDeployment();
   const v2uAddress = await v2u.getAddress();
-  console.log("BungeeOpenRouterV2Unchecked deployed to:", v2uAddress);
+  console.log('BungeeOpenRouterV2Unchecked deployed to:', v2uAddress);
 
   // -------------------------------------------------------------------------
   // Summary
   // -------------------------------------------------------------------------
-  console.log("\n=== Deployment Summary ===");
-  console.log(`BungeeOpenRouterV2:           ${v2Address}`);
+  console.log('\n=== Deployment Summary ===');
+  // console.log(`BungeeOpenRouterV2:           ${v2Address}`);
   console.log(`BungeeOpenRouterV2Unchecked:  ${v2uAddress}`);
 
   // -------------------------------------------------------------------------
@@ -63,12 +65,12 @@ async function main() {
   // -------------------------------------------------------------------------
   const chainId = (await ethers.provider.getNetwork()).chainId;
   if (chainId !== 31337n) {
-    console.log("\nTo verify on a block explorer:");
+    console.log('\nTo verify on a block explorer:');
+    // console.log(
+    //   `  npx hardhat verify --network <network> ${v2Address} "${owner}" "${openRouterSigner}"`
+    // );
     console.log(
-      `  npx hardhat verify --network <network> ${v2Address} "${owner}" "${openRouterSigner}"`
-    );
-    console.log(
-      `  npx hardhat verify --network <network> ${v2uAddress} "${owner}"`
+      `  npx hardhat verify --network <network> ${v2uAddress} "${owner}"`,
     );
   }
 }

@@ -8,9 +8,12 @@
     "typechain": "hardhat typechain"
   },
   "devDependencies": {
+    "@arbitrum/sdk": "^4.0.5",
     "@nomicfoundation/hardhat-foundry": "^1.1.2",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "axios": "^1.16.0",
     "dotenv": "^16.0.0",
+    "ethers": "^6.16.0",
     "hardhat": "^2.22.7",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"
