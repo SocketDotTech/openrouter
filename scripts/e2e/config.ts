@@ -20,7 +20,7 @@ export const CHAIN_IDS = {
 export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
 
 /** Deployed BungeeOpenRouterV2Unchecked instance (set via env after deployment) */
-export const ROUTER_ADDRESS: string = '';
+export const ROUTER_ADDRESS: string = '0xeB5ae85Fe7e3E272Ac77fd316079589C0Ed91648';
 
 /** Sentinel used in modular actions to forward address(this).balance as msg.value */
 export const MAX_UINT256 = MaxUint256;

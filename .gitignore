@@ -15,3 +15,10 @@ docs/
 
 
 node_modules
+
+/typechain
+/artifacts
+/cache_hardhat
+/cache-hh
+/artifacts-tron
+/cache_hardhat-tron

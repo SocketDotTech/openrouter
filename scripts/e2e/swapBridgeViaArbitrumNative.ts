@@ -47,7 +47,7 @@ import {
   ALLOWANCE_HOLDER,
   NATIVE_TOKEN_ADDRESS,
 } from './config';
-import { execViaAH } from './utils/allowanceHolder';
+import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { encodeApprove, getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
 import {
@@ -388,6 +388,7 @@ async function main() {
 
   // AH.exec is called with AAVE as the token grant — ETH is handled internally
   // by the swap. msg.value=0 since the input token is ERC-20.
+  await ensureAllowanceForAllowanceHolder(signer, inputToken, inputAmount);
   console.log('Sending AllowanceHolder.exec transaction...');
   const receipt = await execViaAH(
     signer,

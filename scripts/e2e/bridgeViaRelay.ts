@@ -114,14 +114,27 @@ function parseRelayQuote(quote: RelayQuoteResponse): {
   depositTarget: string;
   depositData: string;
 } {
-  // The approve step's calldata encodes: approve(spender, amount)
-  // selector (4 bytes) + spender (32 bytes padded) → spender starts at byte 16 of the full hex
+  const approveIface = new ethers.Interface([
+    'function approve(address spender, uint256 amount) external returns (bool)',
+  ]);
+
   const approveStep = quote.steps[0];
-  const approveData = approveStep.items[0].data.data ?? '';
-  // spender is at bytes [4..36] of the approve calldata (after 4-byte selector)
-  const relaySpender = ethers.getAddress(
-    '0x' + approveData.slice(4 + 8 + 24, 4 + 8 + 24 + 40),
-  );
+  const approveDataHex = approveStep.items[0].data.data ?? '';
+  let relaySpender: string;
+  try {
+    relaySpender = ethers.getAddress(
+      approveIface.decodeFunctionData('approve', approveDataHex)[0],
+    );
+  } catch {
+    /** Some routes use Permit2 signatures instead of naked approve; spender may still appear in abi.encode-like layout. Fallback: last 20 bytes of first argument word. */
+    const normalized = approveDataHex.startsWith('0x') ? approveDataHex.slice(2) : approveDataHex;
+    if (normalized.length < 8 + 64) {
+      throw new Error('Relay approve step calldata too short for fallback spender parse');
+    }
+    const spender40 = normalized.slice(8 + 24, 8 + 24 + 40);
+
+    relaySpender = ethers.getAddress('0x' + spender40);
+  }
 
   const depositStep = quote.steps[1];
   const depositItem = depositStep.items[0].data;

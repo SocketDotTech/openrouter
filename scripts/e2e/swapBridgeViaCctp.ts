@@ -39,7 +39,7 @@ import {
   OPEN_OCEAN_API_KEY,
   ALLOWANCE_HOLDER,
 } from './config';
-import { execViaAH } from './utils/allowanceHolder';
+import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { encodeApprove, encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
 import {
@@ -393,6 +393,7 @@ async function main() {
     console.log('Using performExecution (monolithic)');
   }
 
+  await ensureAllowanceForAllowanceHolder(signer, inputToken, inputAmount);
   console.log('Sending AllowanceHolder.exec transaction...');
   const receipt = await execViaAH(
     signer,
