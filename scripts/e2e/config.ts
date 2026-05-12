@@ -72,6 +72,25 @@ export const CCTP_CONFIG: Record<number, CctpChainConfig> = {
 /** Arbitrum Delayed Inbox — accepts ETH deposits via depositEth() */
 export const ARBITRUM_INBOX = '0x4Dbd4fc535Ac27206064B68FfCf827b0A60BAB3f';
 
+// ─── Stargate Native Pool (ETH Arbitrum → ETH Base) ─────────────────────────
+
+/**
+ * Stargate Native ETH OFT adapter on Arbitrum.
+ * Call send() with msg.value = amountLD + nativeFee to bridge ETH to Base.
+ * Ref: poc-openrouter/test/poc/OpenOceanStargateNativeSwapFeeBridgeRouterPoC.t.sol
+ */
+export const STARGATE_NATIVE_ARB = '0xA45B5130f36CDcA45667738e2a258AB09f4A5f7F';
+
+/** LayerZero v2 endpoint ID for Base (EID 30184). Used in Stargate sendParam.dstEid. */
+export const BASE_LZ_EID = 30184;
+
+/**
+ * Byte offset of sendParam.amountLD within the Stargate send() calldata (after the 4-byte selector).
+ * Layout: selector(4) + head[sendParam_ptr(32) + nativeFee(32) + lzTokenFee(32) + refundAddr(32)] +
+ *         tail[dstEid(32) + to(32)] + amountLD = 4+128+32+32 = 196
+ */
+export const STARGATE_AMOUNT_LD_OFFSET = 196;
+
 // ─── Fee config ───────────────────────────────────────────────────────────────
 
 /** Fee applied in scripts that take pre-/post-route fees (basis points). */
