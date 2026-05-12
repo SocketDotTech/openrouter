@@ -4,7 +4,7 @@ pragma solidity =0.8.25;
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
-import {DummyRouter} from "../../src/dummyRouter.sol";
+import {BungeeOpenRouterV2Unchecked as Router} from "../../src/combined/BungeeOpenRouterV2Unchecked.sol";
 import {AcrossERC20AmountManipulator} from "../../src/manipulators/AcrossERC20AmountManipulator.sol";
 
 interface ISpokePool {
@@ -49,7 +49,7 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
             vm.warp(FORK_BLOCK_TIMESTAMP);
         }
 
-        DummyRouter router = _routerAtFixtureAddress();
+        Router router = _routerAtFixtureAddress();
         AcrossERC20AmountManipulator manipulator = new AcrossERC20AmountManipulator();
         if (bytes(rpcUrl).length == 0) {
             emit log("Set ARBITRUM_RPC to execute this fork PoC.");
@@ -62,14 +62,14 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         deal(ARBITRUM_USDC, address(router), inputAmount);
         deal(ARBITRUM_WETH, address(router), 0);
 
-        DummyRouter.Action[] memory actions =
+        Router.Action[] memory actions =
             _buildActions(manipulator, inputAmount, bridgeFee, vm.parseBytes(OPENOCEAN_SWAP_CALLDATA));
         uint256 spokePoolWethBefore = ERC20(ARBITRUM_WETH).balanceOf(ACROSS_ARBITRUM_SPOKE_POOL);
 
         uint256 gasBeforeExecute = gasleft();
-        bytes[] memory results = router.execute(actions);
+        bytes[] memory results = router.performModularExecution(actions);
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
-        emit log_named_uint("router.execute gas used", executeGasUsed);
+        emit log_named_uint("router.performModularExecution gas used", executeGasUsed);
 
         _assertPocResult(router, bridgeFee, spokePoolWethBefore, results[2]);
     }
@@ -79,23 +79,23 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         uint256 inputAmount,
         uint256 bridgeFee,
         bytes memory swapCalldata
-    ) internal view returns (DummyRouter.Action[] memory actions) {
-        actions = new DummyRouter.Action[](5);
+    ) internal view returns (Router.Action[] memory actions) {
+        actions = new Router.Action[](5);
         actions[0] = _action(
-            DummyRouter.CallType.CALL,
+            Router.CallType.CALL,
             ARBITRUM_USDC,
             abi.encodeWithSelector(ERC20.approve.selector, OPENOCEAN_EXCHANGE_V2, inputAmount),
             new uint256[](0),
             false
         );
 
-        actions[1] = _action(DummyRouter.CallType.CALL, OPENOCEAN_EXCHANGE_V2, swapCalldata, new uint256[](0), true);
+        actions[1] = _action(Router.CallType.CALL, OPENOCEAN_EXCHANGE_V2, swapCalldata, new uint256[](0), true);
 
         uint256[] memory outputAmountSplices = new uint256[](1);
         outputAmountSplices[0] = _splice(1, 0, 4, 32);
 
         actions[2] = _action(
-            DummyRouter.CallType.STATICCALL,
+            Router.CallType.STATICCALL,
             address(manipulator),
             abi.encodeCall(
                 AcrossERC20AmountManipulator.deriveOutputAmount, (uint256(0), bridgeFee, uint256(18), uint256(18))
@@ -105,7 +105,7 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         );
 
         actions[3] = _action(
-            DummyRouter.CallType.CALL,
+            Router.CallType.CALL,
             ARBITRUM_WETH,
             abi.encodeWithSelector(ERC20.approve.selector, ACROSS_ARBITRUM_SPOKE_POOL, type(uint256).max),
             new uint256[](0),
@@ -117,12 +117,12 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         depositSplices[1] = _splice(2, 0, 164, 32);
 
         actions[4] = _action(
-            DummyRouter.CallType.CALL, ACROSS_ARBITRUM_SPOKE_POOL, _emptyAcrossDepositCalldata(), depositSplices, false
+            Router.CallType.CALL, ACROSS_ARBITRUM_SPOKE_POOL, _emptyAcrossDepositCalldata(), depositSplices, false
         );
     }
 
     function _assertPocResult(
-        DummyRouter router,
+        Router router,
         uint256 bridgeFee,
         uint256 spokePoolWethBefore,
         bytes memory manipulatorResult
@@ -136,10 +136,10 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         assertEq(actualOutputAmount, actualInputAmount - bridgeFee);
     }
 
-    function _routerAtFixtureAddress() internal returns (DummyRouter router) {
-        DummyRouter implementation = new DummyRouter();
+    function _routerAtFixtureAddress() internal returns (Router router) {
+        Router implementation = new Router(address(this));
         vm.etch(FIXTURE_ROUTER, address(implementation).code);
-        return DummyRouter(payable(FIXTURE_ROUTER));
+        return Router(payable(FIXTURE_ROUTER));
     }
 
     function _emptyAcrossDepositCalldata() internal view returns (bytes memory) {
@@ -161,21 +161,16 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
     }
 
     function _action(
-        DummyRouter.CallType callType,
+        Router.CallType callType,
         address target,
         bytes memory data,
         uint256[] memory splices,
         bool storeResult
-    ) internal pure returns (DummyRouter.Action memory) {
-        return
-            DummyRouter.Action({actionInfo: _actionInfo(callType, target, storeResult), data: data, splices: splices});
+    ) internal pure returns (Router.Action memory) {
+        return Router.Action({actionInfo: _actionInfo(callType, target, storeResult), data: data, splices: splices});
     }
 
-    function _actionInfo(DummyRouter.CallType callType, address target, bool storeResult)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _actionInfo(Router.CallType callType, address target, bool storeResult) internal pure returns (uint256) {
         return uint256(uint8(callType)) | (storeResult ? uint256(1) << 8 : 0) | (uint256(uint160(target)) << 16);
     }
 

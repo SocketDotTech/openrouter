@@ -82,22 +82,14 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
 
     enum CallType {
         CALL,
-        DELEGATECALL,
-        STATICCALL
-    }
-
-    struct Splice {
-        uint256 srcOffset;
-        uint256 dstOffset;
-        uint256 length;
+        STATICCALL,
+        CALL_WITH_NATIVE
     }
 
     struct Action {
-        CallType callType;
-        address target;
-        uint256 value;
+        uint256 actionInfo;
         bytes data;
-        Splice[] splices;
+        uint256[] splices;
     }
 
     // =========================================================================
@@ -109,9 +101,10 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     error InvalidExecution();
     error CallerNotSignedUser();
     error InsufficientMsgValue();
-    error ValueOnNonCall();
-    error EmptyActions();
-    error UnknownCallType();
+    error FutureSplice(uint256 actionIndex, uint256 sourceActionIndex);
+    error SpliceOutOfBounds(uint256 actionIndex, uint256 spliceIndex);
+    error CallFailed(uint256 actionIndex, bytes returndata);
+    error MissingNativeValue(uint256 actionIndex);
 
     // =========================================================================
     // Constructor
@@ -145,8 +138,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      * @notice Runs a sequence of generic actions with optional returndata
      *         splicing between steps. No signature verification.
      */
-    function performModularExecution(Action[] calldata actions) external payable {
-        _performActions(actions);
+    function performModularExecution(Action[] calldata actions) external payable returns (bytes[] memory results) {
+        results = _performActions(actions);
     }
 
     // =========================================================================
@@ -209,7 +202,10 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     }
 
     /// @dev Balance-delta swap helper.
-    function _performSwap(MonolithicExecution calldata exec) internal returns (address finalToken, uint256 finalAmount) {
+    function _performSwap(MonolithicExecution calldata exec)
+        internal
+        returns (address finalToken, uint256 finalAmount)
+    {
         uint256 preBalance = CurrencyLib.balanceOf(exec.swap.outputToken, address(this));
 
         if (exec.swap.approvalSpender != address(0) && exec.input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
@@ -287,69 +283,75 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     // Internal: modular action loop
     // =========================================================================
 
-    function _performActions(Action[] calldata actions) internal {
-        if (actions.length == 0) {
-            revert EmptyActions();
-        }
+    function _performActions(Action[] calldata actions) internal returns (bytes[] memory results) {
+        uint256 actionsLength = actions.length;
+        results = new bytes[](actionsLength);
 
-        bytes memory prevReturn;
-        for (uint256 i = 0; i < actions.length;) {
-            Action calldata a = actions[i];
-            bytes memory data = a.data;
+        for (uint256 i; i < actionsLength;) {
+            Action calldata action = actions[i];
+            bytes memory callData = action.data;
 
-            uint256 spLen = a.splices.length;
-            for (uint256 j = 0; j < spLen;) {
-                Splice calldata sp = a.splices[j];
-                BytesSpliceLib.spliceBytes({
-                    dst: data, // this action's calldata (patched before dispatch)
-                    dstOffset: sp.dstOffset, // write `length` bytes into `dst` starting here
-                    src: prevReturn, // read from the previous action's returndata
-                    srcOffset: sp.srcOffset, // copy slice starting at this offset in `src`
-                    length: sp.length // number of bytes to copy (overwrites same span in `dst`)
-                });
+            uint256 splicesLength = action.splices.length;
+            for (uint256 j; j < splicesLength;) {
+                uint256 spliceInfo = action.splices[j];
+                uint256 sourceActionIndex = uint64(spliceInfo);
+                if (sourceActionIndex >= i) revert FutureSplice(i, sourceActionIndex);
+
+                uint256 srcOffset = uint64(spliceInfo >> 64);
+                uint256 dstOffset = uint64(spliceInfo >> 128);
+                uint256 length = spliceInfo >> 192;
+                bytes memory source = results[sourceActionIndex];
+                if (srcOffset + length > source.length || dstOffset + length > callData.length) {
+                    revert SpliceOutOfBounds(i, j);
+                }
+
+                assembly ("memory-safe") {
+                    mcopy(add(add(callData, 0x20), dstOffset), add(add(source, 0x20), srcOffset), length)
+                }
+
                 unchecked {
                     ++j;
                 }
             }
 
-            prevReturn = _dispatchAction(a.callType, a.target, a.value, data);
+            bool success;
+            uint256 actionInfo = action.actionInfo;
+            bool storeResult = (actionInfo & 0xff00) != 0;
+            uint256 callType = actionInfo & 0xff;
+            address target = address(uint160(actionInfo >> 16));
+
+            if (callType == uint256(CallType.STATICCALL)) {
+                assembly ("memory-safe") {
+                    success := staticcall(gas(), target, add(callData, 0x20), mload(callData), 0, 0)
+                }
+            } else if (callType == uint256(CallType.CALL_WITH_NATIVE)) {
+                if (callData.length < 32) revert MissingNativeValue(i);
+                uint256 callValue;
+                uint256 payloadLength = callData.length - 32;
+                assembly ("memory-safe") {
+                    callValue := mload(add(callData, 0x20))
+                    success := call(gas(), target, callValue, add(callData, 0x40), payloadLength, 0, 0)
+                }
+            } else {
+                assembly ("memory-safe") {
+                    success := call(gas(), target, 0, add(callData, 0x20), mload(callData), 0, 0)
+                }
+            }
+
+            if (!success || storeResult) {
+                bytes memory ret;
+                assembly ("memory-safe") {
+                    let returnDataSize := returndatasize()
+                    ret := mload(0x40)
+                    mstore(ret, returnDataSize)
+                    returndatacopy(add(ret, 0x20), 0, returnDataSize)
+                    mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f)))
+                }
+                if (!success) revert CallFailed(i, ret);
+                results[i] = ret;
+            }
             unchecked {
                 ++i;
-            }
-        }
-    }
-
-    function _dispatchAction(CallType callType, address target, uint256 value, bytes memory data)
-        internal
-        returns (bytes memory ret)
-    {
-        // type(uint256).max is a sentinel meaning "use entire contract ETH balance".
-        // This lets modular callers forward the full native output of a swap to a
-        // native-token bridge without knowing the exact amount at calldata-build time.
-        if (value == type(uint256).max) {
-            value = address(this).balance;
-        }
-
-        bool ok;
-        if (callType == CallType.CALL) {
-            (ok, ret) = target.call{value: value}(data);
-        } else if (callType == CallType.DELEGATECALL) {
-            if (value != 0) {
-                revert ValueOnNonCall();
-            }
-            (ok, ret) = target.delegatecall(data);
-        } else if (callType == CallType.STATICCALL) {
-            if (value != 0) {
-                revert ValueOnNonCall();
-            }
-            (ok, ret) = target.staticcall(data);
-        } else {
-            revert UnknownCallType();
-        }
-
-        if (!ok) {
-            assembly ("memory-safe") {
-                revert(add(ret, 0x20), mload(ret))
             }
         }
     }

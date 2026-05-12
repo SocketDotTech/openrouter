@@ -18,13 +18,10 @@ import {CurrencyLib} from "../common/lib/CurrencyLib.sol";
 ///            optional post-swap fee, bridge call with multi-position amount
 ///            splicing. Suitable for the vast majority of routes.
 ///
-///         2. `performModularExecution` — generic action loop (identical to
-///            `BungeeOpenRouterModular`). Each `Action` carries a list of
-///            `Splice`s that copy byte ranges from the previous action's
-///            returndata into this action's calldata before dispatch. Use this
-///            for routes that need more than one bridge call, non-standard step
-///            ordering, or multiple amount fields patched from a single prior
-///            return value.
+///         2. `performModularExecution` — generic action loop. Each `Action`
+///            carries packed call metadata and packed splices that copy byte
+///            ranges from any earlier stored action result into this action's
+///            calldata before dispatch.
 ///
 ///         Fund pulls always go through 0x AllowanceHolder (transient-storage
 ///         allowance). The `_msgSender() == user` guard ensures the AH
@@ -97,25 +94,17 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
 
     enum CallType {
         CALL,
-        DELEGATECALL,
-        STATICCALL
-    }
-
-    /// @notice Byte-range copy from the previous action's returndata into this
-    ///         action's calldata, applied before the action is dispatched.
-    struct Splice {
-        uint256 srcOffset; // offset within the previous action's returndata
-        uint256 dstOffset; // offset within this action's `data`
-        uint256 length; // number of bytes to copy
+        STATICCALL,
+        CALL_WITH_NATIVE
     }
 
     /// @notice One step in the modular execution pipeline.
+    /// @dev `actionInfo` packs call type in bits [0:8), store-result flag in
+    ///      bits [8:16), and target address in bits [16:176).
     struct Action {
-        CallType callType;
-        address target;
-        uint256 value; // ETH forwarded; must be zero for DELEGATECALL / STATICCALL
-        bytes data; // base calldata, patched in-place by splices before dispatch
-        Splice[] splices; // applied BEFORE this action runs
+        uint256 actionInfo;
+        bytes data;
+        uint256[] splices;
     }
 
     /// @notice Signed payload for the modular execution path.
@@ -134,9 +123,10 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
     error InvalidExecution();
     error CallerNotSignedUser();
     error InsufficientMsgValue();
-    error ValueOnNonCall();
-    error EmptyActions();
-    error UnknownCallType();
+    error FutureSplice(uint256 actionIndex, uint256 sourceActionIndex);
+    error SpliceOutOfBounds(uint256 actionIndex, uint256 spliceIndex);
+    error CallFailed(uint256 actionIndex, bytes returndata);
+    error MissingNativeValue(uint256 actionIndex);
 
     // =========================================================================
     // Constructor
@@ -174,10 +164,14 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
      * @dev The signed digest covers the entire action set, so the caller cannot
      *      reorder, retarget, or strip splices from any action.
      */
-    function performModularExecution(ModularExecution calldata exec, bytes calldata signature) external payable {
+    function performModularExecution(ModularExecution calldata exec, bytes calldata signature)
+        external
+        payable
+        returns (bytes[] memory results)
+    {
         bytes32 digest = keccak256(abi.encode(block.chainid, address(this), exec));
         _verifyAndConsume(digest, exec.nonce, exec.deadline, signature);
-        _performActions(exec.actions);
+        results = _performActions(exec.actions);
     }
 
     // =========================================================================
@@ -240,7 +234,10 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
     }
 
     /// @dev Balance-delta swap helper; split out to keep _runMonolithic under 100 lines.
-    function _performSwap(MonolithicExecution calldata exec) internal returns (address finalToken, uint256 finalAmount) {
+    function _performSwap(MonolithicExecution calldata exec)
+        internal
+        returns (address finalToken, uint256 finalAmount)
+    {
         uint256 preBalance = CurrencyLib.balanceOf(exec.swap.outputToken, address(this));
 
         if (exec.swap.approvalSpender != address(0) && exec.input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
@@ -318,82 +315,75 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
     // Internal: modular action loop
     // =========================================================================
 
-    /**
-     * @notice Runs a signed sequence of actions, applying returndata splices
-     *         from each step into the calldata of the next before dispatch.
-     */
-    function _performActions(Action[] calldata actions) internal {
-        if (actions.length == 0) {
-            revert EmptyActions();
-        }
+    function _performActions(Action[] calldata actions) internal returns (bytes[] memory results) {
+        uint256 actionsLength = actions.length;
+        results = new bytes[](actionsLength);
 
-        bytes memory prevReturn; // empty on first action; splice on action[0] is illegal
-        for (uint256 i = 0; i < actions.length;) {
-            Action calldata a = actions[i];
-            bytes memory data = a.data;
+        for (uint256 i; i < actionsLength;) {
+            Action calldata action = actions[i];
+            bytes memory callData = action.data;
 
-            // apply splices: copy byte ranges from prevReturn into this action's data
-            uint256 spLen = a.splices.length;
-            for (uint256 j = 0; j < spLen;) {
-                Splice calldata sp = a.splices[j];
-                BytesSpliceLib.spliceBytes({
-                    dst: data, // this action's calldata (base is signed; patched before dispatch)
-                    dstOffset: sp.dstOffset, // write `length` bytes into `dst` starting here
-                    src: prevReturn, // read from the previous action's returndata
-                    srcOffset: sp.srcOffset, // copy slice starting at this offset in `src`
-                    length: sp.length // number of bytes to copy (overwrites same span in `dst`)
-                });
+            uint256 splicesLength = action.splices.length;
+            for (uint256 j; j < splicesLength;) {
+                uint256 spliceInfo = action.splices[j];
+                uint256 sourceActionIndex = uint64(spliceInfo);
+                if (sourceActionIndex >= i) revert FutureSplice(i, sourceActionIndex);
+
+                uint256 srcOffset = uint64(spliceInfo >> 64);
+                uint256 dstOffset = uint64(spliceInfo >> 128);
+                uint256 length = spliceInfo >> 192;
+                bytes memory source = results[sourceActionIndex];
+                if (srcOffset + length > source.length || dstOffset + length > callData.length) {
+                    revert SpliceOutOfBounds(i, j);
+                }
+
+                assembly ("memory-safe") {
+                    mcopy(add(add(callData, 0x20), dstOffset), add(add(source, 0x20), srcOffset), length)
+                }
+
                 unchecked {
                     ++j;
                 }
             }
 
-            prevReturn = _dispatchAction(a.callType, a.target, a.value, data);
+            bool success;
+            uint256 actionInfo = action.actionInfo;
+            bool storeResult = (actionInfo & 0xff00) != 0;
+            uint256 callType = actionInfo & 0xff;
+            address target = address(uint160(actionInfo >> 16));
+
+            if (callType == uint256(CallType.STATICCALL)) {
+                assembly ("memory-safe") {
+                    success := staticcall(gas(), target, add(callData, 0x20), mload(callData), 0, 0)
+                }
+            } else if (callType == uint256(CallType.CALL_WITH_NATIVE)) {
+                if (callData.length < 32) revert MissingNativeValue(i);
+                uint256 callValue;
+                uint256 payloadLength = callData.length - 32;
+                assembly ("memory-safe") {
+                    callValue := mload(add(callData, 0x20))
+                    success := call(gas(), target, callValue, add(callData, 0x40), payloadLength, 0, 0)
+                }
+            } else {
+                assembly ("memory-safe") {
+                    success := call(gas(), target, 0, add(callData, 0x20), mload(callData), 0, 0)
+                }
+            }
+
+            if (!success || storeResult) {
+                bytes memory ret;
+                assembly ("memory-safe") {
+                    let returnDataSize := returndatasize()
+                    ret := mload(0x40)
+                    mstore(ret, returnDataSize)
+                    returndatacopy(add(ret, 0x20), 0, returnDataSize)
+                    mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f)))
+                }
+                if (!success) revert CallFailed(i, ret);
+                results[i] = ret;
+            }
             unchecked {
                 ++i;
-            }
-        }
-    }
-
-    /**
-     * @notice Dispatches a single action with the given call type; bubbles revert.
-     * @dev Named `_dispatchAction` (rather than overloading `_performAction`)
-     *      to keep the CALL-only base helper in `OpenRouterAuthBase` distinct
-     *      from this three-way dispatcher.
-     *
-     *      `value == type(uint256).max` is a sentinel meaning "use entire contract
-     *      ETH balance". This lets modular callers forward the full native output
-     *      of a swap to a native-token bridge without knowing the exact amount at
-     *      calldata-build time.
-     */
-    function _dispatchAction(CallType callType, address target, uint256 value, bytes memory data)
-        internal
-        returns (bytes memory ret)
-    {
-        if (value == type(uint256).max) {
-            value = address(this).balance;
-        }
-
-        bool ok;
-        if (callType == CallType.CALL) {
-            (ok, ret) = target.call{value: value}(data);
-        } else if (callType == CallType.DELEGATECALL) {
-            if (value != 0) {
-                revert ValueOnNonCall();
-            }
-            (ok, ret) = target.delegatecall(data);
-        } else if (callType == CallType.STATICCALL) {
-            if (value != 0) {
-                revert ValueOnNonCall();
-            }
-            (ok, ret) = target.staticcall(data);
-        } else {
-            revert UnknownCallType();
-        }
-
-        if (!ok) {
-            assembly ("memory-safe") {
-                revert(add(ret, 0x20), mload(ret))
             }
         }
     }

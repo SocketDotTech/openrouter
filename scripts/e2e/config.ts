@@ -3,7 +3,6 @@
  * used across all e2e scripts.
  */
 import * as dotenv from 'dotenv';
-import { MaxUint256 } from 'ethers';
 dotenv.config();
 
 // ─── Chain IDs ───────────────────────────────────────────────────────────────
@@ -19,11 +18,8 @@ export const CHAIN_IDS = {
 /** 0x AllowanceHolder — same address on every EVM chain */
 export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
 
-/** Deployed BungeeOpenRouterV2Unchecked instance (set via env after deployment) */
+/** Deployed combined unchecked router instance (set via env after deployment) */
 export const ROUTER_ADDRESS: string = '0x98381Fb4dC5c2046558236857181F4e34a9088dC';
-
-/** Sentinel used in modular actions to forward address(this).balance as msg.value */
-export const MAX_UINT256 = MaxUint256;
 
 /** Standard ERC-20 "native" sentinel used by CurrencyLib */
 export const NATIVE_TOKEN_ADDRESS =

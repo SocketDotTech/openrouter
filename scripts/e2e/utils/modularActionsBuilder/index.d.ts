@@ -1,4 +1,4 @@
-export type Hex = `0x${string}`;
+export type Hex = string;
 export type Address = Hex;
 export type BigNumberish = bigint | number | string;
 
@@ -27,7 +27,7 @@ export interface LogicalAction {
   splices: Splice[];
 }
 
-export interface DummyRouterAction {
+export interface ModularAction {
   actionInfo: BigNumberish;
   data: Hex;
   splices: BigNumberish[];
@@ -35,7 +35,7 @@ export interface DummyRouterAction {
 
 export type Action = LogicalAction;
 
-export declare const DUMMY_ROUTER_EXECUTE_SELECTOR: "0xd405eacd";
+export declare const PERFORM_MODULAR_EXECUTION_SELECTOR: "0x4f85c3a5";
 
 export declare const CallType: Readonly<{
   CALL: 0;
@@ -48,7 +48,7 @@ export declare const Offset: Readonly<{
   nativePayload(payloadOffset: BigNumberish): number;
 }>;
 
-export declare class OpenRouterExecution {
+export declare class ModularActionsBuilder {
   context: ExecutionContext;
   constructor(context?: ExecutionContext);
   call(target: Address, data: Hex): ActionHandle;
@@ -64,14 +64,14 @@ export declare class OpenRouterExecution {
   }): ActionHandle;
   ref(labelOrIndex: string | BigNumberish): ActionRef;
   actionAt(index: BigNumberish): LogicalAction;
-  toActions(): DummyRouterAction[];
+  toActions(): ModularAction[];
   toLogicalActions(): LogicalAction[];
   toJSON(): unknown;
-  toDummyRouterCalldata(): Hex;
+  toCalldata(): Hex;
 }
 
 export declare class ActionHandle {
-  readonly execution: OpenRouterExecution;
+  readonly execution: ModularActionsBuilder;
   readonly index: number;
   as(label: string): this;
   label(label: string): this;
@@ -97,7 +97,8 @@ export declare class ActionRef {
 }
 
 export declare function concatHex(values: Hex[]): Hex;
-export declare function encodeDummyRouterExecuteArgs(actions: Array<LogicalAction | DummyRouterAction>): Hex;
+export declare function encodePerformModularExecutionArgs(actions: Array<LogicalAction | ModularAction>): Hex;
 export declare function encodeWord(value: BigNumberish): Hex;
 export declare function packActionInfo(action: Pick<LogicalAction, "callType" | "target" | "storeResult">): bigint;
 export declare function packSpliceInfo(splice: Splice): bigint;
+export declare function toModularAction(action: LogicalAction): ModularAction;

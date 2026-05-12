@@ -1,6 +1,6 @@
 "use strict";
 
-const DUMMY_ROUTER_EXECUTE_SELECTOR = "0xd405eacd";
+const PERFORM_MODULAR_EXECUTION_SELECTOR = "0x4f85c3a5";
 const WORD_BYTES = 32;
 const WORD_HEX_CHARS = WORD_BYTES * 2;
 const UINT256_MAX = (1n << 256n) - 1n;
@@ -17,7 +17,7 @@ const Offset = Object.freeze({
   nativePayload: (payloadOffset) => WORD_BYTES + checkedIndex(payloadOffset, "payloadOffset"),
 });
 
-class OpenRouterExecution {
+class ModularActionsBuilder {
   constructor(context = {}) {
     this.context = { ...context };
     this._actions = [];
@@ -80,7 +80,7 @@ class OpenRouterExecution {
 
   toActions() {
     this._markSpliceSources();
-    return this._actions.map(toDummyRouterAction);
+    return this._actions.map(toModularAction);
   }
 
   toLogicalActions() {
@@ -106,9 +106,9 @@ class OpenRouterExecution {
     }));
   }
 
-  toDummyRouterCalldata() {
+  toCalldata() {
     this._markSpliceSources();
-    return concatHex([DUMMY_ROUTER_EXECUTE_SELECTOR, encodeDummyRouterExecuteArgs(this._actions)]);
+    return concatHex([PERFORM_MODULAR_EXECUTION_SELECTOR, encodePerformModularExecutionArgs(this._actions)]);
   }
 
   _label(index, label) {
@@ -225,7 +225,7 @@ class ActionRef {
   }
 }
 
-function encodeDummyRouterExecuteArgs(actions) {
+function encodePerformModularExecutionArgs(actions) {
   return concatHex([encodeWord(WORD_BYTES), encodeActionArray(prepareActionsForEncoding(actions))]);
 }
 
@@ -241,7 +241,7 @@ function encodeActionArray(actions) {
 }
 
 function encodeActionTuple(action) {
-  const packedAction = isPackedAction(action) ? normalizePackedAction(action) : toDummyRouterAction(action);
+  const packedAction = isPackedAction(action) ? normalizePackedAction(action) : toModularAction(action);
   const encodedData = encodeBytes(packedAction.data);
   const encodedSplices = encodeUint256Array(packedAction.splices);
   const dataOffset = WORD_BYTES * 3;
@@ -374,7 +374,7 @@ function prepareActionsForEncoding(actions) {
   return prepared;
 }
 
-function toDummyRouterAction(action) {
+function toModularAction(action) {
   return {
     actionInfo: packActionInfo(action).toString(),
     data: action.data,
@@ -434,12 +434,13 @@ module.exports = {
   ActionHandle,
   ActionRef,
   CallType,
-  DUMMY_ROUTER_EXECUTE_SELECTOR,
+  PERFORM_MODULAR_EXECUTION_SELECTOR,
   Offset,
-  OpenRouterExecution,
+  ModularActionsBuilder,
   concatHex,
-  encodeDummyRouterExecuteArgs,
+  encodePerformModularExecutionArgs,
   encodeWord,
   packActionInfo,
   packSpliceInfo,
+  toModularAction,
 };

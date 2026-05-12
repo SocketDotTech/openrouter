@@ -41,10 +41,10 @@ import {
 import { execViaAH } from './utils/allowanceHolder';
 import { encodeApprove, encodeTransfer, getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
+import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
+import type { ModularAction } from './utils/modularActionsBuilder/index';
 import {
   MonolithicExecution,
-  Action,
-  CallType,
   NO_FEE,
   NO_SWAP,
   ZERO_ADDRESS,
@@ -207,7 +207,7 @@ function buildModularActions(
   relaySpender: string,
   depositTarget: string,
   depositData: string,
-): Action[] {
+): ModularAction[] {
   // AH.transferFrom(token, owner, recipient, amount) = 0x15dacbea
   const ahIface = new ethers.Interface([
     'function transferFrom(address token, address owner, address recipient, uint256 amount)',
@@ -219,40 +219,12 @@ function buildModularActions(
     inputAmount,
   ]);
 
-  return [
-    // 0: pull AAVE from user via AllowanceHolder.transferFrom
-    {
-      callType: CallType.CALL,
-      target: ALLOWANCE_HOLDER,
-      value: 0n,
-      data: ahTransferFromData,
-      splices: [],
-    },
-    // 1: send pre-bridge fee to signer in AAVE
-    {
-      callType: CallType.CALL,
-      target: TOKENS.AAVE_ARB,
-      value: 0n,
-      data: encodeTransfer(signerAddress, feeAmount),
-      splices: [],
-    },
-    // 2: approve Relay spender for bridgeAmount
-    {
-      callType: CallType.CALL,
-      target: TOKENS.AAVE_ARB,
-      value: 0n,
-      data: encodeApprove(relaySpender, bridgeAmount),
-      splices: [],
-    },
-    // 3: call Relay deposit — amount already encoded in depositData
-    {
-      callType: CallType.CALL,
-      target: depositTarget,
-      value: 0n,
-      data: depositData,
-      splices: [],
-    },
-  ];
+  const exec = new ModularActionsBuilder();
+  exec.call(ALLOWANCE_HOLDER, ahTransferFromData);
+  exec.call(TOKENS.AAVE_ARB, encodeTransfer(signerAddress, feeAmount));
+  exec.call(TOKENS.AAVE_ARB, encodeApprove(relaySpender, bridgeAmount));
+  exec.call(depositTarget, depositData);
+  return exec.toActions();
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────

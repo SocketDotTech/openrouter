@@ -1,11 +1,12 @@
-# OpenRouter Execution Builder
+# Modular Actions Builder
 
-Dependency-free helper for formatting `DummyRouter.execute(Action[])` payloads from provider SDK/API calldata.
+Dependency-free helper for formatting packed `performModularExecution(Action[])`
+payloads from provider SDK/API calldata.
 
 ```js
-const { OpenRouterExecution } = require("./openRouterExecutionBuilder");
+const { ModularActionsBuilder } = require("./modularActionsBuilder/index");
 
-const exec = new OpenRouterExecution({
+const exec = new ModularActionsBuilder({
   routeId: "openocean-stargate-native",
   chainId: 42161,
 });
@@ -23,10 +24,10 @@ exec
   .as("feeTransfer")
   .valueFrom(exec.ref("routeFee").returnWord());
 
-const calldata = exec.toDummyRouterCalldata();
+const calldata = exec.toCalldata();
 ```
 
-`toActions()` returns the current gas-golfed `DummyRouter.Action[]` ABI shape:
+`toActions()` returns the packed modular `Action[]` ABI shape:
 
 ```js
 [
@@ -99,4 +100,6 @@ exec
   .splicePayloadWord(STARGATE_AMOUNT_OFFSET, exec.ref("bridgeAmount").returnWord());
 ```
 
-Use `toActions()` when the caller already has an ABI encoder for the current packed `DummyRouter`. Use `toLogicalActions()` for the readable builder shape. Use `toDummyRouterCalldata()` when you need raw calldata for the current `DummyRouter`.
+Use `toActions()` when the caller already has an ABI encoder for the packed modular action tuple. Use
+`toLogicalActions()` for the readable builder shape. Use `toCalldata()` when you need raw
+`performModularExecution(Action[])` calldata.

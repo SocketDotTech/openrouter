@@ -4,7 +4,7 @@ pragma solidity =0.8.25;
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
-import {DummyRouter} from "../../src/dummyRouter.sol";
+import {BungeeOpenRouterV2Unchecked as Router} from "../../src/combined/BungeeOpenRouterV2Unchecked.sol";
 import {MathManipulator} from "../../src/manipulators/MathManipulator.sol";
 
 interface IOpenOceanExchangeV2 {
@@ -81,7 +81,7 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
             vm.warp(FORK_BLOCK_TIMESTAMP);
         }
 
-        DummyRouter router = _routerAtFixtureAddress();
+        Router router = _routerAtFixtureAddress();
         MathManipulator manipulator = new MathManipulator();
         if (bytes(rpcUrl).length == 0) {
             emit log("Set ARBITRUM_RPC to execute this fork PoC.");
@@ -96,14 +96,14 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         uint256 initialFeeRecipientBalance = FEE_RECIPIENT.balance;
         uint256 initialWethBalance = ERC20(ARBITRUM_WETH).balanceOf(address(router));
 
-        DummyRouter.Action[] memory actions = _buildActions(
+        Router.Action[] memory actions = _buildActions(
             manipulator, inputAmount, nativeFee, _openOceanSwapCalldata(inputAmount), _stargateCalldata(nativeFee)
         );
 
         uint256 gasBeforeExecute = gasleft();
-        bytes[] memory results = router.execute(actions);
+        bytes[] memory results = router.performModularExecution(actions);
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
-        emit log_named_uint("router.execute gas used", executeGasUsed);
+        emit log_named_uint("router.performModularExecution gas used", executeGasUsed);
 
         _assertPocResult(
             router,
@@ -202,22 +202,22 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         uint256 nativeFee,
         bytes memory swapCalldata,
         bytes memory stargateCalldata
-    ) internal pure returns (DummyRouter.Action[] memory actions) {
-        actions = new DummyRouter.Action[](7);
+    ) internal pure returns (Router.Action[] memory actions) {
+        actions = new Router.Action[](7);
         actions[0] = _action(
-            DummyRouter.CallType.CALL,
+            Router.CallType.CALL,
             ARBITRUM_USDC,
             abi.encodeWithSelector(ERC20.approve.selector, OPENOCEAN_EXCHANGE_V2, inputAmount),
             new uint256[](0),
             false
         );
 
-        actions[1] = _action(DummyRouter.CallType.CALL, OPENOCEAN_EXCHANGE_V2, swapCalldata, new uint256[](0), true);
+        actions[1] = _action(Router.CallType.CALL, OPENOCEAN_EXCHANGE_V2, swapCalldata, new uint256[](0), true);
 
         uint256[] memory feeSplices = new uint256[](1);
         feeSplices[0] = _splice(1, 0, 4, 32);
         actions[2] = _action(
-            DummyRouter.CallType.STATICCALL,
+            Router.CallType.STATICCALL,
             address(manipulator),
             abi.encodeCall(MathManipulator.percent, (uint256(0), ROUTE_FEE_BPS)),
             feeSplices,
@@ -227,18 +227,14 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         uint256[] memory feeTransferSplices = new uint256[](1);
         feeTransferSplices[0] = _splice(2, 0, 0, 32);
         actions[3] = _action(
-            DummyRouter.CallType.CALL_WITH_NATIVE,
-            FEE_RECIPIENT,
-            abi.encodePacked(uint256(0)),
-            feeTransferSplices,
-            false
+            Router.CallType.CALL_WITH_NATIVE, FEE_RECIPIENT, abi.encodePacked(uint256(0)), feeTransferSplices, false
         );
 
         uint256[] memory postFeeSplices = new uint256[](2);
         postFeeSplices[0] = _splice(1, 0, 4, 32);
         postFeeSplices[1] = _splice(2, 0, 36, 32);
         actions[4] = _action(
-            DummyRouter.CallType.STATICCALL,
+            Router.CallType.STATICCALL,
             address(manipulator),
             abi.encodeCall(MathManipulator.subtract, (uint256(0), uint256(0))),
             postFeeSplices,
@@ -248,7 +244,7 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         uint256[] memory bridgeAmountSplices = new uint256[](1);
         bridgeAmountSplices[0] = _splice(4, 0, 4, 32);
         actions[5] = _action(
-            DummyRouter.CallType.STATICCALL,
+            Router.CallType.STATICCALL,
             address(manipulator),
             abi.encodeCall(MathManipulator.subtract, (uint256(0), nativeFee)),
             bridgeAmountSplices,
@@ -259,7 +255,7 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         stargateSplices[0] = _splice(4, 0, 0, 32);
         stargateSplices[1] = _splice(5, 0, uint64(CALL_WITH_NATIVE_PAYLOAD_OFFSET + STARGATE_AMOUNT_OFFSET), 32);
         actions[6] = _action(
-            DummyRouter.CallType.CALL_WITH_NATIVE,
+            Router.CallType.CALL_WITH_NATIVE,
             STARGATE_NATIVE_WRAPPER,
             abi.encodePacked(uint256(0), stargateCalldata),
             stargateSplices,
@@ -268,7 +264,7 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
     }
 
     function _assertPocResult(
-        DummyRouter router,
+        Router router,
         uint256 nativeFee,
         uint256 initialNativeBalance,
         uint256 initialFeeRecipientBalance,
@@ -293,28 +289,23 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         assertLt(address(router).balance - initialNativeBalance, nativeFee);
     }
 
-    function _routerAtFixtureAddress() internal returns (DummyRouter router) {
-        DummyRouter implementation = new DummyRouter();
+    function _routerAtFixtureAddress() internal returns (Router router) {
+        Router implementation = new Router(address(this));
         vm.etch(FIXTURE_ROUTER, address(implementation).code);
-        return DummyRouter(payable(FIXTURE_ROUTER));
+        return Router(payable(FIXTURE_ROUTER));
     }
 
     function _action(
-        DummyRouter.CallType callType,
+        Router.CallType callType,
         address target,
         bytes memory data,
         uint256[] memory splices,
         bool storeResult
-    ) internal pure returns (DummyRouter.Action memory) {
-        return
-            DummyRouter.Action({actionInfo: _actionInfo(callType, target, storeResult), data: data, splices: splices});
+    ) internal pure returns (Router.Action memory) {
+        return Router.Action({actionInfo: _actionInfo(callType, target, storeResult), data: data, splices: splices});
     }
 
-    function _actionInfo(DummyRouter.CallType callType, address target, bool storeResult)
-        internal
-        pure
-        returns (uint256)
-    {
+    function _actionInfo(Router.CallType callType, address target, bool storeResult) internal pure returns (uint256) {
         return uint256(uint8(callType)) | (storeResult ? uint256(1) << 8 : 0) | (uint256(uint160(target)) << 16);
     }
 
