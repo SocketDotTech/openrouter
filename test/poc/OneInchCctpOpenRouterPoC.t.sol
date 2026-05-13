@@ -204,7 +204,8 @@ contract OneInchCctpOpenRouterPoCTest is Test {
                 outputToken: POLYGON_USDC,
                 value: 0,
                 minOutput: EXPECTED_SWAP_OUTPUT_USDC,
-                data: swapCalldata
+                data: swapCalldata,
+                returnDataWordOffset: 0
             }),
             postFee: Router.FeeData({receiver: FEE_RECIPIENT, amount: ROUTE_FEE_USDC}),
             bridge: Router.BridgeData({

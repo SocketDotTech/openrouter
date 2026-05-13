@@ -8,7 +8,7 @@ export const ROUTER_ABI = [
     (
       (address user, address inputToken, uint256 inputAmount) input,
       (address receiver, uint256 amount) preFee,
-      (address target, address approvalSpender, address outputToken, uint256 value, uint256 minOutput, bytes data) swap,
+      (address target, address approvalSpender, address outputToken, uint256 value, uint256 minOutput, bytes data, uint256 returnDataWordOffset) swap,
       (address receiver, uint256 amount) postFee,
       (address target, address approvalSpender, uint256 value, bytes data, uint256[] amountPositions, bool useFinalAmountAsValue) bridge
     ) exec

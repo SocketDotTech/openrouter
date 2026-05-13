@@ -6,7 +6,7 @@
  *   2. Build CCTP v2 depositForBurn calldata with a zero amount placeholder
  *      at byte offset 4 (the first parameter).
  *   3. Build either a monolithic or modular execution payload.
- *      - Monolithic: swap inside the router using pre/post balance delta,
+ *      - Monolithic: swap inside the router using the decoded swap return amount,
  *        take a post-swap fee in USDC, splice finalAmount into depositForBurn,
  *        approve TOKEN_MESSENGER, call TOKEN_MESSENGER.
  *      - Modular: discrete actions — pull → approve(oo) → swap(oo) → transfer fee →
@@ -153,7 +153,7 @@ function buildDepositForBurnCalldata(
  * Builds a MonolithicExecution that:
  *   - Pulls inputAmount AAVE from user
  *   - No pre-swap fee
- *   - Swaps AAVE → USDC via OpenOcean (balance delta)
+ *   - Swaps AAVE → USDC via OpenOcean (decoded return amount)
  *   - Takes feeAmount USDC as post-swap fee to signer
  *   - Splices finalAmount into depositForBurn at offset 4
  *   - Approves TOKEN_MESSENGER and calls depositForBurn
@@ -182,6 +182,7 @@ function buildMonolithicExecution(
       value: 0n,
       minOutput: minAmountOut,
       data: swapData,
+      returnDataWordOffset: 0n,
     },
     postFee: {
       receiver: signerAddress,

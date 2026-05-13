@@ -258,6 +258,7 @@ function buildMonolithicExecution(
       value: 0n,
       minOutput: minAmountOut,
       data: swapData,
+      returnDataWordOffset: 0n,
     },
     postFee: {
       receiver: signerAddress,

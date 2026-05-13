@@ -9,7 +9,7 @@
  *      0.001 ETH is used if estimation fails.
  *   3. Build a post-swap fee to signer in ETH.
  *   4. Build either monolithic or modular execution payload.
- *      - Monolithic: swap AAVE→ETH (balance delta on NATIVE), take ETH fee,
+ *      - Monolithic: swap AAVE→ETH (decoded return amount), take ETH fee,
  *        call Arbitrum inbox with useFinalAmountAsValue=true so finalAmount
  *        becomes msg.value on the depositEth call.
  *      - Modular: pull → approve(oo) → swap(oo) → send ETH fee via CALL_WITH_NATIVE →
@@ -176,7 +176,7 @@ function buildDepositEthCalldata(): string {
 /**
  * Builds a MonolithicExecution that:
  *   - Pulls inputAmount AAVE from user
- *   - Swaps AAVE → ETH via OpenOcean (balance delta on NATIVE_TOKEN_ADDRESS)
+ *   - Swaps AAVE → ETH via OpenOcean (decoded return amount)
  *   - Takes feeAmount ETH as post-swap fee sent to signer
  *   - Calls Arbitrum inbox depositEth() with finalAmount as msg.value
  *     (via useFinalAmountAsValue=true — no amount to splice in calldata)
@@ -203,6 +203,7 @@ function buildMonolithicExecution(
       value: 0n,
       minOutput: minAmountOut,
       data: swapData,
+      returnDataWordOffset: 0n,
     },
     postFee: {
       receiver: signerAddress,

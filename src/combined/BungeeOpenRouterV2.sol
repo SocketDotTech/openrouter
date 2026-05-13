@@ -56,10 +56,11 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
     struct SwapData {
         address target;
         address approvalSpender; // 0 to skip ERC20 approval before swap
-        address outputToken; // token measured via balance delta
+        address outputToken; // token used for post-fee transfer / bridge approval
         uint256 value; // ETH forwarded to the swap target
-        uint256 minOutput; // minimum balance delta; reverts if not met
+        uint256 minOutput; // minimum decoded output; reverts if not met
         bytes data;
+        uint256 returnDataWordOffset;
     }
 
     /// @notice Mandatory bridge call. `amountPositions` lists every byte offset
@@ -127,6 +128,7 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
     error SpliceOutOfBounds(uint256 actionIndex, uint256 spliceIndex);
     error CallFailed(uint256 actionIndex, bytes returndata);
     error MissingNativeValue(uint256 actionIndex);
+    error ReturnDataOutOfBounds();
 
     // =========================================================================
     // Constructor
@@ -191,7 +193,7 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
             CurrencyLib.transfer(exec.input.inputToken, exec.preFee.receiver, exec.preFee.amount);
         }
 
-        // 3. optional swap, accounted via pre/post balance delta
+        // 3. optional swap, accounted via decoded returndata
         address finalToken;
         uint256 finalAmount;
         if (exec.swap.target != address(0)) {
@@ -230,16 +232,14 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
         // when useFinalAmountAsValue is set, forward finalAmount as msg.value so
         // native-token bridges (e.g. Arbitrum inbox) receive the exact bridged amount.
         uint256 bridgeValue = exec.bridge.useFinalAmountAsValue ? finalAmount : exec.bridge.value;
-        _performAction(exec.bridge.target, bridgeValue, bridgeData);
+        _doCall(exec.bridge.target, bridgeValue, bridgeData, false);
     }
 
-    /// @dev Balance-delta swap helper; split out to keep _runMonolithic under 100 lines.
+    /// @dev Swap helper; decodes final amount from a returndata word.
     function _performSwap(MonolithicExecution calldata exec)
         internal
         returns (address finalToken, uint256 finalAmount)
     {
-        uint256 preBalance = CurrencyLib.balanceOf(exec.swap.outputToken, address(this));
-
         if (exec.swap.approvalSpender != address(0) && exec.input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
             uint256 swapInput;
             unchecked {
@@ -248,22 +248,14 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
             SafeTransferLib.safeApproveWithRetry(exec.input.inputToken, exec.swap.approvalSpender, swapInput);
         }
 
-        _performAction(exec.swap.target, exec.swap.value, exec.swap.data);
+        bytes memory ret = _doCall(exec.swap.target, exec.swap.value, exec.swap.data, true);
+        finalAmount = _decodeReturnWord(ret, exec.swap.returnDataWordOffset);
 
-        uint256 postBalance = CurrencyLib.balanceOf(exec.swap.outputToken, address(this));
-        if (postBalance < preBalance) {
-            revert SwapOutputInsufficient();
-        }
-        uint256 delta;
-        unchecked {
-            delta = postBalance - preBalance;
-        }
-        if (delta < exec.swap.minOutput) {
+        if (finalAmount < exec.swap.minOutput) {
             revert SwapOutputInsufficient();
         }
 
         finalToken = exec.swap.outputToken;
-        finalAmount = delta;
     }
 
     // =========================================================================
@@ -385,6 +377,44 @@ contract BungeeOpenRouterV2 is OpenRouterAuthBase, AllowanceHolderContext {
             unchecked {
                 ++i;
             }
+        }
+    }
+
+    // =========================================================================
+    // Internal: simple call dispatcher (used by monolithic path)
+    // =========================================================================
+
+    function _doCall(address target, uint256 value, bytes memory data, bool storeResult)
+        internal
+        returns (bytes memory ret)
+    {
+        bool success;
+        assembly ("memory-safe") {
+            success := call(gas(), target, value, add(data, 0x20), mload(data), 0, 0)
+        }
+
+        if (!success || storeResult) {
+            assembly ("memory-safe") {
+                let returnDataSize := returndatasize()
+                ret := mload(0x40)
+                mstore(ret, returnDataSize)
+                returndatacopy(add(ret, 0x20), 0, returnDataSize)
+                mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f)))
+            }
+            if (!success) {
+                assembly ("memory-safe") {
+                    revert(add(ret, 0x20), mload(ret))
+                }
+            }
+        }
+    }
+
+    function _decodeReturnWord(bytes memory ret, uint256 wordOffset) internal pure returns (uint256 word) {
+        uint256 offset = wordOffset * 32;
+        if (offset + 32 > ret.length) revert ReturnDataOutOfBounds();
+
+        assembly ("memory-safe") {
+            word := mload(add(add(ret, 0x20), offset))
         }
     }
 }

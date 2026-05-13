@@ -24,6 +24,7 @@ export interface SwapData {
   value: bigint;
   minOutput: bigint;
   data: string;
+  returnDataWordOffset: bigint;
 }
 
 export interface BridgeData {
@@ -58,4 +59,5 @@ export const NO_SWAP: SwapData = {
   value: 0n,
   minOutput: 0n,
   data: '0x',
+  returnDataWordOffset: 0n,
 };
