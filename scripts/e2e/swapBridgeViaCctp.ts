@@ -1,27 +1,17 @@
 /**
- * Script 2 — Swap AAVE→USDC on Arbitrum, then bridge USDC to Base via CCTP v2
+ * Script 2 — Swap AAVE→USDC on Polygon, then bridge USDC to Base via CCTP v2
  *
- * Flow:
- *   1. Fetch an OpenOcean swap quote for AAVE→USDC on Arbitrum.
- *   2. Build CCTP v2 depositForBurn calldata with a zero amount placeholder
- *      at byte offset 4 (the first parameter).
- *   3. Build either a monolithic or modular execution payload.
- *      - Monolithic: swap inside the router using the decoded swap return amount,
- *        take a post-swap fee in USDC, splice finalAmount into depositForBurn,
- *        approve TOKEN_MESSENGER, call TOKEN_MESSENGER.
- *      - Modular: discrete actions — pull → approve(oo) → swap(oo) → transfer fee →
- *        approve(cctp) → staticcall balanceOf → call depositForBurn (splice balance→amount).
- *   4. Call AllowanceHolder.exec → router.performExecution / performModularExecution.
+ * OpenOcean must output Circle’s **native** Polygon USDC (`USDC_POLYGON_CIRCLE`).
+ * Bridged USDC (`0x2791…`, USDC.e) is rejected by TokenMessenger (“Burn token not supported”).
  *
- * Uses the signer’s full AAVE balance on Arbitrum as swap input (fund the wallet and approve AH as needed).
+ * Each run uses half of the initial AAVE snapshot: monolithic then modular.
  *
  * Usage:
- *   ROUTER_ADDRESS=0x... PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaCctp.ts
- *   USE_MODULAR=true ROUTER_ADDRESS=0x... PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaCctp.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaCctp.ts
+ *   Polygon native USDC → Base USDC via CCTP only (no OpenOcean swap):
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaCctp.ts usdc-polygon-base
  *
- * CCTP v2 fast path:
- *   minFinalityThreshold=1000 (1000 confirmations, ~instant finality on supported chains)
- *   maxFee set to a small value; pass 0 for the standard (slower) path.
+ * Router on Polygon: {@link ROUTER_BY_CHAIN_ID} / `routerAddressForChain(137)`.
  */
 import axios from 'axios';
 import { ethers } from 'ethers';
@@ -30,7 +20,7 @@ dotenv.config();
 
 import {
   CHAIN_IDS,
-  ROUTER_ADDRESS,
+  routerAddressForChain,
   TOKENS,
   CCTP_CONFIG,
   FEE_BPS,
@@ -47,10 +37,12 @@ import type { ModularAction } from './utils/modularActionsBuilder/index';
 import {
   MonolithicExecution,
   NO_FEE,
-  ZERO_ADDRESS,
+  NO_SWAP,
 } from './utils/contractTypes';
+import { sleep } from './utils/sleep';
+import { logTxnSummary } from './utils/txnLogSummary';
 
-// ─── OpenOcean swap quote ─────────────────────────────────────────────────────
+const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
 interface OpenOceanSwapQuoteResponse {
   data: {
@@ -63,15 +55,6 @@ interface OpenOceanSwapQuoteResponse {
   };
 }
 
-/**
- * Fetches a swap quote from OpenOcean for AAVE→USDC on Arbitrum.
- * The router address is used as both sender and account so OpenOcean
- * routes the swap through the router itself.
- *
- * @param routerAddress  Address that will execute the swap (needs approval)
- * @param inputAmount    Amount of AAVE in wei
- * @param slippageBps    Slippage tolerance in basis points (e.g. 100 = 1%)
- */
 async function fetchOpenOceanSwapQuote(
   routerAddress: string,
   inputAmount: bigint,
@@ -83,19 +66,19 @@ async function fetchOpenOceanSwapQuote(
   estimatedOut: bigint;
 }> {
   const params: Record<string, string> = {
-    inTokenAddress: TOKENS.AAVE_ARB,
-    outTokenAddress: TOKENS.USDC_ARB,
-    amount: ethers.formatUnits(inputAmount, 18), // OO expects human-readable amount
+    inTokenAddress: TOKENS.AAVE_POLYGON,
+    outTokenAddress: TOKENS.USDC_POLYGON_CIRCLE,
+    amount: ethers.formatUnits(inputAmount, 18),
     slippage: (slippageBps / 100).toString(),
     sender: routerAddress,
     account: routerAddress,
-    gasPrice: '1', // gwei; doesn't affect routing
+    gasPrice: '1',
   };
   if (OPEN_OCEAN_API_KEY) {
-    params['apikey'] = OPEN_OCEAN_API_KEY;
+    params.apikey = OPEN_OCEAN_API_KEY;
   }
 
-  const url = `https://open-api.openocean.finance/v3/${CHAIN_IDS.ARBITRUM}/swap_quote`;
+  const url = `https://open-api.openocean.finance/v3/${CHAIN_IDS.POLYGON}/swap_quote`;
   const response = await axios.get<OpenOceanSwapQuoteResponse>(url, { params });
   const q = response.data.data;
 
@@ -107,18 +90,6 @@ async function fetchOpenOceanSwapQuote(
   };
 }
 
-// ─── CCTP depositForBurn calldata ─────────────────────────────────────────────
-
-/**
- * Builds CCTP v2 depositForBurn calldata.
- * `amount` is set to 0 as a placeholder; it will be spliced in at runtime
- * (offset 4 in the calldata, i.e. amountPositions=[4] in MonolithicExecution).
- *
- * For the modular path a STATICCALL balanceOf + splice is used instead.
- *
- * Fast path: minFinalityThreshold=1000, maxFee=small value
- * Standard path: minFinalityThreshold=2000, maxFee=0
- */
 function buildDepositForBurnCalldata(
   recipientAddress: string,
   burnToken: string,
@@ -129,35 +100,21 @@ function buildDepositForBurnCalldata(
     'function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold) external',
   ]);
 
-  // Pad the recipient address to bytes32
   const mintRecipient = ethers.zeroPadValue(recipientAddress, 32);
-
-  // maxFee: small fee for fast path (e.g. 1 USDC = 1_000_000 units), 0 for standard
   const maxFee = fastPath ? 1_000_000n : 0n;
   const minFinalityThreshold = fastPath ? 1000 : 2000;
 
   return iface.encodeFunctionData('depositForBurn', [
-    0n, // amount placeholder — spliced at runtime
+    0n,
     destinationCctpDomain,
     mintRecipient,
     burnToken,
-    ethers.ZeroHash, // destinationCaller = anyone can complete
+    ethers.ZeroHash,
     maxFee,
     minFinalityThreshold,
   ]);
 }
 
-// ─── Monolithic builder ───────────────────────────────────────────────────────
-
-/**
- * Builds a MonolithicExecution that:
- *   - Pulls inputAmount AAVE from user
- *   - No pre-swap fee
- *   - Swaps AAVE → USDC via OpenOcean (decoded return amount)
- *   - Takes feeAmount USDC as post-swap fee to signer
- *   - Splices finalAmount into depositForBurn at offset 4
- *   - Approves TOKEN_MESSENGER and calls depositForBurn
- */
 function buildMonolithicExecution(
   signerAddress: string,
   inputAmount: bigint,
@@ -171,14 +128,14 @@ function buildMonolithicExecution(
   return {
     input: {
       user: signerAddress,
-      inputToken: TOKENS.AAVE_ARB,
+      inputToken: TOKENS.AAVE_POLYGON,
       inputAmount,
     },
     preFee: NO_FEE,
     swap: {
       target: ooRouterAddress,
       approvalSpender: ooRouterAddress,
-      outputToken: TOKENS.USDC_ARB,
+      outputToken: TOKENS.USDC_POLYGON_CIRCLE,
       value: 0n,
       minOutput: minAmountOut,
       data: swapData,
@@ -193,25 +150,12 @@ function buildMonolithicExecution(
       approvalSpender: tokenMessenger,
       value: 0n,
       data: depositForBurnData,
-      // amount is the first ABI param → at byte offset 4 (after 4-byte selector)
       amountPositions: [4n],
       useFinalAmountAsValue: false,
     },
   };
 }
 
-// ─── Modular builder ──────────────────────────────────────────────────────────
-
-/**
- * Builds an Action array:
- *   [0] Pull AAVE via AH.transferFrom
- *   [1] Approve OpenOcean router for inputAmount
- *   [2] Call OpenOcean router to swap AAVE → USDC
- *   [3] Transfer feeAmount USDC to signer
- *   [4] Approve TOKEN_MESSENGER for MaxUint256 (covers any USDC balance)
- *   [5] STATICCALL USDC.balanceOf(router)     → prevReturn = 32-byte balance
- *   [6] Call TOKEN_MESSENGER.depositForBurn   → splice prevReturn[0..32] → data[4..36]
- */
 function buildModularActions(
   signerAddress: string,
   routerAddress: string,
@@ -226,7 +170,7 @@ function buildModularActions(
     'function transferFrom(address token, address owner, address recipient, uint256 amount)',
   ]);
   const ahTransferFromData = ahIface.encodeFunctionData('transferFrom', [
-    TOKENS.AAVE_ARB,
+    TOKENS.AAVE_POLYGON,
     signerAddress,
     routerAddress,
     inputAmount,
@@ -234,124 +178,355 @@ function buildModularActions(
 
   const exec = new ModularActionsBuilder();
   exec.call(ALLOWANCE_HOLDER, ahTransferFromData);
-  exec.call(TOKENS.AAVE_ARB, encodeApprove(ooRouterAddress, inputAmount));
+  exec.call(TOKENS.AAVE_POLYGON, encodeApprove(ooRouterAddress, inputAmount));
   exec.call(ooRouterAddress, swapData);
-  exec.call(TOKENS.USDC_ARB, encodeTransfer(signerAddress, feeAmount));
-  exec.call(TOKENS.USDC_ARB, encodeApprove(tokenMessenger, ethers.MaxUint256));
-  const balance = exec.staticCall(TOKENS.USDC_ARB, encodeBalanceOf(routerAddress));
+  exec.call(TOKENS.USDC_POLYGON_CIRCLE, encodeTransfer(signerAddress, feeAmount));
+  exec.call(TOKENS.USDC_POLYGON_CIRCLE, encodeApprove(tokenMessenger, ethers.MaxUint256));
+  const balance = exec.staticCall(TOKENS.USDC_POLYGON_CIRCLE, encodeBalanceOf(routerAddress));
   exec.call(tokenMessenger, depositForBurnData).spliceArg(0, balance.returnWord());
   return exec.toActions();
 }
 
-// ─── Main ─────────────────────────────────────────────────────────────────────
+function buildMonolithicExecutionUsdcPolygonToBaseCctp(
+  signerAddress: string,
+  inputAmount: bigint,
+  feeAmount: bigint,
+  depositForBurnData: string,
+  tokenMessenger: string,
+): MonolithicExecution {
+  return {
+    input: {
+      user: signerAddress,
+      inputToken: TOKENS.USDC_POLYGON_CIRCLE,
+      inputAmount,
+    },
+    preFee: {
+      receiver: signerAddress,
+      amount: feeAmount,
+    },
+    swap: NO_SWAP,
+    postFee: NO_FEE,
+    bridge: {
+      target: tokenMessenger,
+      approvalSpender: tokenMessenger,
+      value: 0n,
+      data: depositForBurnData,
+      amountPositions: [4n],
+      useFinalAmountAsValue: false,
+    },
+  };
+}
 
-async function main() {
-  const privateKey = process.env.PRIVATE_KEY;
-  if (!privateKey) {
-    throw new Error('PRIVATE_KEY env var required');
-  }
-
-  const provider = new ethers.JsonRpcProvider(RPC.ARBITRUM);
-  const signer = new ethers.Wallet(privateKey, provider);
-  const signerAddress = await signer.getAddress();
-
-  const inputToken = TOKENS.AAVE_ARB;
-  const { balance: inputAmount, decimals: inputDecimals } = await getWalletErc20Balance(
-    inputToken,
+function buildModularActionsUsdcPolygonToBaseCctp(
+  signerAddress: string,
+  routerAddress: string,
+  inputAmount: bigint,
+  feeAmount: bigint,
+  depositForBurnData: string,
+  tokenMessenger: string,
+): ModularAction[] {
+  const ahIface = new ethers.Interface([
+    'function transferFrom(address token, address owner, address recipient, uint256 amount)',
+  ]);
+  const ahTransferFromData = ahIface.encodeFunctionData('transferFrom', [
+    TOKENS.USDC_POLYGON_CIRCLE,
     signerAddress,
-    provider,
-  );
-  if (inputAmount === 0n) {
-    throw new Error(
-      `Signer ${signerAddress} has zero balance of ${inputToken}. Fund the wallet with AAVE on Arbitrum first.`,
-    );
-  }
-  const arbCctp = CCTP_CONFIG[CHAIN_IDS.ARBITRUM];
+    routerAddress,
+    inputAmount,
+  ]);
+
+  const exec = new ModularActionsBuilder();
+  exec.call(ALLOWANCE_HOLDER, ahTransferFromData);
+  exec.call(TOKENS.USDC_POLYGON_CIRCLE, encodeTransfer(signerAddress, feeAmount));
+  exec.call(TOKENS.USDC_POLYGON_CIRCLE, encodeApprove(tokenMessenger, ethers.MaxUint256));
+  const balance = exec.staticCall(TOKENS.USDC_POLYGON_CIRCLE, encodeBalanceOf(routerAddress));
+  exec.call(tokenMessenger, depositForBurnData).spliceArg(0, balance.returnWord());
+  return exec.toActions();
+}
+
+async function executeLegUsdcPolygonToBaseCctp(args: {
+  label: string;
+  useModular: boolean;
+  signer: ethers.Wallet;
+  signerAddress: string;
+  inputAmount: bigint;
+  routerIface: ethers.Interface;
+}): Promise<void> {
+  const { label, useModular, signer, signerAddress, inputAmount, routerIface } = args;
+
+  console.log(`\n── ${label} (${useModular ? 'MODULAR' : 'MONOLITHIC'}) ──`);
+
+  const feeAmount = bpsOf(inputAmount, FEE_BPS);
+  console.log(`Input USDC:      ${ethers.formatUnits(inputAmount, 6)}`);
+  console.log(`Pre-bridge fee:  ${ethers.formatUnits(feeAmount, 6)} (${FEE_BPS} bps)`);
+  console.log(`Net to bridge:   ${ethers.formatUnits(inputAmount - feeAmount, 6)}`);
+
+  const polyCctp = CCTP_CONFIG[CHAIN_IDS.POLYGON];
   const baseCctp = CCTP_CONFIG[CHAIN_IDS.BASE];
-  const useModular = false;
-
-  console.log(`Signer:        ${signerAddress}`);
-  console.log(`Router:        ${ROUTER_ADDRESS}`);
-  console.log(`Input token:   ${inputToken}`);
-  console.log(
-    `Input:         ${ethers.formatUnits(inputAmount, inputDecimals)} (full wallet balance)`,
+  console.log(`CCTP burn token: ${polyCctp.usdcAddress}`);
+  const depositForBurnData = buildDepositForBurnCalldata(
+    signerAddress,
+    polyCctp.usdcAddress,
+    baseCctp.cctpDomain,
+    true,
   );
-  console.log(`Mode:          ${useModular ? 'MODULAR' : 'MONOLITHIC'}`);
-  console.log('');
 
-  // Fetch OpenOcean quote
-  console.log('Fetching OpenOcean swap quote (AAVE→USDC Arbitrum)...');
+  let execCalldata: string;
+  if (useModular) {
+    execCalldata = routerIface.encodeFunctionData('performModularExecution', [
+      buildModularActionsUsdcPolygonToBaseCctp(
+        signerAddress,
+        ROUTER_POLYGON,
+        inputAmount,
+        feeAmount,
+        depositForBurnData,
+        polyCctp.tokenMessenger,
+      ),
+    ]);
+  } else {
+    execCalldata = routerIface.encodeFunctionData('performExecution', [
+      buildMonolithicExecutionUsdcPolygonToBaseCctp(
+        signerAddress,
+        inputAmount,
+        feeAmount,
+        depositForBurnData,
+        polyCctp.tokenMessenger,
+      ),
+    ]);
+  }
+
+  await ensureAllowanceForAllowanceHolder(
+    signer,
+    TOKENS.USDC_POLYGON_CIRCLE,
+    inputAmount,
+  );
+  const receipt = await execViaAH(
+    signer,
+    ROUTER_POLYGON,
+    TOKENS.USDC_POLYGON_CIRCLE,
+    inputAmount,
+    ROUTER_POLYGON,
+    execCalldata,
+  );
+
+  const modeLabel = useModular ? 'Modular' : 'Monolithic';
+  logTxnSummary(
+    `Polygon USDC → Base USDC — CCTP — ${modeLabel}`,
+    CHAIN_IDS.POLYGON,
+    receipt,
+  );
+}
+
+async function executeLeg(args: {
+  label: string;
+  useModular: boolean;
+  signer: ethers.Wallet;
+  signerAddress: string;
+  inputAmount: bigint;
+  routerIface: ethers.Interface;
+}): Promise<void> {
+  const { label, useModular, signer, signerAddress, inputAmount, routerIface } = args;
+
+  console.log(`\n── ${label} (${useModular ? 'MODULAR' : 'MONOLITHIC'}) ──`);
+
+  console.log('Fetching OpenOcean swap quote (Polygon AAVE → Circle native USDC)...');
   const {
     routerAddress: ooRouterAddress,
     swapData,
     minAmountOut,
     estimatedOut,
-  } = await fetchOpenOceanSwapQuote(ROUTER_ADDRESS, inputAmount);
+  } = await fetchOpenOceanSwapQuote(ROUTER_POLYGON, inputAmount);
 
   const feeAmount = bpsOf(estimatedOut, FEE_BPS);
   console.log(`OO Router:       ${ooRouterAddress}`);
-  console.log(`Est. USDC out:   ${ethers.formatUnits(estimatedOut, 6)} USDC`);
-  console.log(
-    `Post-swap fee:   ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`,
-  );
-  console.log(`Min USDC out:    ${ethers.formatUnits(minAmountOut, 6)} USDC`);
-  console.log('');
+  console.log(`Est. USDC out:   ${ethers.formatUnits(estimatedOut, 6)}`);
+  console.log(`Post-swap fee:   ${ethers.formatUnits(feeAmount, 6)} (${FEE_BPS} bps)`);
+  console.log(`Min USDC out:    ${ethers.formatUnits(minAmountOut, 6)}`);
 
-  // Build CCTP depositForBurn calldata (amount=0 placeholder, will be spliced)
+  const polyCctp = CCTP_CONFIG[CHAIN_IDS.POLYGON];
+  const baseCctp = CCTP_CONFIG[CHAIN_IDS.BASE];
+  console.log(`CCTP burn token: ${polyCctp.usdcAddress} (must match swap output)`);
   const depositForBurnData = buildDepositForBurnCalldata(
-    signerAddress, // recipient on Base
-    arbCctp.usdcAddress, // token being burned
-    baseCctp.cctpDomain, // destination domain = Base
-    true, // fast path
+    signerAddress,
+    polyCctp.usdcAddress,
+    baseCctp.cctpDomain,
+    true,
   );
 
-  const routerIface = new ethers.Interface(ROUTER_ABI);
   let execCalldata: string;
-
   if (useModular) {
-    const actions = buildModularActions(
-      signerAddress,
-      ROUTER_ADDRESS,
-      inputAmount,
-      feeAmount,
-      ooRouterAddress,
-      swapData,
-      depositForBurnData,
-      arbCctp.tokenMessenger,
-    );
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
-      actions,
+      buildModularActions(
+        signerAddress,
+        ROUTER_POLYGON,
+        inputAmount,
+        feeAmount,
+        ooRouterAddress,
+        swapData,
+        depositForBurnData,
+        polyCctp.tokenMessenger,
+      ),
     ]);
-    console.log('Using performModularExecution');
   } else {
-    const exec = buildMonolithicExecution(
-      signerAddress,
-      inputAmount,
-      feeAmount,
-      minAmountOut,
-      ooRouterAddress,
-      swapData,
-      depositForBurnData,
-      arbCctp.tokenMessenger,
-    );
-    execCalldata = routerIface.encodeFunctionData('performExecution', [exec]);
-    console.log('Using performExecution (monolithic)');
+    execCalldata = routerIface.encodeFunctionData('performExecution', [
+      buildMonolithicExecution(
+        signerAddress,
+        inputAmount,
+        feeAmount,
+        minAmountOut,
+        ooRouterAddress,
+        swapData,
+        depositForBurnData,
+        polyCctp.tokenMessenger,
+      ),
+    ]);
   }
 
-  await ensureAllowanceForAllowanceHolder(signer, inputToken, inputAmount);
-  console.log('Sending AllowanceHolder.exec transaction...');
+  await ensureAllowanceForAllowanceHolder(signer, TOKENS.AAVE_POLYGON, inputAmount);
   const receipt = await execViaAH(
     signer,
-    ROUTER_ADDRESS,
-    TOKENS.AAVE_ARB,
+    ROUTER_POLYGON,
+    TOKENS.AAVE_POLYGON,
     inputAmount,
-    ROUTER_ADDRESS,
+    ROUTER_POLYGON,
     execCalldata,
   );
 
-  console.log(`\nSuccess! Gas used: ${receipt.gasUsed.toString()}`);
+  const modeLabel = useModular ? 'Modular' : 'Monolithic';
+  logTxnSummary(
+    `Polygon AAVE → Base USDC — OpenOcean + CCTP — ${modeLabel}`,
+    CHAIN_IDS.POLYGON,
+    receipt,
+  );
+}
+
+async function mainUsdcPolygonToBaseCctp() {
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error('PRIVATE_KEY env var required');
+  }
+
+  const provider = new ethers.JsonRpcProvider(RPC.POLYGON);
+  const signer = new ethers.Wallet(privateKey, provider);
+  const signerAddress = await signer.getAddress();
+
+  const inputToken = TOKENS.USDC_POLYGON_CIRCLE;
+  const { balance: walletBalance } = await getWalletErc20Balance(
+    inputToken,
+    signerAddress,
+    provider,
+  );
+  if (walletBalance === 0n) {
+    throw new Error(
+      `Signer ${signerAddress} has zero Circle native USDC on Polygon. Fund ${inputToken} on Polygon PoS.`,
+    );
+  }
+
+  const legAmount = walletBalance / 2n;
+  if (legAmount === 0n) {
+    throw new Error(
+      `Balance ${walletBalance} too small for two nonzero 50% legs.`,
+    );
+  }
+
+  console.log(`Signer:        ${signerAddress}`);
+  console.log(`Router:        ${ROUTER_POLYGON}`);
+  console.log(`Polygon USDC:  ${ethers.formatUnits(walletBalance, 6)} (full)`);
+  console.log(`Per leg input: ${ethers.formatUnits(legAmount, 6)} (50%)`);
+
+  const routerIface = new ethers.Interface(ROUTER_ABI);
+
+  await executeLegUsdcPolygonToBaseCctp({
+    label: '1/2 Monolithic',
+    useModular: false,
+    signer,
+    signerAddress,
+    inputAmount: legAmount,
+    routerIface,
+  });
+
+  console.log('Sleeping ~3s before modular execution...');
+  await sleep(3000);
+
+  await executeLegUsdcPolygonToBaseCctp({
+    label: '2/2 Modular',
+    useModular: true,
+    signer,
+    signerAddress,
+    inputAmount: legAmount,
+    routerIface,
+  });
+
   console.log(
-    `USDC will arrive on Base at ${signerAddress} after CCTP attestation.`,
+    `\nUSDC mints on Base at ${signerAddress} once CCTP attestation completes.`,
+  );
+}
+
+async function main() {
+  const cctpE2eCase = process.argv[2]?.toLowerCase();
+  if (cctpE2eCase === 'usdc-polygon-base' || cctpE2eCase === 'usdc') {
+    await mainUsdcPolygonToBaseCctp();
+    return;
+  }
+
+  const privateKey = process.env.PRIVATE_KEY;
+  if (!privateKey) {
+    throw new Error('PRIVATE_KEY env var required');
+  }
+
+  const provider = new ethers.JsonRpcProvider(RPC.POLYGON);
+  const signer = new ethers.Wallet(privateKey, provider);
+  const signerAddress = await signer.getAddress();
+
+  const inputToken = TOKENS.AAVE_POLYGON;
+  const { balance: walletBalance } = await getWalletErc20Balance(
+    inputToken,
+    signerAddress,
+    provider,
+  );
+  if (walletBalance === 0n) {
+    throw new Error(
+      `Signer ${signerAddress} has zero Polygon AAVE. Fund ${inputToken} on Polygon PoS.`,
+    );
+  }
+
+  const legAmount = walletBalance / 2n;
+  if (legAmount === 0n) {
+    throw new Error(
+      `Balance ${walletBalance} too small for two nonzero 50% legs.`,
+    );
+  }
+
+  console.log(`Signer:        ${signerAddress}`);
+  console.log(`Router:        ${ROUTER_POLYGON}`);
+  console.log(`Polygon AAVE:  ${ethers.formatUnits(walletBalance, 18)} (full)`);
+  console.log(`Per leg input: ${ethers.formatUnits(legAmount, 18)} (50%)`);
+
+  const routerIface = new ethers.Interface(ROUTER_ABI);
+
+  await executeLeg({
+    label: '1/2 Monolithic',
+    useModular: false,
+    signer,
+    signerAddress,
+    inputAmount: legAmount,
+    routerIface,
+  });
+
+  console.log('Sleeping ~3s before modular execution...');
+  await sleep(3000);
+
+  await executeLeg({
+    label: '2/2 Modular',
+    useModular: true,
+    signer,
+    signerAddress,
+    inputAmount: legAmount,
+    routerIface,
+  });
+
+  console.log(
+    `\nUSDC mints on Base at ${signerAddress} once CCTP attestation completes.`,
   );
 }
 

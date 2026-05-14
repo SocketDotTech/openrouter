@@ -11,15 +11,58 @@ export const CHAIN_IDS = {
   ETHEREUM: 1,
   ARBITRUM: 42161,
   BASE: 8453,
+  /** Polygon PoS mainnet — used by e2e scripts as the source chain. */
+  POLYGON: 137,
 } as const;
+
+/** Base URL for explorer transaction pages: `${prefix}${txHash}`. */
+export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
+  [CHAIN_IDS.ETHEREUM]: 'https://etherscan.io/tx/',
+  [CHAIN_IDS.ARBITRUM]: 'https://arbiscan.io/tx/',
+  [CHAIN_IDS.BASE]: 'https://basescan.org/tx/',
+  [CHAIN_IDS.POLYGON]: 'https://polygonscan.com/tx/',
+};
 
 // ─── Contract addresses ───────────────────────────────────────────────────────
 
 /** 0x AllowanceHolder — same address on every EVM chain */
 export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
 
-/** Deployed combined unchecked router instance (set via env after deployment) */
-export const ROUTER_ADDRESS: string = '0x33cBEF62f74f5204651D4C5Dcc3fd8E56A01F2aF';
+/**
+ * Deployed `BungeeOpenRouterV2Unchecked` — one address per chain used by e2e scripts.
+ * Override per chain with env `ROUTER_CHAIN_<chainId>` (e.g. ROUTER_CHAIN_1 for Ethereum).
+ * Chains without an entry fall back to legacy `ROUTER_ADDRESS` when set.
+ */
+export const ROUTER_BY_CHAIN_ID: Record<number, string> = {
+  [CHAIN_IDS.POLYGON]: '0x23D5aFEF7cE44257366D9ef6de80Ea334FAa9d25',
+  [CHAIN_IDS.ARBITRUM]: '0xe1788A0374EF5D4C35e62478FdB35F37CeE5B951',
+  [CHAIN_IDS.BASE]: '0x96E8c261fCCDFca2CCffe8b4A33dC8a65f153785',
+};
+
+const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
+
+/**
+ * Resolve router contract address for execution quotes / AH.exec on `chainId`.
+ *
+ * Priority: `ROUTER_CHAIN_<chainId>` env → {@link ROUTER_BY_CHAIN_ID} → `ROUTER_ADDRESS` env.
+ */
+export function routerAddressForChain(chainId: number): string {
+  const envSpecific = process.env[`ROUTER_CHAIN_${chainId}`]?.trim();
+  if (envSpecific && ADDR_HEX_RE.test(envSpecific)) {
+    return envSpecific;
+  }
+  const mapped = ROUTER_BY_CHAIN_ID[chainId];
+  if (mapped) {
+    return mapped;
+  }
+  const legacy = process.env.ROUTER_ADDRESS?.trim();
+  if (legacy && ADDR_HEX_RE.test(legacy)) {
+    return legacy;
+  }
+  throw new Error(
+    `routerAddressForChain(${chainId}): no ROUTER_BY_CHAIN_ID entry and neither ROUTER_CHAIN_${chainId} nor ROUTER_ADDRESS is set.`,
+  );
+}
 
 /** Standard ERC-20 "native" sentinel used by CurrencyLib */
 export const NATIVE_TOKEN_ADDRESS =
@@ -30,11 +73,53 @@ export const NATIVE_TOKEN_ADDRESS =
 export const TOKENS = {
   AAVE_ARB: '0xba5DdD1f9d7F570dc94a51479a000E3BCE967196',
   AAVE_ETH: '0x7Fc66500c84A76Ad7e9c93437bFc5Ac33E2DDaE9',
+  /** Polygon PoS AAVE (aPolAAVE ERC-4626-backed). */
+  AAVE_POLYGON: '0xD6DF932A45C0f255f85145f286eA0b292B21C90B',
   USDC_ARB: '0xaf88d065e77c8cC2239327C5EDb3A432268e5831',
   USDC_BASE: '0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913',
   USDC_ETH: '0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48',
+  /** Bridged PoS-USDC on Polygon (6 decimals); not burnable via Circle CCTP. */
+  USDC_POLYGON: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+  /** Circle native USDC on Polygon — required for CCTP `depositForBurn` on PoS. */
+  USDC_POLYGON_CIRCLE: '0x3c499c542cEF5E3811e1192ce70d8cC03d5c3359',
+  /** Canonical wrapped gas token on Polygon PoS (18 decimals). */
+  WMATIC_POLYGON: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
   AAVE_BASE: '0x63706e401c06ac8513145b7687a14804d17f814b',
+  /**
+   * USDT0 on Polygon PoS — the inner ERC-20 token that the OFT Adapter wraps (6 decimals).
+   * Users approve the OFT Adapter to pull this token, then call Adapter.send().
+   */
+  USDT0_POLYGON: '0xc2132D05D31c914a87C6611C10748AEb04B58e8F',
+  /**
+   * USDT0 on Base — a native OFT (the token contract itself IS the OFT; no separate adapter).
+   * Bridged in via LayerZero from Polygon via the USDT0 OFT Adapter on Polygon.
+   */
+  USDT0_BASE: '0xfde4C96c8593536E31F229EA8f37b2ADa2699bb2',
+  /**
+   * Arbitrum USDT — inner token for the USDT0 OFT stack (6 decimals).
+   * OFT adapter pulls this ERC-20, then calls LayerZero `send()` to Base USDT0.
+   * Matches bungee `oftSupportedTokens` / {@link USDT0_OFT_ADAPTER_ARBITRUM}.
+   */
+  USDT0_ARB: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
 } as const;
+
+/**
+ * USDT0 OFT Adapter on Polygon PoS (legacy / alternate route; Polygon→Base may hit LZ NoPeer).
+ * Type: OFT_ADAPTER — requires ERC-20 approval of TOKENS.USDT0_POLYGON before calling send().
+ */
+export const USDT0_OFT_ADAPTER_POLYGON = '0x6ba10300f0dc58b7a1e4c0e41f5dabb7d7829e13';
+
+/**
+ * USDT0 OFT Adapter on Arbitrum — quote `send()` here; approve adapter to spend {@link TOKENS.USDT0_ARB}.
+ * Seed doc: `oftId` `42161-0xfd086bc7cd5c481dcc9c85ebe478a1c0b69fcbb9`, `adapterAddress` on Arbitrum.
+ */
+export const USDT0_OFT_ADAPTER_ARBITRUM =
+  '0x14e4a1b13Bf7F943c8fF7C51fb60fa964A298d92';
+
+/**
+ * LayerZero v2 endpoint ID for Polygon PoS (EID 30109).
+ */
+export const POLYGON_LZ_EID = 30109;
 
 // ─── CCTP v2 configuration ────────────────────────────────────────────────────
 
@@ -46,6 +131,11 @@ export interface CctpChainConfig {
 }
 
 export const CCTP_CONFIG: Record<number, CctpChainConfig> = {
+  [CHAIN_IDS.POLYGON]: {
+    tokenMessenger: '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d',
+    cctpDomain: 7,
+    usdcAddress: TOKENS.USDC_POLYGON_CIRCLE,
+  },
   [CHAIN_IDS.ARBITRUM]: {
     tokenMessenger: '0x28b5a0e9C621a5BadaA536219b3a228C8168cf5d',
     cctpDomain: 3,
@@ -68,7 +158,7 @@ export const CCTP_CONFIG: Record<number, CctpChainConfig> = {
 /** Arbitrum Delayed Inbox — accepts ETH deposits via depositEth() */
 export const ARBITRUM_INBOX = '0x4Dbd4fc535Ac27206064B68FfCf827b0A60BAB3f';
 
-// ─── Stargate Native Pool (ETH Arbitrum → ETH Base) ─────────────────────────
+// ─── Stargate pools ───────────────────────────────────────────────────────────
 
 /**
  * Stargate Native ETH OFT adapter on Arbitrum.
@@ -77,8 +167,24 @@ export const ARBITRUM_INBOX = '0x4Dbd4fc535Ac27206064B68FfCf827b0A60BAB3f';
  */
 export const STARGATE_NATIVE_ARB = '0xA45B5130f36CDcA45667738e2a258AB09f4A5f7F';
 
-/** LayerZero v2 endpoint ID for Base (EID 30184). Used in Stargate sendParam.dstEid. */
+/**
+ * Stargate v2 native ETH OFT pool on Base.
+ * send() requires msg.value = amountLD + nativeFee; bridges ETH to Arbitrum/other chains.
+ */
+export const STARGATE_NATIVE_BASE = '0xdc181Bd607330aeeBEF6ea62e03e5e1Fb4B6F7C7';
+
+/**
+ * Stargate v2 USDC pool on Polygon PoS.
+ * NOTE: Polygon has no StargatePoolNative for POL/MATIC — only USDC and USDT
+ * pools are deployed. Bridge token is Circle USDC, not the chain native token.
+ */
+export const STARGATE_USDC_POLYGON = '0x9Aa02D4Fae7F58b8E8f34c66E756cC734DAc7fe4';
+
+/** LayerZero v2 endpoint ID for Base (EID 30184). */
 export const BASE_LZ_EID = 30184;
+
+/** LayerZero v2 endpoint ID for Arbitrum (EID 30110). */
+export const ARBITRUM_LZ_EID = 30110;
 
 /**
  * Byte offset of sendParam.amountLD within the Stargate send() calldata (after the 4-byte selector).
@@ -100,6 +206,8 @@ export function bpsOf(amount: bigint, bps: number): bigint {
 
 export const RPC = {
   ARBITRUM: process.env.ARBITRUM_RPC ?? 'https://arb1.arbitrum.io/rpc',
+  POLYGON:
+    process.env.POLYGON_RPC ?? 'https://polygon-bor.publicnode.com',
   ETHEREUM: process.env.ETHEREUM_RPC ?? 'https://eth.llamarpc.com',
   BASE: process.env.BASE_RPC ?? 'https://mainnet.base.org',
 } as const;

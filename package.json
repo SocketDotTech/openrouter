@@ -17,5 +17,8 @@
     "hardhat": "^2.22.7",
     "ts-node": "^10.9.0",
     "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@layerzerolabs/lz-v2-utilities": "^3.0.168"
   }
 }

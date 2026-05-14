@@ -19,8 +19,11 @@
  * Uses the signer’s full AAVE balance on Ethereum mainnet as swap input.
  *
  * Usage:
- *   ROUTER_ADDRESS=0x... PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaArbitrumNative.ts
- *   USE_MODULAR=true ROUTER_ADDRESS=0x... PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaArbitrumNative.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaArbitrumNative.ts
+ *   USE_MODULAR=true PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaArbitrumNative.ts
+ *
+ * Router on Ethereum mainnet: set `ROUTER_CHAIN_1` or legacy `ROUTER_ADDRESS`
+ * ({@link ROUTER_BY_CHAIN_ID} has no Ethereum entry).
  *
  * Notes:
  *   - The router must retain enough ETH after the swap to cover both the fee
@@ -37,7 +40,7 @@ dotenv.config();
 
 import {
   CHAIN_IDS,
-  ROUTER_ADDRESS,
+  routerAddressForChain,
   TOKENS,
   ARBITRUM_INBOX,
   FEE_BPS,
@@ -57,6 +60,8 @@ import {
   NO_FEE,
   ZERO_ADDRESS,
 } from './utils/contractTypes';
+
+const ROUTER_ETHEREUM = routerAddressForChain(CHAIN_IDS.ETHEREUM);
 
 // ─── Arbitrum retryable fee estimation ───────────────────────────────────────
 
@@ -284,7 +289,7 @@ async function main() {
   const useModular = true;
 
   console.log(`Signer:        ${signerAddress}`);
-  console.log(`Router:        ${ROUTER_ADDRESS}`);
+  console.log(`Router:        ${ROUTER_ETHEREUM}`);
   console.log(`Input token:   ${inputToken}`);
   console.log(
     `Input:         ${ethers.formatUnits(inputAmount, inputDecimals)} (full wallet balance)`,
@@ -295,7 +300,7 @@ async function main() {
   // Fetch OpenOcean quote (AAVE → ETH on Ethereum)
   console.log('Fetching OpenOcean swap quote (AAVE→ETH Ethereum)...');
   const { ooRouterAddress, swapData, minAmountOut, estimatedOut } =
-    await fetchOpenOceanSwapQuote(ROUTER_ADDRESS, inputAmount);
+    await fetchOpenOceanSwapQuote(ROUTER_ETHEREUM, inputAmount);
 
   const feeAmount = bpsOf(estimatedOut, FEE_BPS);
   console.log(`OO Router:       ${ooRouterAddress}`);
@@ -326,7 +331,7 @@ async function main() {
   if (useModular) {
     const actions = buildModularActions(
       signerAddress,
-      ROUTER_ADDRESS,
+      ROUTER_ETHEREUM,
       inputAmount,
       feeAmount,
       minAmountOut > feeAmount ? minAmountOut - feeAmount : 0n,
@@ -356,10 +361,10 @@ async function main() {
   console.log('Sending AllowanceHolder.exec transaction...');
   const receipt = await execViaAH(
     signer,
-    ROUTER_ADDRESS,
+    ROUTER_ETHEREUM,
     TOKENS.AAVE_ETH,
     inputAmount,
-    ROUTER_ADDRESS,
+    ROUTER_ETHEREUM,
     execCalldata,
     0n, // no ETH needed from caller; ETH comes from the swap output
   );
