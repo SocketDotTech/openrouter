@@ -174,6 +174,13 @@ export const STARGATE_NATIVE_ARB = '0xA45B5130f36CDcA45667738e2a258AB09f4A5f7F';
 export const STARGATE_NATIVE_BASE = '0xdc181Bd607330aeeBEF6ea62e03e5e1Fb4B6F7C7';
 
 /**
+ * Stargate v2 USDC pool on Arbitrum.
+ * ERC20 pool — caller approves USDC to this address; msg.value = nativeFee only.
+ * Source: https://stargateprotocol.gitbook.io/stargate/v2-developer-docs/technical-reference
+ */
+export const STARGATE_USDC_ARB = '0xe8CDF27AcD73a434D661C84887215F7598e7d0d3';
+
+/**
  * Stargate v2 USDC pool on Polygon PoS.
  * NOTE: Polygon has no StargatePoolNative for POL/MATIC — only USDC and USDT
  * pools are deployed. Bridge token is Circle USDC, not the chain native token.
