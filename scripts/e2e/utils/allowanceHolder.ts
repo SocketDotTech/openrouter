@@ -108,3 +108,31 @@ export async function execViaAH(
   console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
   return receipt;
 }
+
+/**
+ * Sends a transaction directly to `target` (the router) without routing through
+ * AllowanceHolder. Use this when the input token is native ETH/POL — the router's
+ * `_pullFromUser` path for native tokens only checks `msg.value >= amount` and does
+ * NOT enforce `_msgSender() == user` nor call `AH.transferFrom`. For modular
+ * execution (`performModularExecution`) there is no `_pullFromUser` at all.
+ *
+ * @param signer    - EOA signing and paying for the tx
+ * @param target    - Router contract address
+ * @param callData  - Encoded `performExecution` or `performModularExecution` calldata
+ * @param txValue   - ETH to forward (inputAmount + nativeFeeWithBuffer for native input)
+ */
+export async function execDirect(
+  signer: Signer,
+  target: string,
+  callData: string,
+  txValue: bigint,
+): Promise<ethers.TransactionReceipt> {
+  const tx = await signer.sendTransaction({ to: target, data: callData, value: txValue });
+  console.log(`Direct router tx sent: ${tx.hash}`);
+  const receipt = await tx.wait();
+  if (!receipt || receipt.status !== 1) {
+    throw new Error(`Transaction failed: ${tx.hash}`);
+  }
+  console.log(`Transaction confirmed in block ${receipt.blockNumber}`);
+  return receipt;
+}

@@ -33,10 +33,23 @@
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-usdc-base-eth
- *   STARGATE_E2E_CASE=4 PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-eth-base-usdc direct
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-eth-base-usdc allowance-holder
+ *   STARGATE_E2E_CASE=4 STARGATE_ROUTER_EXEC=direct PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts
  *
- * Router per source chain: {@link ROUTER_BY_CHAIN_ID} / `routerAddressForChain(chainId)` in config.ts.
- * Override with `ROUTER_CHAIN_<chainId>` env when needed.
+ * Router execution (`argv[3]` overrides `STARGATE_ROUTER_EXEC`):
+ *
+ * | Mode                | Behaviour |
+ * |---------------------|-----------|
+ * | `direct`            | Signer sends tx directly to router with `{ value }` |
+ * | `allowance-holder`  | `AllowanceHolder.exec` wraps router (`msg.value` + ERC-2771 user suffix) |
+ *
+ * **Native-token input (case 4):** choose explicitly — either pass `direct` or `allowance-holder` as argv[3],
+ * or set `STARGATE_ROUTER_EXEC`. There is no default; ambiguous runs exit with usage.
+ *
+ * **ERC20 input (cases 1–3):** defaults to `allowance-holder`; `direct` is rejected (AH pull required).
+ *
+ * Router per source chain: `ROUTER_BY_CHAIN_ID` / `routerAddressForChain(chainId)` in config.ts (`ROUTER_CHAIN_<id>` overrides).
  */
 import axios from 'axios';
 import { ethers, parseEther } from 'ethers';
@@ -61,7 +74,7 @@ import {
   ARBITRUM_LZ_EID,
   STARGATE_AMOUNT_LD_OFFSET,
 } from './config';
-import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
+import { execViaAH, execDirect, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import {
   encodeApprove,
   encodeTransfer,
@@ -95,7 +108,7 @@ interface CaseConfig {
   rpc: string;
   inputToken: string;
   inputDecimals: number;
-  /** true when inputToken is native (ETH/POL); skips ERC20 AH allowance and adjusts txValue */
+  /** true when inputToken is native (ETH/POL); exec mode must be set explicitly (`direct` | `allowance-holder`) */
   isNativeInput: boolean;
   ooSwap: OoSwapConfig | null; // null → skip OO swap, bridge input token directly
   stargatePool: string;
@@ -218,6 +231,78 @@ function resolveScenarioConfig(): CaseConfig {
     process.exit(1);
   }
   return CASES[idx];
+}
+
+/** How the signer reaches the router: direct `eth_sendTransaction`, or wrapped `AllowanceHolder.exec`. */
+type RouterExecRoute = 'direct' | 'allowance-holder';
+
+/** argv[3] / `STARGATE_ROUTER_EXEC` tokens → canonical route. */
+const ROUTER_EXEC_ALIASES: Record<string, RouterExecRoute> = {
+  direct: 'direct',
+  dr: 'direct',
+  router: 'direct',
+
+  'allowance-holder': 'allowance-holder',
+  ah: 'allowance-holder',
+  exec: 'allowance-holder',
+};
+
+/**
+ * Resolves execution transport: **`argv[3]` overrides `STARGATE_ROUTER_EXEC`** when non-empty after trim.
+ *
+ * - **Native-token input (`isNativeInput`):** caller **must** set `direct` or `allowance-holder` explicitly
+ *   — no silent default — so AH vs signer→router stays a deliberate choice.
+ * - **ERC20 input:** defaults to `allowance-holder`; `direct` is rejected (`AllowanceHolder.transferFrom` pull).
+ */
+function resolveRouterExecRoute(cfg: CaseConfig): RouterExecRoute {
+  const rawArg = typeof process.argv[3] === 'string' ? process.argv[3].trim().toLowerCase() : '';
+  const rawEnv = (process.env.STARGATE_ROUTER_EXEC ?? '').trim().toLowerCase();
+  const raw = rawArg || rawEnv;
+
+  const resolveExplicit = (): RouterExecRoute | null => {
+    if (!raw) {
+      return null;
+    }
+    const route = ROUTER_EXEC_ALIASES[raw];
+    if (!route) {
+      console.error(
+        `Unknown router exec "${raw}". Use argv[3] or STARGATE_ROUTER_EXEC: direct | allowance-holder (aliases dr, router, ah, exec).`,
+      );
+      process.exit(1);
+    }
+    return route;
+  };
+
+  const route = resolveExplicit();
+  if (route !== null) {
+    if (!cfg.isNativeInput && route === 'direct') {
+      console.error(
+        'ERC20 input cases cannot use direct router txs: `_pullFromUser` invokes AllowanceHolder.transferFrom, which needs the ephemeral allowance set by AH.exec.',
+      );
+      process.exit(1);
+    }
+    return route;
+  }
+
+  if (cfg.isNativeInput) {
+    console.error(
+      [
+        'Native-token input scenarios require an explicit router exec mode (no default).',
+        '',
+        '  argv[3]                       STARGATE_ROUTER_EXEC',
+        '  -----------------------------  ------------------------------',
+        '  direct                         direct',
+        '  allowance-holder   (aliases: ah, exec)',
+        '',
+        'Examples:',
+        '  ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-eth-base-usdc direct',
+        '  STARGATE_ROUTER_EXEC=allowance-holder ts-node scripts/e2e/swapBridgeViaStargateNative.ts 4',
+      ].join('\n'),
+    );
+    process.exit(1);
+  }
+
+  return 'allowance-holder';
 }
 
 // ─── Shared Stargate ABI ──────────────────────────────────────────────────────
@@ -573,8 +658,9 @@ function buildNativeInErc20BridgeMonolithic(
  *   [4] nativeCall(stargatePool, stargateData, nativeFeeWithBuffer)
  *       .splicePayloadWord(STARGATE_AMOUNT_LD_OFFSET) ← patches amountLD from [3]
  *
- * No AH.transferFrom step — input ETH is already in the router via msg.value forwarded by AH.exec.
- * msg.value = inputAmount + nativeFeeWithBuffer (set by executeLeg for isNativeInput cases).
+ * No AH.transferFrom step — input ETH is already in the router via msg.value (direct
+ * router tx or AH.exec both forward the same `txValue` to the router).
+ * msg.value = inputAmount + nativeFeeWithBuffer (see `executeLeg` / `dispatchRouterTransaction`).
  */
 function buildNativeInErc20BridgeModularActions(
   signer: string,
@@ -604,8 +690,44 @@ function buildNativeInErc20BridgeModularActions(
 // ─── Execution leg ────────────────────────────────────────────────────────────
 
 /**
+ * Dispatches tx to router either as a signer→router `{ value }` call or wrapped in
+ * `AllowanceHolder.exec` (ERC-2771 suffix so `_msgSender()` resolves inside router).
+ *
+ * ERC20 `_pullFromUser` requires ephemeral AH allowance ⇒ `allowance-holder` only for non-native inputs.
+ */
+async function dispatchRouterTransaction(
+  route: RouterExecRoute,
+  cfg: CaseConfig,
+  signer: ethers.Signer,
+  routerAddress: string,
+  execCalldata: string,
+  inputAmount: bigint,
+  txValue: bigint,
+  nativeSymbol: string,
+): Promise<ethers.TransactionReceipt> {
+  if (route === 'direct') {
+    console.log(`[exec=direct] ${ethers.formatEther(txValue)} ${nativeSymbol}`);
+    return execDirect(signer, routerAddress, execCalldata, txValue);
+  }
+  // allowance-holder — persistent ERC20→AH approval except for pure native pulls
+  if (!cfg.isNativeInput) {
+    await ensureAllowanceForAllowanceHolder(signer, cfg.inputToken, inputAmount);
+  }
+  console.log(`[exec=allowance-holder] ${ethers.formatEther(txValue)} ${nativeSymbol}`);
+  return execViaAH(
+    signer,
+    routerAddress,
+    cfg.inputToken,
+    inputAmount,
+    routerAddress,
+    execCalldata,
+    txValue,
+  );
+}
+
+/**
  * Runs one monolithic or modular leg for a case.
- * Fetches quotes, builds calldata, ensures AH allowance, and executes.
+ * Fetches quotes, builds calldata, and executes via {@link dispatchRouterTransaction}.
  */
 async function executeLeg(
   legLabel: string,
@@ -617,6 +739,7 @@ async function executeLeg(
   provider: ethers.JsonRpcProvider,
   inputAmount: bigint,
   routerIface: ethers.Interface,
+  routerExec: RouterExecRoute,
 ): Promise<void> {
   console.log(`\n── ${legLabel} (${useModular ? 'MODULAR' : 'MONOLITHIC'}) ──`);
 
@@ -721,26 +844,20 @@ async function executeLeg(
     execCalldata = routerIface.encodeFunctionData('performExecution', [mono]);
   }
 
-  // For ERC20 input only: ensure AH has a persistent ERC20 allowance to pull from.
-  // Native input (isNativeInput) bypasses this — the ETH is forwarded via msg.value.
-  if (!cfg.isNativeInput) {
-    await ensureAllowanceForAllowanceHolder(signer, cfg.inputToken, inputAmount);
-  }
-
-  // txValue forwarded to AH.exec → router:
-  //   Native input:  inputAmount (for OO swap) + nativeFeeWithBuffer (LZ fee)
+  // txValue:
+  //   Native input:  inputAmount (forwarded to OO) + nativeFeeWithBuffer (LZ fee)
   //   ERC20 input:   nativeFeeWithBuffer only (LZ fee)
   const txValue = cfg.isNativeInput ? inputAmount + nativeFeeWithBuffer : nativeFeeWithBuffer;
-  console.log(`AllowanceHolder.exec (txValue = ${ethers.formatEther(txValue)} ${nativeSymbol})...`);
 
-  const receipt = await execViaAH(
+  const receipt = await dispatchRouterTransaction(
+    routerExec,
+    cfg,
     signer,
     routerAddress,
-    cfg.inputToken,
-    inputAmount,
-    routerAddress,
     execCalldata,
+    inputAmount,
     txValue,
+    nativeSymbol,
   );
 
   logTxnSummary(
@@ -757,12 +874,14 @@ async function runCase(
   signer: ethers.Wallet,
   signerAddress: string,
   routerIface: ethers.Interface,
+  routerExec: RouterExecRoute,
 ): Promise<void> {
   const routerAddress = routerAddressForChain(cfg.sourceChainId);
   console.log(`\n${'═'.repeat(70)}`);
   console.log(`CASE: ${cfg.name}`);
   console.log('═'.repeat(70));
   console.log(`Router (chain ${cfg.sourceChainId}): ${routerAddress}`);
+  console.log(`Router exec route:                   ${routerExec}`);
 
   const provider = new ethers.JsonRpcProvider(cfg.rpc);
   const signerOnChain = signer.connect(provider);
@@ -801,12 +920,12 @@ async function runCase(
   console.log(`Input token balance: ${ethers.formatUnits(walletBalance, decimals)} (${cfg.inputToken})`);
   console.log(`Per leg:             ${ethers.formatUnits(legAmount, decimals)}`);
 
-  await executeLeg('1/2', false, cfg, routerAddress, signerOnChain, signerAddress, provider, legAmount, routerIface);
+  await executeLeg('1/2', false, cfg, routerAddress, signerOnChain, signerAddress, provider, legAmount, routerIface, routerExec);
 
   console.log('\nSleeping 3s before modular leg...');
   await sleep(3000);
 
-  await executeLeg('2/2', true, cfg, routerAddress, signerOnChain, signerAddress, provider, legAmount, routerIface);
+  await executeLeg('2/2', true, cfg, routerAddress, signerOnChain, signerAddress, provider, legAmount, routerIface, routerExec);
 }
 
 // ─── Main ─────────────────────────────────────────────────────────────────────
@@ -818,6 +937,7 @@ async function main() {
   }
 
   const cfg = resolveScenarioConfig();
+  const routerExec = resolveRouterExecRoute(cfg);
 
   // Use any provider to create the wallet; the case reconnects via `runCase`.
   const signer = new ethers.Wallet(privateKey);
@@ -827,8 +947,9 @@ async function main() {
   console.log(`Signer:   ${signerAddress}`);
   console.log(`Router:   ${routerAddressForChain(cfg.sourceChainId)} (chain ${cfg.sourceChainId})`);
   console.log(`Scenario: ${process.argv[2] ?? process.env.STARGATE_E2E_CASE ?? '(resolved)'}`);
+  console.log(`Exec:     ${routerExec} (argv[3] overrides STARGATE_ROUTER_EXEC; required for native input)`);
 
-  await runCase(cfg, signer, signerAddress, routerIface);
+  await runCase(cfg, signer, signerAddress, routerIface, routerExec);
 
   console.log('\n✓ Stargate case completed.');
 }
