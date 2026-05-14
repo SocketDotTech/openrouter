@@ -5,7 +5,7 @@
  * Case 1  Arbitrum USDC  →  OO swap → native ETH  →  Stargate Native ETH Pool  →  Base ETH
  * Case 2  Polygon  USDC  →  (no swap)              →  Stargate USDC Pool        →  Base USDC
  * Case 3  Base     USDC  →  OO swap → native ETH  →  Stargate Native ETH Pool  →  Arb  ETH
- * Case 4  Arbitrum ETH   →  OO swap → USDC Arb    →  Stargate USDC Pool        →  Base USDC
+ * Case 4  Polygon POL    →  OO swap → Polygon USDT0  →  USDT0 OFT Adapter       →  Arbitrum USDT0
  *
  * Native-pool mechanics (cases 1 & 3):
  *   send() requires msg.value >= amountLD + nativeFee (StargatePoolNative._assertMessagingFee).
@@ -28,13 +28,13 @@
  *   1 / arb-usdc-base-eth     Arbitrum USDC → OO → native ETH → Stargate native → Base ETH
  *   2 / polygon-usdc-base     Polygon USDC → Stargate USDC pool → Base USDC (no swap)
  *   3 / base-usdc-arb-eth     Base USDC → OO → native ETH → Stargate native → Arbitrum ETH
- *   4 / arb-eth-base-usdc     Arbitrum ETH → OO → USDC → Stargate USDC pool → Base USDC
- *                             msg.value = inputETH + nativeFee (native input + LZ fee)
+ *   4 / polygon-pol-usdt0-arb     Polygon POL → OO → Polygon USDT0 → LZ OFT Adapter → Arb USDT0
+ *                                   msg.value = inputPOL used in OO swap + LZ nativeFee (POL)
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-usdc-base-eth
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-eth-base-usdc direct
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-eth-base-usdc allowance-holder
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts polygon-pol-usdt0-arb direct
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts polygon-pol-usdt0-arb allowance-holder
  *   STARGATE_E2E_CASE=4 STARGATE_ROUTER_EXEC=direct PRIVATE_KEY=0x... ts-node scripts/e2e/swapBridgeViaStargateNative.ts
  *
  * Router execution (`argv[3]` overrides `STARGATE_ROUTER_EXEC`):
@@ -50,10 +50,14 @@
  * **ERC20 input (cases 1–3):** defaults to `allowance-holder`; `direct` is rejected (AH pull required).
  *
  * Router per source chain: `ROUTER_BY_CHAIN_ID` / `routerAddressForChain(chainId)` in config.ts (`ROUTER_CHAIN_<id>` overrides).
+ *
+ * Bridge note: Case 4 uses LayerZero **`send`** on {@link USDT0_OFT_ADAPTER_POLYGON}, not Stargate.
+ * ABI matches Stargate pool `send`; `lzExtraOptions` uses TYPE_3 executor gas (same as `swapBridgeViaOft.ts`).
  */
 import axios from 'axios';
 import { ethers, parseEther } from 'ethers';
 import * as dotenv from 'dotenv';
+import { Options } from '@layerzerolabs/lz-v2-utilities';
 dotenv.config();
 
 import {
@@ -69,7 +73,7 @@ import {
   STARGATE_NATIVE_ARB,
   STARGATE_NATIVE_BASE,
   STARGATE_USDC_POLYGON,
-  STARGATE_USDC_ARB,
+  USDT0_OFT_ADAPTER_POLYGON,
   BASE_LZ_EID,
   ARBITRUM_LZ_EID,
   STARGATE_AMOUNT_LD_OFFSET,
@@ -87,6 +91,12 @@ import type { ModularAction } from './utils/modularActionsBuilder/index';
 import { MonolithicExecution, NO_FEE, NO_SWAP, ZERO_ADDRESS } from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
+
+/**
+ * LZ extra options for Polygon USDT0 OFT Adapter `send()` (executor gas).
+ * Mirrors `swapBridgeViaOft.ts`.
+ */
+const LZ_EXTRA_OPTIONS_POLYGON_USDT0 = Options.newOptions().addExecutorLzReceiveOption(65000, 0).toHex();
 
 // ─── Case configuration ───────────────────────────────────────────────────────
 
@@ -108,10 +118,13 @@ interface CaseConfig {
   rpc: string;
   inputToken: string;
   inputDecimals: number;
-  /** true when inputToken is native (ETH/POL); exec mode must be set explicitly (`direct` | `allowance-holder`) */
+  /** true when inputToken is native (POL/ETH/BNB); exec mode must be set explicitly (`direct` | `allowance-holder`) */
   isNativeInput: boolean;
   ooSwap: OoSwapConfig | null; // null → skip OO swap, bridge input token directly
-  stargatePool: string;
+  /** Contract that receives LZ `send` calldata — Stargate pool or LZ OFT adapter (same ABI shape). */
+  bridgeContract: string;
+  /** `extraOptions` in SendParam (`0x` for Stargate pools; encoded TYPE_3 for USDT0 OFT on Polygon). */
+  lzExtraOptions: string;
   isNativePool: boolean;
   destLzEid: number;
 }
@@ -131,7 +144,8 @@ const CASES: CaseConfig[] = [
       chainId: CHAIN_IDS.ARBITRUM,
       gasPrice: '1',
     },
-    stargatePool: STARGATE_NATIVE_ARB,
+    bridgeContract: STARGATE_NATIVE_ARB,
+    lzExtraOptions: '0x',
     isNativePool: true,
     destLzEid: BASE_LZ_EID,
   },
@@ -143,7 +157,8 @@ const CASES: CaseConfig[] = [
     inputDecimals: 6,
     isNativeInput: false,
     ooSwap: null, // skip OO swap — bridge USDC directly
-    stargatePool: STARGATE_USDC_POLYGON,
+    bridgeContract: STARGATE_USDC_POLYGON,
+    lzExtraOptions: '0x',
     isNativePool: false,
     destLzEid: BASE_LZ_EID,
   },
@@ -161,30 +176,30 @@ const CASES: CaseConfig[] = [
       chainId: CHAIN_IDS.BASE,
       gasPrice: '1',
     },
-    stargatePool: STARGATE_NATIVE_BASE,
+    bridgeContract: STARGATE_NATIVE_BASE,
+    lzExtraOptions: '0x',
     isNativePool: true,
     destLzEid: ARBITRUM_LZ_EID,
   },
   {
-    // msg.value = inputETH (swapped via OO) + nativeFeeWithBuffer (LZ fee).
-    // After the OO swap the router holds USDC + nativeFeeWithBuffer ETH, which it
-    // uses to pay the Stargate USDC pool's LZ fee.
-    name: 'Arbitrum ETH → USDC (OO) → Base USDC (Stargate USDC Pool)',
-    sourceChainId: CHAIN_IDS.ARBITRUM,
-    rpc: RPC.ARBITRUM,
+    // Polygon native POL → USDT0 via OpenOcean → Arbitrum USDT0 via USDT0 OFT Adapter on Polygon (LayerZero `send`).
+    name: 'Polygon POL → USDT0 (OO) → Arbitrum USDT0 (LZ OFT Adapter)',
+    sourceChainId: CHAIN_IDS.POLYGON,
+    rpc: RPC.POLYGON,
     inputToken: NATIVE_TOKEN_ADDRESS,
     inputDecimals: 18,
     isNativeInput: true,
     ooSwap: {
       inToken: NATIVE_TOKEN_ADDRESS,
-      outToken: TOKENS.USDC_ARB,
+      outToken: TOKENS.USDT0_POLYGON,
       inDecimals: 18,
-      chainId: CHAIN_IDS.ARBITRUM,
+      chainId: CHAIN_IDS.POLYGON,
       gasPrice: '1',
     },
-    stargatePool: STARGATE_USDC_ARB,
+    bridgeContract: USDT0_OFT_ADAPTER_POLYGON,
+    lzExtraOptions: LZ_EXTRA_OPTIONS_POLYGON_USDT0,
     isNativePool: false,
-    destLzEid: BASE_LZ_EID,
+    destLzEid: ARBITRUM_LZ_EID,
   },
 ];
 
@@ -204,8 +219,9 @@ const STARGATE_SCENARIO_ALIASES: Record<string, number> = {
   'base-native-arb': 2,
 
   '4': 3,
-  'arb-eth-base-usdc': 3,
-  'arb-native-usdc-base': 3,
+  'polygon-pol-usdt0-arb': 3,
+  'polygon-pol-arb-usdt0': 3,
+  'pol-native-usdt0-arb': 3,
 };
 
 /**
@@ -220,7 +236,7 @@ function resolveScenarioConfig(): CaseConfig {
         '  ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-usdc-base-eth\n' +
         '  ts-node scripts/e2e/swapBridgeViaStargateNative.ts polygon-usdc-base\n' +
         '  ts-node scripts/e2e/swapBridgeViaStargateNative.ts base-usdc-arb-eth\n' +
-        '  ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-eth-base-usdc\n' +
+        '  ts-node scripts/e2e/swapBridgeViaStargateNative.ts polygon-pol-usdt0-arb\n' +
         'Or use numeric slugs 1 | 2 | 3 | 4.',
     );
     process.exit(1);
@@ -295,7 +311,7 @@ function resolveRouterExecRoute(cfg: CaseConfig): RouterExecRoute {
         '  allowance-holder   (aliases: ah, exec)',
         '',
         'Examples:',
-        '  ts-node scripts/e2e/swapBridgeViaStargateNative.ts arb-eth-base-usdc direct',
+        '  ts-node scripts/e2e/swapBridgeViaStargateNative.ts polygon-pol-usdt0-arb direct',
         '  STARGATE_ROUTER_EXEC=allowance-holder ts-node scripts/e2e/swapBridgeViaStargateNative.ts 4',
       ].join('\n'),
     );
@@ -322,6 +338,8 @@ interface OoQuoteResponse {
   data: {
     to: string;
     data: string;
+    /** wei to forward with OO call for native-token sells (omit or "0" for ERC20 sells) */
+    value?: string;
     outAmount: string;
     minOutAmount: string;
   };
@@ -336,7 +354,14 @@ async function fetchOoQuote(
   routerAddress: string,
   amount: bigint,
   slippageBps: number = 100,
-): Promise<{ ooRouter: string; swapData: string; estimatedOut: bigint; minAmountOut: bigint }> {
+): Promise<{
+  ooRouter: string;
+  swapData: string;
+  estimatedOut: bigint;
+  minAmountOut: bigint;
+  /** OO-recommended wei for swap calldata (`value` field); prefer over raw `amount` when &gt; 0 */
+  nativeSwapWei: bigint;
+}> {
   const params: Record<string, string> = {
     inTokenAddress: cfg.inToken,
     outTokenAddress: cfg.outToken,
@@ -352,11 +377,13 @@ async function fetchOoQuote(
   const url = `https://open-api.openocean.finance/v3/${cfg.chainId}/swap_quote`;
   const response = await axios.get<OoQuoteResponse>(url, { params });
   const q = response.data.data;
+  const nativeSwapWeiRaw = q.value !== undefined && q.value !== '' ? BigInt(q.value) : 0n;
   return {
     ooRouter: q.to,
     swapData: q.data,
     estimatedOut: BigInt(q.outAmount),
     minAmountOut: BigInt(q.minOutAmount),
+    nativeSwapWei: nativeSwapWeiRaw,
   };
 }
 
@@ -370,6 +397,7 @@ async function fetchOoQuote(
  * @param destLzEid        LayerZero destination EID
  * @param recipient        Recipient on destination (also refundAddress)
  * @param bridgeAmountLD   Tentative bridge amount for the quote
+ * @param extraOptions      `SendParam.extraOptions` — `'0x'` for Stargate pools; LZ TYPE_3 for USDT0 OFT adapter
  */
 async function fetchStargateQuote(
   pool: string,
@@ -377,6 +405,7 @@ async function fetchStargateQuote(
   destLzEid: number,
   recipient: string,
   bridgeAmountLD: bigint,
+  extraOptions: string,
 ): Promise<{ nativeFee: bigint; amountReceivedLD: bigint }> {
   const contract = new ethers.Contract(pool, STARGATE_ABI, provider);
   const to32 = ethers.zeroPadValue(recipient, 32);
@@ -385,7 +414,7 @@ async function fetchStargateQuote(
     to: to32,
     amountLD: bridgeAmountLD,
     minAmountLD: 0n,
-    extraOptions: '0x',
+    extraOptions,
     composeMsg: '0x',
     oftCmd: '0x',
   };
@@ -412,12 +441,14 @@ async function fetchStargateQuote(
  * @param nativeFee    LZ fee in source-chain native token (with buffer)
  * @param recipient    Recipient address on destination chain
  * @param amountLD     Explicit amountLD (for native pools); 0n for ERC20 pools
+ * @param extraOptions `SendParam.extraOptions`
  */
 function buildStargateCalldata(
   destLzEid: number,
   nativeFee: bigint,
   recipient: string,
   amountLD: bigint,
+  extraOptions: string,
 ): string {
   return STARGATE_IFACE.encodeFunctionData('send', [
     {
@@ -425,7 +456,7 @@ function buildStargateCalldata(
       to: ethers.zeroPadValue(recipient, 32),
       amountLD,
       minAmountLD: 0n,
-      extraOptions: '0x',
+      extraOptions,
       composeMsg: '0x',
       oftCmd: '0x',
     },
@@ -467,7 +498,7 @@ function buildNativePoolMonolithic(
     },
     postFee: { receiver: signer, amount: feeAmount },
     bridge: {
-      target: cfg.stargatePool,
+      target: cfg.bridgeContract,
       approvalSpender: ZERO_ADDRESS, // no ERC20 approval for native ETH
       value: 0n,                     // ignored when useFinalAmountAsValue=true
       data: stargateData,
@@ -498,8 +529,8 @@ function buildErc20PoolMonolithic(
     swap: NO_SWAP, // skip swap — finalToken = inputToken, finalAmount = inputAmount - preFee
     postFee: { receiver: signer, amount: feeAmount },
     bridge: {
-      target: cfg.stargatePool,
-      approvalSpender: cfg.stargatePool, // router must approve USDC to pool
+      target: cfg.bridgeContract,
+      approvalSpender: cfg.bridgeContract, // router must approve USDC to pool
       value: nativeFeeWithBuffer,         // POL/native forwarded as LZ fee msg.value
       data: stargateData,
       amountPositions: [BigInt(STARGATE_AMOUNT_LD_OFFSET)], // splice at byte 196
@@ -549,7 +580,7 @@ function buildNativePoolModularActions(
   exec.nativeCall(signer, '0x', feeAmount); // post-swap fee in ETH
   // Bridge: value = amountLD + nativeFeeWithBuffer = minAmountOut - feeAmount
   const bridgeValue = minAmountOut - feeAmount;
-  exec.nativeCall(cfg.stargatePool, stargateData, bridgeValue);
+  exec.nativeCall(cfg.bridgeContract, stargateData, bridgeValue);
 
   return exec.toActions();
 }
@@ -584,35 +615,39 @@ function buildErc20PoolModularActions(
     ahIface.encodeFunctionData('transferFrom', [cfg.inputToken, signer, routerAddress, inputAmount]),
   );
   exec.call(cfg.inputToken, encodeTransfer(signer, feeAmount)); // USDC fee to signer
-  exec.call(cfg.inputToken, encodeApprove(cfg.stargatePool, ethers.MaxUint256));
+  exec.call(cfg.inputToken, encodeApprove(cfg.bridgeContract, ethers.MaxUint256));
   const usdcBalance = exec.staticCall(cfg.inputToken, encodeBalanceOf(routerAddress));
   exec
-    .nativeCall(cfg.stargatePool, stargateData, nativeFeeWithBuffer)
+    .nativeCall(cfg.bridgeContract, stargateData, nativeFeeWithBuffer)
     .splicePayloadWord(BigInt(STARGATE_AMOUNT_LD_OFFSET), usdcBalance.returnWord());
 
   return exec.toActions();
 }
 
 /**
- * ETH reserved from native balance for gas + LZ fee when inputToken is native.
- * The balance read in runCase subtracts this before using the remainder as inputAmount,
- * so the signer always has headroom to pay tx gas on top of (inputAmount + nativeFeeWithBuffer).
+ * Fallback gas reserve used in `runCase` when splitting the balance into leg amounts.
+ * The actual safety budget used in `executeLeg` is derived dynamically from the
+ * provider's current `maxFeePerGas` (see `NATIVE_INPUT_GAS_LIMIT_ESTIMATE`).
  */
-const NATIVE_INPUT_GAS_RESERVE = parseEther("0.001");
+const NATIVE_INPUT_GAS_RESERVE = parseEther('0.01');
+
+/**
+ * Estimated gas units for a native-input leg (generous upper bound covering the
+ * modular path with OO multi-hop swap + LZ OFT send on Polygon).
+ * Actual usage is ~1M–1.1M; using 2M × maxFeePerGas gives a comfortable ceiling.
+ */
+const NATIVE_INPUT_GAS_LIMIT_ESTIMATE = 2_000_000n;
 
 // ─── Monolithic/modular builders for case 4 ───────────────────────────────────
 
 /**
- * Monolithic for case 4 (native ETH input → OO swap to USDC → Stargate USDC pool → Base USDC):
+ * Monolithic for case 4 (native gas token input → OO swap to bridged ERC-20 → LZ `send` on adapter/pool):
  *   - inputToken = NATIVE_TOKEN_ADDRESS; swap.approvalSpender = 0 (no ERC20 approve needed)
- *   - swap.value = inputAmount: forwards that ETH to OO which returns USDC to the router
- *   - postFee: router sends feeAmount USDC to signer
- *   - bridge.approvalSpender = stargatePool: router approves remaining USDC to Stargate
- *   - bridge.value = nativeFeeWithBuffer: only LZ fee in native (not the USDC bridge amount)
- *   - amountPositions=[196n]: router splices post-fee USDC finalAmount into stargateData.amountLD
+ *   - swap.value = `ooSwapNativeWei` (OpenOcean `value` field when present; else quoted input wei)
+ *   - postFee: router sends feeAmount of OO output token (e.g. USDT0) to signer
+ *   - bridge: ERC-20 pool mechanics — splice post-fee balance into amountLD at offset 196
  *
- * msg.value = inputAmount + nativeFeeWithBuffer:
- *   OO consumes inputAmount ETH → router holds USDC + nativeFeeWithBuffer ETH for the LZ fee.
+ * msg.value ≈ ooSwapNativeWei + nativeFeeWithBuffer (signer attaches full `txValue`; OO consumes POL/ETH swap leg).
  */
 function buildNativeInErc20BridgeMonolithic(
   signer: string,
@@ -624,43 +659,40 @@ function buildNativeInErc20BridgeMonolithic(
   swapData: string,
   stargateData: string,
   nativeFeeWithBuffer: bigint,
+  ooSwapNativeWei: bigint,
 ): MonolithicExecution {
+  const rawOoWei = ooSwapNativeWei > 0n ? ooSwapNativeWei : inputAmount;
+  const polOrEthToOo = rawOoWei <= inputAmount ? rawOoWei : inputAmount;
   return {
     input: { user: signer, inputToken: NATIVE_TOKEN_ADDRESS, inputAmount },
     preFee: NO_FEE,
     swap: {
       target: ooRouter,
       approvalSpender: ZERO_ADDRESS, // no ERC20 approve for native ETH input
-      outputToken: cfg.ooSwap!.outToken, // USDC_ARB
-      value: inputAmount,              // forward inputAmount ETH to OO
+      outputToken: cfg.ooSwap!.outToken,
+      value: polOrEthToOo,
       minOutput: minAmountOut,
       data: swapData,
       returnDataWordOffset: 0n,
     },
-    postFee: { receiver: signer, amount: feeAmount }, // fee in USDC
+    postFee: { receiver: signer, amount: feeAmount }, // fee in OO output token (USDC/USDT0)
     bridge: {
-      target: cfg.stargatePool,
-      approvalSpender: cfg.stargatePool, // router approves USDC to Stargate pool
-      value: nativeFeeWithBuffer,        // LZ fee only; not the USDC bridge amount
+      target: cfg.bridgeContract,
+      approvalSpender: cfg.bridgeContract, // router approves bridge contract to pull ERC20
+      value: nativeFeeWithBuffer,        // LZ fee in native gas token only
       data: stargateData,
-      amountPositions: [BigInt(STARGATE_AMOUNT_LD_OFFSET)], // splice USDC amountLD at runtime
+      amountPositions: [BigInt(STARGATE_AMOUNT_LD_OFFSET)], // splice amountLD at runtime
       useFinalAmountAsValue: false,
     },
   };
 }
 
 /**
- * Modular for case 4 (native ETH input → OO swap to USDC → Stargate USDC pool → Base USDC):
- *   [0] nativeCall(ooRouter, swapData, inputAmount) — send inputAmount ETH to OO, get USDC
- *   [1] USDC.transfer(signer, feeAmount)            — fee out to signer
- *   [2] USDC.approve(stargatePool, MaxUint256)
- *   [3] STATICCALL USDC.balanceOf(router)           → stored for splice into [4]
- *   [4] nativeCall(stargatePool, stargateData, nativeFeeWithBuffer)
- *       .splicePayloadWord(STARGATE_AMOUNT_LD_OFFSET) ← patches amountLD from [3]
+ * Modular for case 4 (native gas token in → OO → ERC-20 out → LZ `send`):
+ *   [0] nativeCall(ooRouter, swapData, ooSwapWei) — OO `value` when present else leg `inputAmount`
+ *   … same ERC-20 fee / approve / splice as monolithic ERC20-pool bridge path.
  *
- * No AH.transferFrom step — input ETH is already in the router via msg.value (direct
- * router tx or AH.exec both forward the same `txValue` to the router).
- * msg.value = inputAmount + nativeFeeWithBuffer (see `executeLeg` / `dispatchRouterTransaction`).
+ * Input native is forwarded on the enclosing tx (`txValue`); no AH.transferFrom pull.
  */
 function buildNativeInErc20BridgeModularActions(
   signer: string,
@@ -672,17 +704,20 @@ function buildNativeInErc20BridgeModularActions(
   ooRouter: string,
   swapData: string,
   stargateData: string,
+  ooSwapNativeWei: bigint,
 ): ModularAction[] {
   const exec = new ModularActionsBuilder();
-  const usdcToken = cfg.ooSwap!.outToken; // USDC_ARB
+  const outTokenAddr = cfg.ooSwap!.outToken;
+  const rawOoWei = ooSwapNativeWei > 0n ? ooSwapNativeWei : inputAmount;
+  const polOrEthToOo = rawOoWei <= inputAmount ? rawOoWei : inputAmount;
 
-  exec.nativeCall(ooRouter, swapData, inputAmount); // ETH → USDC, USDC lands in router
-  exec.call(usdcToken, encodeTransfer(signer, feeAmount));
-  exec.call(usdcToken, encodeApprove(cfg.stargatePool, ethers.MaxUint256));
-  const usdcBalance = exec.staticCall(usdcToken, encodeBalanceOf(routerAddress));
+  exec.nativeCall(ooRouter, swapData, polOrEthToOo);
+  exec.call(outTokenAddr, encodeTransfer(signer, feeAmount));
+  exec.call(outTokenAddr, encodeApprove(cfg.bridgeContract, ethers.MaxUint256));
+  const tokenBal = exec.staticCall(outTokenAddr, encodeBalanceOf(routerAddress));
   exec
-    .nativeCall(cfg.stargatePool, stargateData, nativeFeeWithBuffer)
-    .splicePayloadWord(BigInt(STARGATE_AMOUNT_LD_OFFSET), usdcBalance.returnWord());
+    .nativeCall(cfg.bridgeContract, stargateData, nativeFeeWithBuffer)
+    .splicePayloadWord(BigInt(STARGATE_AMOUNT_LD_OFFSET), tokenBal.returnWord());
 
   return exec.toActions();
 }
@@ -743,84 +778,156 @@ async function executeLeg(
 ): Promise<void> {
   console.log(`\n── ${legLabel} (${useModular ? 'MODULAR' : 'MONOLITHIC'}) ──`);
 
-  let feeAmount: bigint;
+  const nativeSymbol = cfg.sourceChainId === CHAIN_IDS.POLYGON ? 'POL' : 'ETH';
+
+  let inputAmountWei = inputAmount;
+
+  let feeAmount = 0n;
   let minAmountOut = 0n;
-  let estimatedBridgeAmount: bigint;
+  let estimatedBridgeAmount = 0n;
   let ooRouter = '';
   let swapData = '';
+  let ooSwapNativeWei = 0n;
+  let nativeFeeWithBuffer = 0n;
+  let amountReceivedLD = 0n;
+  /** Last raw quote fee (logged before buffer). */
+  let nativeFeeQuoted = 0n;
 
-  if (cfg.ooSwap !== null) {
-    const swapOutIsNative = cfg.ooSwap.outToken.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase();
-    const swapOutLabel = swapOutIsNative ? 'ETH' : 'USDC';
-    const fmtSwapOut = (v: bigint) =>
-      swapOutIsNative ? ethers.formatEther(v) : ethers.formatUnits(v, 6);
-    console.log(`Fetching OpenOcean quote (${cfg.ooSwap.inToken} → ${swapOutLabel})...`);
-    const q = await fetchOoQuote(cfg.ooSwap, routerAddress, inputAmount);
-    ooRouter = q.ooRouter;
-    swapData = q.swapData;
-    feeAmount = bpsOf(q.estimatedOut, FEE_BPS);
-    estimatedBridgeAmount = q.estimatedOut - feeAmount;
-    minAmountOut = q.minAmountOut;
-
-    console.log(`  OO router:         ${ooRouter}`);
-    console.log(`  Est. out:          ${fmtSwapOut(q.estimatedOut)} ${swapOutLabel}`);
-    console.log(`  Fee:               ${fmtSwapOut(feeAmount)} ${swapOutLabel} (${FEE_BPS} bps)`);
-    console.log(`  Min out:           ${fmtSwapOut(minAmountOut)} ${swapOutLabel}`);
-  } else {
-    // Case 2: no OO swap — bridge entire balance minus fee
-    feeAmount = bpsOf(inputAmount, FEE_BPS);
-    estimatedBridgeAmount = inputAmount - feeAmount;
-    console.log(`  Fee:               ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`);
+  /**
+   * Dynamic gas reserve for native-input cases: current maxFeePerGas × generous gas limit estimate.
+   * Fetched once before the loop so we don't hammer the RPC on each cap iteration.
+   * Falls back to a hardcoded minimum if fee data is unavailable.
+   */
+  let gasReserve = NATIVE_INPUT_GAS_RESERVE;
+  if (cfg.isNativeInput) {
+    const feeData = await provider.getFeeData();
+    const maxFeePerGas = feeData.maxFeePerGas ?? feeData.gasPrice ?? 500_000_000n;
+    gasReserve = maxFeePerGas * NATIVE_INPUT_GAS_LIMIT_ESTIMATE;
+    console.log(
+      `  Gas reserve (${NATIVE_INPUT_GAS_LIMIT_ESTIMATE / 1_000_000n}M gas × ${ethers.formatUnits(maxFeePerGas, 'gwei')} Gwei): ` +
+        `${ethers.formatEther(gasReserve)} ${nativeSymbol}`,
+    );
   }
 
-  // Fetch Stargate quote for nativeFee and expected receive amount
-  console.log(`Fetching Stargate quoteSend (pool ${cfg.stargatePool})...`);
-  const { nativeFee, amountReceivedLD } = await fetchStargateQuote(
-    cfg.stargatePool,
-    provider,
-    cfg.destLzEid,
-    signerAddress,
-    estimatedBridgeAmount,
-  );
-  const nativeFeeWithBuffer = (nativeFee * 105n) / 100n;
+  const MAX_NATIVE_INPUT_CAP_ITER = 6;
 
-  const nativeSymbol = cfg.sourceChainId === CHAIN_IDS.POLYGON ? 'POL' : 'ETH';
-  console.log(`  nativeFee:         ${ethers.formatEther(nativeFee)} ${nativeSymbol}`);
-  console.log(`  nativeFee +5%buf:  ${ethers.formatEther(nativeFeeWithBuffer)} ${nativeSymbol}`);
-  console.log(`  Est. received:     ${ethers.formatUnits(amountReceivedLD, cfg.isNativePool ? 18 : 6)}`);
+  let iter = 0;
+  for (;;) {
+    iter++;
+    if (iter > MAX_NATIVE_INPUT_CAP_ITER) {
+      throw new Error(
+        `${cfg.name}: native swap budgeting hit ${MAX_NATIVE_INPUT_CAP_ITER} re-quote iterations; top up native balance or widen gas reserve.`,
+      );
+    }
 
-  // Build Stargate calldata
+    if (cfg.ooSwap !== null) {
+      const swapOutIsNative = cfg.ooSwap.outToken.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase();
+      const swapOutIsUsdt0 = cfg.ooSwap.outToken.toLowerCase() === TOKENS.USDT0_POLYGON.toLowerCase();
+      const swapOutLabel = swapOutIsNative
+        ? cfg.sourceChainId === CHAIN_IDS.POLYGON
+          ? 'POL'
+          : 'ETH'
+        : swapOutIsUsdt0
+          ? 'USDT0'
+          : 'USDC';
+      const swapOutDecimals = swapOutIsNative ? 18 : 6;
+      const fmtSwapOut = (v: bigint) =>
+        swapOutIsNative ? ethers.formatEther(v) : ethers.formatUnits(v, swapOutDecimals);
+
+      console.log(`Fetching OpenOcean quote (${cfg.ooSwap.inToken} → ${swapOutLabel})...`);
+      const q = await fetchOoQuote(cfg.ooSwap, routerAddress, inputAmountWei);
+      ooRouter = q.ooRouter;
+      swapData = q.swapData;
+      ooSwapNativeWei = q.nativeSwapWei;
+      feeAmount = bpsOf(q.estimatedOut, FEE_BPS);
+      estimatedBridgeAmount = q.estimatedOut - feeAmount;
+      minAmountOut = q.minAmountOut;
+
+      console.log(`  OO router:         ${ooRouter}`);
+      console.log(`  Est. out:          ${fmtSwapOut(q.estimatedOut)} ${swapOutLabel}`);
+      console.log(`  Fee:               ${fmtSwapOut(feeAmount)} ${swapOutLabel} (${FEE_BPS} bps)`);
+      console.log(`  Min out:           ${fmtSwapOut(minAmountOut)} ${swapOutLabel}`);
+      if (ooSwapNativeWei > 0n) {
+        console.log(`  OO swap value wei: ${ooSwapNativeWei.toString()} (attached to OO call)`);
+      }
+    } else {
+      // Case 2: no OO swap — bridge entire balance minus fee
+      feeAmount = bpsOf(inputAmountWei, FEE_BPS);
+      estimatedBridgeAmount = inputAmountWei - feeAmount;
+      console.log(`  Fee:               ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`);
+    }
+
+    console.log(`Fetching bridge quoteSend (${cfg.bridgeContract}, extraOpts ${cfg.lzExtraOptions.slice(0, 18)}...) ...`);
+    const lzQuote = await fetchStargateQuote(
+      cfg.bridgeContract,
+      provider,
+      cfg.destLzEid,
+      signerAddress,
+      estimatedBridgeAmount,
+      cfg.lzExtraOptions,
+    );
+    nativeFeeQuoted = lzQuote.nativeFee;
+    nativeFeeWithBuffer = (lzQuote.nativeFee * 105n) / 100n;
+    amountReceivedLD = lzQuote.amountReceivedLD;
+
+    console.log(`  nativeFee:         ${ethers.formatEther(nativeFeeQuoted)} ${nativeSymbol}`);
+    console.log(`  nativeFee +5%buf:  ${ethers.formatEther(nativeFeeWithBuffer)} ${nativeSymbol}`);
+    console.log(`  Est. received:     ${ethers.formatUnits(amountReceivedLD, cfg.isNativePool ? 18 : 6)}`);
+
+    if (!cfg.isNativeInput) {
+      break;
+    }
+
+    const balNow = await provider.getBalance(signerAddress);
+    // maxAffordableSwapIn = balance we can put into the swap leg so that
+    //   txValue (= inputAmountWei + nativeFeeWithBuffer) + gas cost ≤ balance
+    const maxAffordableSwapIn = balNow - nativeFeeWithBuffer - gasReserve;
+    if (maxAffordableSwapIn <= 0n) {
+      throw new Error(
+        `${cfg.name}: signer native balance (${ethers.formatEther(balNow)} ${nativeSymbol}) cannot cover lz fee ` +
+          `(${ethers.formatEther(nativeFeeWithBuffer)} ${nativeSymbol}) plus gas reserve ` +
+          `(${ethers.formatEther(gasReserve)} ${nativeSymbol}).`,
+      );
+    }
+    if (inputAmountWei <= maxAffordableSwapIn) {
+      break;
+    }
+
+    console.warn(
+      `[${legLabel}] capping ${nativeSymbol} swap input: planned ${ethers.formatEther(inputAmountWei)} ` +
+        `exceeds max affordable ${ethers.formatEther(maxAffordableSwapIn)} (balance − lz fee − gas reserve). Re-quoting.`,
+    );
+    inputAmountWei = maxAffordableSwapIn;
+  }
+
   let amountLD: bigint;
   if (cfg.isNativePool) {
-    // Use minAmountOut as the basis so that msg.value (= actualFinalAmount) >= amountLD + nativeFeeWithBuffer
-    // is always satisfied: since actual >= min is guaranteed by OO slippage,
-    // actual - fee >= min - fee = amountLD + nativeFeeWithBuffer >= amountLD + nativeFee ✓
     amountLD = minAmountOut - feeAmount - nativeFeeWithBuffer;
     if (amountLD <= 0n) {
       throw new Error(`${cfg.name}: minAmountOut too small to cover fee + nativeFee.`);
     }
   } else {
-    amountLD = 0n; // placeholder — spliced by amountPositions or spliceWord at runtime
+    amountLD = 0n;
   }
-  const stargateData = buildStargateCalldata(cfg.destLzEid, nativeFeeWithBuffer, signerAddress, amountLD);
 
-  // Build execution calldata
+  const stargateData = buildStargateCalldata(cfg.destLzEid, nativeFeeWithBuffer, signerAddress, amountLD, cfg.lzExtraOptions);
+
   let execCalldata: string;
   if (useModular) {
     let actions: ModularAction[];
     if (cfg.isNativePool) {
       actions = buildNativePoolModularActions(
-        signerAddress, routerAddress, cfg, inputAmount, feeAmount, nativeFeeWithBuffer,
+        signerAddress, routerAddress, cfg, inputAmountWei, feeAmount, nativeFeeWithBuffer,
         minAmountOut, ooRouter, swapData, stargateData,
       );
     } else if (cfg.isNativeInput) {
       actions = buildNativeInErc20BridgeModularActions(
-        signerAddress, routerAddress, cfg, inputAmount, feeAmount, nativeFeeWithBuffer,
-        ooRouter, swapData, stargateData,
+        signerAddress, routerAddress, cfg, inputAmountWei, feeAmount, nativeFeeWithBuffer,
+        ooRouter, swapData, stargateData, ooSwapNativeWei,
       );
     } else {
       actions = buildErc20PoolModularActions(
-        signerAddress, routerAddress, cfg, inputAmount, feeAmount, nativeFeeWithBuffer, stargateData,
+        signerAddress, routerAddress, cfg, inputAmountWei, feeAmount, nativeFeeWithBuffer, stargateData,
       );
     }
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [actions]);
@@ -828,26 +935,23 @@ async function executeLeg(
     let mono: MonolithicExecution;
     if (cfg.isNativePool) {
       mono = buildNativePoolMonolithic(
-        signerAddress, cfg, inputAmount, feeAmount, minAmountOut,
+        signerAddress, cfg, inputAmountWei, feeAmount, minAmountOut,
         ooRouter, swapData, stargateData,
       );
     } else if (cfg.isNativeInput) {
       mono = buildNativeInErc20BridgeMonolithic(
-        signerAddress, cfg, inputAmount, feeAmount, minAmountOut,
-        ooRouter, swapData, stargateData, nativeFeeWithBuffer,
+        signerAddress, cfg, inputAmountWei, feeAmount, minAmountOut,
+        ooRouter, swapData, stargateData, nativeFeeWithBuffer, ooSwapNativeWei,
       );
     } else {
       mono = buildErc20PoolMonolithic(
-        signerAddress, cfg, inputAmount, feeAmount, stargateData, nativeFeeWithBuffer,
+        signerAddress, cfg, inputAmountWei, feeAmount, stargateData, nativeFeeWithBuffer,
       );
     }
     execCalldata = routerIface.encodeFunctionData('performExecution', [mono]);
   }
 
-  // txValue:
-  //   Native input:  inputAmount (forwarded to OO) + nativeFeeWithBuffer (LZ fee)
-  //   ERC20 input:   nativeFeeWithBuffer only (LZ fee)
-  const txValue = cfg.isNativeInput ? inputAmount + nativeFeeWithBuffer : nativeFeeWithBuffer;
+  const txValue = cfg.isNativeInput ? inputAmountWei + nativeFeeWithBuffer : nativeFeeWithBuffer;
 
   const receipt = await dispatchRouterTransaction(
     routerExec,
@@ -855,16 +959,12 @@ async function executeLeg(
     signer,
     routerAddress,
     execCalldata,
-    inputAmount,
+    inputAmountWei,
     txValue,
     nativeSymbol,
   );
 
-  logTxnSummary(
-    `${cfg.name} — ${useModular ? 'Modular' : 'Monolithic'}`,
-    cfg.sourceChainId,
-    receipt,
-  );
+  logTxnSummary(`${cfg.name} — ${useModular ? 'Modular' : 'Monolithic'}`, cfg.sourceChainId, receipt);
 }
 
 // ─── Run one case (monolithic + sleep + modular) ──────────────────────────────
@@ -891,11 +991,12 @@ async function runCase(
   if (cfg.isNativeInput) {
     const raw = await provider.getBalance(signerAddress);
     if (raw <= NATIVE_INPUT_GAS_RESERVE) {
+      const sym = cfg.sourceChainId === CHAIN_IDS.POLYGON ? 'POL' : 'ETH';
       throw new Error(
-        `${cfg.name}: native balance ${ethers.formatEther(raw)} ETH is below gas reserve of ${ethers.formatEther(NATIVE_INPUT_GAS_RESERVE)} ETH.`,
+        `${cfg.name}: native balance ${ethers.formatEther(raw)} ${sym} is below reserve of ${ethers.formatEther(NATIVE_INPUT_GAS_RESERVE)} ${sym}.`,
       );
     }
-    // Reserve NATIVE_INPUT_GAS_RESERVE for tx gas + LZ nativeFee buffer; use the rest as input.
+    // Reserve wei for signer gas; lz fee itself is deducted inside executeLeg (`txValue = swap + fee`).
     walletBalance = raw - NATIVE_INPUT_GAS_RESERVE;
     decimals = 18;
   } else {
@@ -912,13 +1013,12 @@ async function runCase(
   }
 
   const legAmount = walletBalance / 2n;
-  // const legAmount = walletBalance;
   if (legAmount === 0n) {
     throw new Error(`${cfg.name}: balance too small to split into two halves.`);
   }
 
   console.log(`Input token balance: ${ethers.formatUnits(walletBalance, decimals)} (${cfg.inputToken})`);
-  console.log(`Per leg:             ${ethers.formatUnits(legAmount, decimals)}`);
+  console.log(`Per leg (½):       ${ethers.formatUnits(legAmount, decimals)}`);
 
   await executeLeg('1/2', false, cfg, routerAddress, signerOnChain, signerAddress, provider, legAmount, routerIface, routerExec);
 
