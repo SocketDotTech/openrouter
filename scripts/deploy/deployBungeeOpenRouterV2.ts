@@ -13,10 +13,12 @@
  * Omitting --network runs against the in-process Hardhat network.
  */
 
+import hre from 'hardhat';
 import { ethers } from 'hardhat';
 
 async function main() {
   const [deployer] = await ethers.getSigners();
+  const networkName = hre.network.name;
 
   const owner = deployer.address;
   const openRouterSigner = deployer.address;
@@ -28,7 +30,7 @@ async function main() {
   console.log('Deployer:          ', deployer.address);
   console.log('Owner:             ', owner);
   console.log('OpenRouterSigner:  ', openRouterSigner);
-  console.log('Network:           ', (await ethers.provider.getNetwork()).name);
+  console.log('Network:           ', networkName);
   console.log('');
 
   // -------------------------------------------------------------------------
@@ -67,10 +69,10 @@ async function main() {
   if (chainId !== 31337n) {
     console.log('\nTo verify on a block explorer:');
     // console.log(
-    //   `  npx hardhat verify --network <network> ${v2Address} "${owner}" "${openRouterSigner}"`
+    //   `  npx hardhat verify --network ${networkName} ${v2Address} "${owner}" "${openRouterSigner}"`
     // );
     console.log(
-      `  npx hardhat verify --network <network> ${v2uAddress} "${owner}"`,
+      `  npx hardhat verify --network ${networkName} ${v2uAddress} "${owner}"`,
     );
   }
 }

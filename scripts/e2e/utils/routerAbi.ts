@@ -18,4 +18,11 @@ export const ROUTER_ABI = [
   `function performModularExecution(
     (uint256 actionInfo, bytes data, uint256[] splices)[] actions
   ) external payable`,
+
+  // Simple bridge path (no swap, no splicing — caller pre-encodes finalAmount into data)
+  `function bridge(
+    (address user, address inputToken, uint256 inputAmount) input,
+    bytes feeBytes,
+    (address target, address approvalSpender, uint256 value, bytes data) bridgeData
+  ) external payable`,
 ] as const;

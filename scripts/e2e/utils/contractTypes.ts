@@ -36,6 +36,14 @@ export interface BridgeData {
   useFinalAmountAsValue: boolean;
 }
 
+/** Simplified bridge descriptor for the no-swap `bridge()` entrypoint. */
+export interface StaticBridgeData {
+  target: string;
+  approvalSpender: string;
+  value: bigint;
+  data: string;
+}
+
 export interface MonolithicExecution {
   input: InputData;
   preFee: FeeData;
