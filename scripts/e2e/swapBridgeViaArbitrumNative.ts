@@ -12,7 +12,7 @@
  * Monolithic mechanics:
  *   - Pull inputAmount AAVE via AH.exec grant, approve OO router, swap AAVE → ETH.
  *   - Post-swap fee (FEE_BPS) in ETH sent to signer.
- *   - useFinalAmountAsValue=true: router forwards actualFinalETH as msg.value to inbox.
+ *   - BRIDGE_VALUE_FLAG set: router forwards actualFinalETH as msg.value to inbox.
  *   - No ETH splice needed (depositEth takes no calldata amount param).
  *
  * Modular mechanics:
@@ -62,7 +62,13 @@ import { encodeApprove, getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
 import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
 import type { ModularAction } from './utils/modularActionsBuilder/index';
-import { MonolithicExecution, NO_FEE, ZERO_ADDRESS } from './utils/contractTypes';
+import {
+  BRIDGE_VALUE_FLAG,
+  MonolithicExecutionCall,
+  NO_FEE,
+  ZERO_ADDRESS,
+  monolithicArgs,
+} from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
 import {
@@ -205,7 +211,7 @@ function buildDepositEthCalldata(): string {
 /**
  * AAVE → OO → ETH → Arbitrum inbox (monolithic):
  *   - input: AAVE pulled via AH
- *   - swap: AAVE → native ETH, useFinalAmountAsValue=true forwards actualFinalETH
+ *   - swap: AAVE → native ETH, BRIDGE_VALUE_FLAG forwards actualFinalETH
  *   - bridge: depositEth() — no amount in calldata, all ETH passed as msg.value
  */
 function buildMonolithic(
@@ -215,28 +221,29 @@ function buildMonolithic(
   minAmountOut: bigint,
   ooRouter: string,
   swapData: string,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: { user: signerAddress, inputToken: TOKENS.AAVE_ETH, inputAmount },
-    preFee: NO_FEE,
-    swap: {
-      target: ooRouter,
-      approvalSpender: ooRouter,
-      outputToken: NATIVE_TOKEN_ADDRESS,
-      value: 0n,
-      minOutput: minAmountOut,
-      data: swapData,
-      returnDataWordOffset: 0n,
+    exec: {
+      input: { user: signerAddress, inputToken: TOKENS.AAVE_ETH, inputAmount },
+      preFee: NO_FEE,
+      swap: {
+        target: ooRouter,
+        approvalSpender: ooRouter,
+        outputToken: NATIVE_TOKEN_ADDRESS,
+        value: 0n,
+        minOutput: minAmountOut,
+        returnDataWordOffset: 0n,
+      },
+      postFee: { receiver: signerAddress, amount: feeAmount },
+      bridge: {
+        target: ARBITRUM_INBOX,
+        approvalSpender: ZERO_ADDRESS,
+        value: 0n,              // ignored when BRIDGE_VALUE_FLAG is set
+      },
+      flags: BRIDGE_VALUE_FLAG,
     },
-    postFee: { receiver: signerAddress, amount: feeAmount },
-    bridge: {
-      target: ARBITRUM_INBOX,
-      approvalSpender: ZERO_ADDRESS,
-      value: 0n,              // ignored — useFinalAmountAsValue=true
-      data: buildDepositEthCalldata(),
-      amountPositions: [],    // no amount in calldata
-      useFinalAmountAsValue: true,
-    },
+    swapCallData: swapData,
+    bridgeCallData: buildDepositEthCalldata(),
   };
 }
 
@@ -339,7 +346,7 @@ async function executeLeg(
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [actions]);
   } else {
     const mono = buildMonolithic(signerAddress, inputAmount, feeAmount, minAmountOut, ooRouter, swapData);
-    execCalldata = routerIface.encodeFunctionData('performExecution', [mono]);
+    execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono));
   }
 
   // Input is AAVE (ERC-20) — msg.value is always 0; ETH comes from the swap output.

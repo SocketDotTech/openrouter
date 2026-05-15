@@ -8,10 +8,13 @@ export const ROUTER_ABI = [
     (
       (address user, address inputToken, uint256 inputAmount) input,
       (address receiver, uint256 amount) preFee,
-      (address target, address approvalSpender, address outputToken, uint256 value, uint256 minOutput, bytes data, uint256 returnDataWordOffset) swap,
+      (address target, address approvalSpender, address outputToken, uint256 value, uint256 minOutput, uint256 returnDataWordOffset) swap,
       (address receiver, uint256 amount) postFee,
-      (address target, address approvalSpender, uint256 value, bytes data, uint256[] amountPositions, bool useFinalAmountAsValue) bridge
-    ) exec
+      (address target, address approvalSpender, uint256 value) bridge,
+      uint256 flags
+    ) exec,
+    bytes swapCallData,
+    bytes bridgeCallData
   ) external payable`,
 
   // Modular path
@@ -22,7 +25,8 @@ export const ROUTER_ABI = [
   // Simple bridge path (no swap, no splicing — caller pre-encodes finalAmount into data)
   `function bridge(
     (address user, address inputToken, uint256 inputAmount) input,
-    bytes feeBytes,
-    (address target, address approvalSpender, uint256 value, bytes data) bridgeData
+    (address receiver, uint256 amount) fee,
+    (address target, address approvalSpender, uint256 value) bridgeData,
+    bytes bridgeCallData
   ) external payable`,
 ] as const;

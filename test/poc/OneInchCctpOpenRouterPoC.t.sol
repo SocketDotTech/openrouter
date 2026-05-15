@@ -119,7 +119,7 @@ contract OneInchCctpOpenRouterPoCTest is Test {
         uint256 feeRecipientUsdcBefore = ERC20(POLYGON_USDC).balanceOf(FEE_RECIPIENT);
         uint256 usdcSupplyBefore = ERC20(POLYGON_USDC).totalSupply();
 
-        Router.MonolithicExecution memory exec =
+        (Router.MonolithicExecution memory exec, bytes memory swapCallData, bytes memory bridgeCallData) =
             _buildMonolithicExecution(inputAmount, vm.parseBytes(ONEINCH_SWAP_CALLDATA));
 
         vm.prank(FIXTURE_RECIPIENT);
@@ -129,7 +129,7 @@ contract OneInchCctpOpenRouterPoCTest is Test {
             POLYGON_AAVE,
             inputAmount,
             payable(address(router)),
-            abi.encodeCall(router.performExecution, (exec))
+            abi.encodeCall(router.performExecution, (exec, swapCallData, bridgeCallData))
         );
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
         emit log_named_uint("AllowanceHolder.exec -> router.performExecution gas used", executeGasUsed);
@@ -239,10 +239,10 @@ contract OneInchCctpOpenRouterPoCTest is Test {
     function _buildMonolithicExecution(uint256 inputAmount, bytes memory swapCalldata)
         internal
         pure
-        returns (Router.MonolithicExecution memory exec)
+        returns (Router.MonolithicExecution memory exec, bytes memory swapCallData, bytes memory bridgeCallData)
     {
-        uint256[] memory amountPositions = new uint256[](1);
-        amountPositions[0] = 4;
+        swapCallData = swapCalldata;
+        bridgeCallData = _emptyDepositForBurnCalldata();
 
         exec = Router.MonolithicExecution({
             input: Router.InputData({user: FIXTURE_RECIPIENT, inputToken: POLYGON_AAVE, inputAmount: inputAmount}),
@@ -253,18 +253,11 @@ contract OneInchCctpOpenRouterPoCTest is Test {
                 outputToken: POLYGON_USDC,
                 value: 0,
                 minOutput: EXPECTED_SWAP_OUTPUT_USDC,
-                data: swapCalldata,
                 returnDataWordOffset: 0
             }),
             postFee: Router.FeeData({receiver: FEE_RECIPIENT, amount: ROUTE_FEE_USDC}),
-            bridge: Router.BridgeData({
-                target: CCTP_TOKEN_MESSENGER_V2,
-                approvalSpender: CCTP_TOKEN_MESSENGER_V2,
-                value: 0,
-                data: _emptyDepositForBurnCalldata(),
-                amountPositions: amountPositions,
-                useFinalAmountAsValue: false
-            })
+            bridge: Router.BridgeData({target: CCTP_TOKEN_MESSENGER_V2, approvalSpender: CCTP_TOKEN_MESSENGER_V2, value: 0}),
+            flags: 0x08 | (uint256(4) << 16)
         });
     }
 

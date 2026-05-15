@@ -1,13 +1,12 @@
 /**
  * Script — Bridge AAVE (Polygon PoS) → AAVE (Base) via Relay.link
- *          using the `bridge(InputData, bytes feeBytes, BridgeData)` entrypoint.
+ *          using the `bridge(InputData, FeeData, BridgeData, bytes)` entrypoint.
  *
  * Flow:
  *   1. Read signer's Polygon AAVE (or USDC) balance.
- *   2. Compute fee via FEE_BPS; encode as 64-byte ABI word-pair (receiver, amount).
- *      If FEE_AMOUNT_BPS=0, feeBytes is `0x` and the contract skips the fee entirely.
+ *   2. Compute fee via FEE_BPS; set fee.amount=0 to skip the fee entirely.
  *   3. Fetch Relay.link /quote/v2 for the net bridge amount (inputAmount − fee).
- *   4. AllowanceHolder.exec → router.bridge(input, feeBytes, bridgeData).
+ *   4. AllowanceHolder.exec → router.bridge(input, fee, bridgeData, bridgeCallData).
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/bridgeViaRelaySimple.ts
@@ -36,7 +35,7 @@ import {
 import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
-import type { InputData, StaticBridgeData } from './utils/contractTypes';
+import type { BridgeData, FeeData, InputData } from './utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from './utils/relayLinkQuote';
 import { logTxnSummary } from './utils/txnLogSummary';
 import {
@@ -46,30 +45,13 @@ import {
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
-// ─── feeBytes encoding ────────────────────────────────────────────────────────
-
-/**
- * Encode fee as the 64-byte ABI word-pair expected by the contract:
- *   abi.encode(address receiver, uint256 amount)
- * Returns `'0x'` when feeAmount is zero so the contract skips the transfer.
- */
-function encodeFeeBytes(receiver: string, feeAmount: bigint): string {
-  if (feeAmount === 0n) {
-    return '0x';
-  }
-  return ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'uint256'],
-    [receiver, feeAmount],
-  );
-}
-
 // ─── Execution builder ────────────────────────────────────────────────────────
 
 interface BridgeParams {
   signerAddress: string;
   inputToken: string;
   inputAmount: bigint;
-  feeBytes: string;
+  fee: FeeData;
   relaySpender: string;
   depositTarget: string;
   /** Bridge calldata with finalAmount (= inputAmount - feeAmount) already encoded inside. */
@@ -83,16 +65,15 @@ function buildBridgeCalldata(routerIface: ethers.Interface, p: BridgeParams): st
     inputAmount: p.inputAmount,
   };
 
-  // No amountPositions or useFinalAmountAsValue — the caller bakes the net amount
+  // No bridge amount-position flag or bridge-value flag — the caller bakes the net amount
   // directly into depositData before calling.
-  const bridgeData: StaticBridgeData = {
+  const bridgeData: BridgeData = {
     target: p.depositTarget,
     approvalSpender: p.relaySpender,
     value: 0n,
-    data: p.depositData,
   };
 
-  return routerIface.encodeFunctionData('bridge', [input, p.feeBytes, bridgeData]);
+  return routerIface.encodeFunctionData('bridge', [input, p.fee, bridgeData, p.depositData]);
 }
 
 // ─── Execution leg ────────────────────────────────────────────────────────────
@@ -126,9 +107,8 @@ async function executeLeg(args: {
   console.log(`Fee (${FEE_BPS} bps):    ${fmt(feeAmount)} ${config.symbol}`);
   console.log(`Bridge amount:   ${fmt(bridgeAmount)} ${config.symbol}`);
 
-  // feeBytes: `0x` if no fee, else abi-encoded (receiver=signer, amount)
-  const feeBytes = encodeFeeBytes(signerAddress, feeAmount);
-  console.log(`feeBytes:        ${feeBytes === '0x' ? '0x (no fee)' : `${feeBytes.slice(0, 18)}… (${feeBytes.length / 2 - 1} bytes)`}`);
+  const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
+  console.log(`Fee tuple:       ${fee.amount === 0n ? 'amount=0 (no fee)' : `receiver=${fee.receiver}, amount=${fee.amount}`}`);
 
   console.log('Fetching Relay.link quote...');
   const quote = await fetchRelayQuoteV2({
@@ -151,7 +131,7 @@ async function executeLeg(args: {
     signerAddress,
     inputToken: config.inputToken,
     inputAmount,
-    feeBytes,
+    fee,
     relaySpender,
     depositTarget,
     depositData,

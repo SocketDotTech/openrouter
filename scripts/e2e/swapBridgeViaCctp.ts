@@ -35,9 +35,11 @@ import { ROUTER_ABI } from './utils/routerAbi';
 import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
 import type { ModularAction } from './utils/modularActionsBuilder/index';
 import {
-  MonolithicExecution,
+  MonolithicExecutionCall,
   NO_FEE,
   NO_SWAP,
+  bridgeAmountPositionFlag,
+  monolithicArgs,
 } from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
@@ -128,35 +130,36 @@ function buildMonolithicExecution(
   swapData: string,
   depositForBurnData: string,
   tokenMessenger: string,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: {
-      user: signerAddress,
-      inputToken: TOKENS.AAVE_POLYGON,
-      inputAmount,
+    exec: {
+      input: {
+        user: signerAddress,
+        inputToken: TOKENS.AAVE_POLYGON,
+        inputAmount,
+      },
+      preFee: NO_FEE,
+      swap: {
+        target: ooRouterAddress,
+        approvalSpender: ooRouterAddress,
+        outputToken: TOKENS.USDC_POLYGON_CIRCLE,
+        value: 0n,
+        minOutput: minAmountOut,
+        returnDataWordOffset: 0n,
+      },
+      postFee: {
+        receiver: signerAddress,
+        amount: feeAmount,
+      },
+      bridge: {
+        target: tokenMessenger,
+        approvalSpender: tokenMessenger,
+        value: 0n,
+      },
+      flags: bridgeAmountPositionFlag(4n),
     },
-    preFee: NO_FEE,
-    swap: {
-      target: ooRouterAddress,
-      approvalSpender: ooRouterAddress,
-      outputToken: TOKENS.USDC_POLYGON_CIRCLE,
-      value: 0n,
-      minOutput: minAmountOut,
-      data: swapData,
-      returnDataWordOffset: 0n,
-    },
-    postFee: {
-      receiver: signerAddress,
-      amount: feeAmount,
-    },
-    bridge: {
-      target: tokenMessenger,
-      approvalSpender: tokenMessenger,
-      value: 0n,
-      data: depositForBurnData,
-      amountPositions: [4n],
-      useFinalAmountAsValue: false,
-    },
+    swapCallData: swapData,
+    bridgeCallData: depositForBurnData,
   };
 }
 
@@ -197,27 +200,29 @@ function buildMonolithicExecutionUsdcPolygonToBaseCctp(
   feeAmount: bigint,
   depositForBurnData: string,
   tokenMessenger: string,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: {
-      user: signerAddress,
-      inputToken: TOKENS.USDC_POLYGON_CIRCLE,
-      inputAmount,
+    exec: {
+      input: {
+        user: signerAddress,
+        inputToken: TOKENS.USDC_POLYGON_CIRCLE,
+        inputAmount,
+      },
+      preFee: {
+        receiver: signerAddress,
+        amount: feeAmount,
+      },
+      swap: NO_SWAP,
+      postFee: NO_FEE,
+      bridge: {
+        target: tokenMessenger,
+        approvalSpender: tokenMessenger,
+        value: 0n,
+      },
+      flags: bridgeAmountPositionFlag(4n),
     },
-    preFee: {
-      receiver: signerAddress,
-      amount: feeAmount,
-    },
-    swap: NO_SWAP,
-    postFee: NO_FEE,
-    bridge: {
-      target: tokenMessenger,
-      approvalSpender: tokenMessenger,
-      value: 0n,
-      data: depositForBurnData,
-      amountPositions: [4n],
-      useFinalAmountAsValue: false,
-    },
+    swapCallData: '0x',
+    bridgeCallData: depositForBurnData,
   };
 }
 
@@ -291,7 +296,7 @@ async function executeLegUsdcPolygonToBaseCctp(args: {
       ),
     ]);
   } else {
-    execCalldata = routerIface.encodeFunctionData('performExecution', [
+    execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(
       buildMonolithicExecutionUsdcPolygonToBaseCctp(
         signerAddress,
         inputAmount,
@@ -299,7 +304,7 @@ async function executeLegUsdcPolygonToBaseCctp(args: {
         depositForBurnData,
         polyCctp.tokenMessenger,
       ),
-    ]);
+    ));
   }
 
   await ensureAllowanceForAllowanceHolder(
@@ -380,7 +385,7 @@ async function executeLeg(args: {
       ),
     ]);
   } else {
-    execCalldata = routerIface.encodeFunctionData('performExecution', [
+    execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(
       buildMonolithicExecution(
         signerAddress,
         inputAmount,
@@ -391,7 +396,7 @@ async function executeLeg(args: {
         depositForBurnData,
         polyCctp.tokenMessenger,
       ),
-    ]);
+    ));
   }
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.AAVE_POLYGON, inputAmount);

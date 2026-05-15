@@ -9,15 +9,15 @@
  *
  * Native-pool mechanics (cases 1 & 3):
  *   send() requires msg.value >= amountLD + nativeFee (StargatePoolNative._assertMessagingFee).
- *   Monolithic: useFinalAmountAsValue=true (router forwards actualFinalAmount as msg.value).
- *               amountLD = minAmountOut - fee - nativeFeeWithBuffer; positions=[].
+ *   Monolithic: BRIDGE_VALUE_FLAG set (router forwards actualFinalAmount as msg.value).
+ *               amountLD = minAmountOut - fee - nativeFeeWithBuffer; no splice flag.
  *               Since actual >= min (OO slippage), msg.value >= amountLD + nativeFeeWithBuffer ✓
  *   Modular:    amountLD = minAmountOut - fee - nativeFeeWithBuffer (same).
  *               nativeCall Stargate with value = amountLD + nativeFeeWithBuffer = minAmountOut - fee.
  *
  * ERC20-pool mechanics (case 2):
  *   send() uses ERC20 transferFrom for USDC; msg.value = nativeFee only.
- *   Monolithic: useFinalAmountAsValue=false, amountPositions=[196n], bridge.value=nativeFeeWithBuffer.
+ *   Monolithic: bridge amount position flag set to 196, bridge.value=nativeFeeWithBuffer.
  *   Modular:    staticCall USDC.balanceOf(router) → spliceWord(196n) into Stargate calldata.
  *               nativeCall Stargate with value = nativeFeeWithBuffer.
  *
@@ -88,7 +88,15 @@ import {
 import { ROUTER_ABI } from './utils/routerAbi';
 import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
 import type { ModularAction } from './utils/modularActionsBuilder/index';
-import { MonolithicExecution, NO_FEE, NO_SWAP, ZERO_ADDRESS } from './utils/contractTypes';
+import {
+  BRIDGE_VALUE_FLAG,
+  MonolithicExecutionCall,
+  NO_FEE,
+  NO_SWAP,
+  ZERO_ADDRESS,
+  bridgeAmountPositionFlag,
+  monolithicArgs,
+} from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
 import {
@@ -475,8 +483,8 @@ function buildStargateCalldata(
 /**
  * Monolithic for native-pool cases (cases 1 & 3):
  *   - OO swap input token → native ETH
- *   - useFinalAmountAsValue=true: router forwards actualFinalETH as msg.value to Stargate
- *   - amountLD = minAmountOut - fee - nativeFeeWithBuffer; pre-encoded; no splice needed (positions=[])
+ *   - BRIDGE_VALUE_FLAG set: router forwards actualFinalETH as msg.value to Stargate
+ *   - amountLD = minAmountOut - fee - nativeFeeWithBuffer; pre-encoded; no splice flag needed
  *   - StargatePoolNative checks msg.value >= amountLD + nativeFee; satisfied since actual >= min
  */
 function buildNativePoolMonolithic(
@@ -488,36 +496,37 @@ function buildNativePoolMonolithic(
   ooRouter: string,
   swapData: string,
   stargateData: string,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: { user: signer, inputToken: cfg.inputToken, inputAmount },
-    preFee: NO_FEE,
-    swap: {
-      target: ooRouter,
-      approvalSpender: ooRouter,
-      outputToken: NATIVE_TOKEN_ADDRESS,
-      value: 0n,
-      minOutput: minAmountOut,
-      data: swapData,
-      returnDataWordOffset: 0n,
+    exec: {
+      input: { user: signer, inputToken: cfg.inputToken, inputAmount },
+      preFee: NO_FEE,
+      swap: {
+        target: ooRouter,
+        approvalSpender: ooRouter,
+        outputToken: NATIVE_TOKEN_ADDRESS,
+        value: 0n,
+        minOutput: minAmountOut,
+        returnDataWordOffset: 0n,
+      },
+      postFee: { receiver: signer, amount: feeAmount },
+      bridge: {
+        target: cfg.bridgeContract,
+        approvalSpender: ZERO_ADDRESS, // no ERC20 approval for native ETH
+        value: 0n,                     // ignored when BRIDGE_VALUE_FLAG is set
+      },
+      flags: BRIDGE_VALUE_FLAG,
     },
-    postFee: { receiver: signer, amount: feeAmount },
-    bridge: {
-      target: cfg.bridgeContract,
-      approvalSpender: ZERO_ADDRESS, // no ERC20 approval for native ETH
-      value: 0n,                     // ignored when useFinalAmountAsValue=true
-      data: stargateData,
-      amountPositions: [],            // amountLD is pre-encoded
-      useFinalAmountAsValue: true,    // forward actualFinalETH as msg.value
-    },
+    swapCallData: swapData,
+    bridgeCallData: stargateData,
   };
 }
 
 /**
  * Monolithic for ERC20-pool case (case 2):
  *   - No OO swap (NO_SWAP) — input USDC goes directly to bridge
- *   - useFinalAmountAsValue=false: USDC transferred via ERC20 approval
- *   - amountPositions=[196n]: router splices finalAmount into amountLD at runtime
+ *   - USDC transferred via ERC20 approval
+ *   - bridge amount position flag set to 196: router splices finalAmount into amountLD at runtime
  *   - bridge.value=nativeFeeWithBuffer: forwarded as msg.value for the LZ fee
  */
 function buildErc20PoolMonolithic(
@@ -527,20 +536,22 @@ function buildErc20PoolMonolithic(
   feeAmount: bigint,
   stargateData: string,
   nativeFeeWithBuffer: bigint,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: { user: signer, inputToken: cfg.inputToken, inputAmount },
-    preFee: NO_FEE,
-    swap: NO_SWAP, // skip swap — finalToken = inputToken, finalAmount = inputAmount - preFee
-    postFee: { receiver: signer, amount: feeAmount },
-    bridge: {
-      target: cfg.bridgeContract,
-      approvalSpender: cfg.bridgeContract, // router must approve USDC to pool
-      value: nativeFeeWithBuffer,         // POL/native forwarded as LZ fee msg.value
-      data: stargateData,
-      amountPositions: [BigInt(STARGATE_AMOUNT_LD_OFFSET)], // splice at byte 196
-      useFinalAmountAsValue: false,
+    exec: {
+      input: { user: signer, inputToken: cfg.inputToken, inputAmount },
+      preFee: NO_FEE,
+      swap: NO_SWAP, // skip swap — finalToken = inputToken, finalAmount = inputAmount - preFee
+      postFee: { receiver: signer, amount: feeAmount },
+      bridge: {
+        target: cfg.bridgeContract,
+        approvalSpender: cfg.bridgeContract, // router must approve USDC to pool
+        value: nativeFeeWithBuffer,         // POL/native forwarded as LZ fee msg.value
+      },
+      flags: bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET),
     },
+    swapCallData: '0x',
+    bridgeCallData: stargateData,
   };
 }
 
@@ -665,30 +676,31 @@ function buildNativeInErc20BridgeMonolithic(
   stargateData: string,
   nativeFeeWithBuffer: bigint,
   ooSwapNativeWei: bigint,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   const rawOoWei = ooSwapNativeWei > 0n ? ooSwapNativeWei : inputAmount;
   const polOrEthToOo = rawOoWei <= inputAmount ? rawOoWei : inputAmount;
   return {
-    input: { user: signer, inputToken: NATIVE_TOKEN_ADDRESS, inputAmount },
-    preFee: NO_FEE,
-    swap: {
-      target: ooRouter,
-      approvalSpender: ZERO_ADDRESS, // no ERC20 approve for native ETH input
-      outputToken: cfg.ooSwap!.outToken,
-      value: polOrEthToOo,
-      minOutput: minAmountOut,
-      data: swapData,
-      returnDataWordOffset: 0n,
+    exec: {
+      input: { user: signer, inputToken: NATIVE_TOKEN_ADDRESS, inputAmount },
+      preFee: NO_FEE,
+      swap: {
+        target: ooRouter,
+        approvalSpender: ZERO_ADDRESS, // no ERC20 approve for native ETH input
+        outputToken: cfg.ooSwap!.outToken,
+        value: polOrEthToOo,
+        minOutput: minAmountOut,
+        returnDataWordOffset: 0n,
+      },
+      postFee: { receiver: signer, amount: feeAmount }, // fee in OO output token (USDC/USDT0)
+      bridge: {
+        target: cfg.bridgeContract,
+        approvalSpender: cfg.bridgeContract, // router approves bridge contract to pull ERC20
+        value: nativeFeeWithBuffer,        // LZ fee in native gas token only
+      },
+      flags: bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET),
     },
-    postFee: { receiver: signer, amount: feeAmount }, // fee in OO output token (USDC/USDT0)
-    bridge: {
-      target: cfg.bridgeContract,
-      approvalSpender: cfg.bridgeContract, // router approves bridge contract to pull ERC20
-      value: nativeFeeWithBuffer,        // LZ fee in native gas token only
-      data: stargateData,
-      amountPositions: [BigInt(STARGATE_AMOUNT_LD_OFFSET)], // splice amountLD at runtime
-      useFinalAmountAsValue: false,
-    },
+    swapCallData: swapData,
+    bridgeCallData: stargateData,
   };
 }
 
@@ -963,7 +975,7 @@ async function executeLeg(
     }
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [actions]);
   } else {
-    let mono: MonolithicExecution;
+    let mono: MonolithicExecutionCall;
     if (cfg.isNativePool) {
       mono = buildNativePoolMonolithic(
         signerAddress, cfg, inputAmountWei, feeAmount, minAmountOut,
@@ -979,7 +991,7 @@ async function executeLeg(
         signerAddress, cfg, inputAmountWei, feeAmount, stargateData, nativeFeeWithBuffer,
       );
     }
-    execCalldata = routerIface.encodeFunctionData('performExecution', [mono]);
+    execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono));
   }
 
   const txValue = cfg.isNativeInput ? inputAmountWei + nativeFeeWithBuffer : nativeFeeWithBuffer;

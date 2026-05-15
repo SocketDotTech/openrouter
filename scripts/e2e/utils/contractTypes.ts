@@ -23,7 +23,6 @@ export interface SwapData {
   outputToken: string;
   value: bigint;
   minOutput: bigint;
-  data: string;
   returnDataWordOffset: bigint;
 }
 
@@ -31,17 +30,6 @@ export interface BridgeData {
   target: string;
   approvalSpender: string;
   value: bigint;
-  data: string;
-  amountPositions: bigint[];
-  useFinalAmountAsValue: boolean;
-}
-
-/** Simplified bridge descriptor for the no-swap `bridge()` entrypoint. */
-export interface StaticBridgeData {
-  target: string;
-  approvalSpender: string;
-  value: bigint;
-  data: string;
 }
 
 export interface MonolithicExecution {
@@ -50,6 +38,34 @@ export interface MonolithicExecution {
   swap: SwapData;
   postFee: FeeData;
   bridge: BridgeData;
+  flags: bigint;
+}
+
+export interface MonolithicExecutionCall {
+  exec: MonolithicExecution;
+  swapCallData: string;
+  bridgeCallData: string;
+}
+
+export const BRIDGE_VALUE_FLAG = 4n;
+export const BRIDGE_AMOUNT_POSITION_FLAG = 8n;
+export const BRIDGE_AMOUNT_POSITION_SHIFT = 16n;
+export const MAX_BRIDGE_AMOUNT_POSITION = 0xffffn;
+
+export function bridgeAmountPositionFlag(position: bigint | number): bigint {
+  const positionBigInt = BigInt(position);
+  if (positionBigInt < 0n || positionBigInt > MAX_BRIDGE_AMOUNT_POSITION) {
+    throw new Error(`bridge amount position exceeds uint16: ${positionBigInt}`);
+  }
+  return BRIDGE_AMOUNT_POSITION_FLAG | (positionBigInt << BRIDGE_AMOUNT_POSITION_SHIFT);
+}
+
+export function monolithicArgs(call: MonolithicExecutionCall) {
+  return [
+    call.exec,
+    call.swapCallData,
+    call.bridgeCallData,
+  ] as const;
 }
 
 // ─── Sentinel / zero helpers ──────────────────────────────────────────────────
@@ -66,6 +82,5 @@ export const NO_SWAP: SwapData = {
   outputToken: ZERO_ADDRESS,
   value: 0n,
   minOutput: 0n,
-  data: '0x',
   returnDataWordOffset: 0n,
 };

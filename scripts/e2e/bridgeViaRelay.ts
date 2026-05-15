@@ -40,7 +40,7 @@ import {
 import { ROUTER_ABI } from './utils/routerAbi';
 import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
 import type { ModularAction } from './utils/modularActionsBuilder/index';
-import { MonolithicExecution, NO_FEE, NO_SWAP } from './utils/contractTypes';
+import { MonolithicExecutionCall, NO_FEE, NO_SWAP, monolithicArgs } from './utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from './utils/relayLinkQuote';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
@@ -59,27 +59,29 @@ function buildMonolithicExecution(
   relaySpender: string,
   depositTarget: string,
   depositData: string,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: {
-      user: signerAddress,
-      inputToken: TOKENS.AAVE_POLYGON,
-      inputAmount,
+    exec: {
+      input: {
+        user: signerAddress,
+        inputToken: TOKENS.AAVE_POLYGON,
+        inputAmount,
+      },
+      preFee: {
+        receiver: signerAddress,
+        amount: feeAmount,
+      },
+      swap: NO_SWAP,
+      postFee: NO_FEE,
+      bridge: {
+        target: depositTarget,
+        approvalSpender: relaySpender,
+        value: 0n,
+      },
+      flags: 0n,
     },
-    preFee: {
-      receiver: signerAddress,
-      amount: feeAmount,
-    },
-    swap: NO_SWAP,
-    postFee: NO_FEE,
-    bridge: {
-      target: depositTarget,
-      approvalSpender: relaySpender,
-      value: 0n,
-      data: depositData,
-      amountPositions: [],
-      useFinalAmountAsValue: false,
-    },
+    swapCallData: '0x',
+    bridgeCallData: depositData,
   };
 }
 
@@ -173,9 +175,7 @@ async function executeLeg(args: {
       depositTarget,
       depositData,
     );
-    execCalldata = routerIface.encodeFunctionData('performExecution', [
-      execPayload,
-    ]);
+    execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(execPayload));
   }
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.AAVE_POLYGON, inputAmount);
@@ -205,27 +205,29 @@ function buildMonolithicExecutionUsdcPolygonToBase(
   relaySpender: string,
   depositTarget: string,
   depositData: string,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: {
-      user: signerAddress,
-      inputToken: TOKENS.USDC_POLYGON_CIRCLE,
-      inputAmount,
+    exec: {
+      input: {
+        user: signerAddress,
+        inputToken: TOKENS.USDC_POLYGON_CIRCLE,
+        inputAmount,
+      },
+      preFee: {
+        receiver: signerAddress,
+        amount: feeAmount,
+      },
+      swap: NO_SWAP,
+      postFee: NO_FEE,
+      bridge: {
+        target: depositTarget,
+        approvalSpender: relaySpender,
+        value: 0n,
+      },
+      flags: 0n,
     },
-    preFee: {
-      receiver: signerAddress,
-      amount: feeAmount,
-    },
-    swap: NO_SWAP,
-    postFee: NO_FEE,
-    bridge: {
-      target: depositTarget,
-      approvalSpender: relaySpender,
-      value: 0n,
-      data: depositData,
-      amountPositions: [],
-      useFinalAmountAsValue: false,
-    },
+    swapCallData: '0x',
+    bridgeCallData: depositData,
   };
 }
 
@@ -319,9 +321,7 @@ async function executeLegUsdcPolygonToBase(args: {
       depositTarget,
       depositData,
     );
-    execCalldata = routerIface.encodeFunctionData('performExecution', [
-      execPayload,
-    ]);
+    execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(execPayload));
   }
 
   await ensureAllowanceForAllowanceHolder(

@@ -33,7 +33,7 @@ import {
 import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
-import type { InputData, StaticBridgeData } from './utils/contractTypes';
+import type { BridgeData, FeeData, InputData } from './utils/contractTypes';
 import { logTxnSummary } from './utils/txnLogSummary';
 import {
   ensureRouterErc20Balance,
@@ -41,16 +41,6 @@ import {
 } from './utils/reproducibility';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
-
-function encodeFeeBytes(receiver: string, feeAmount: bigint): string {
-  if (feeAmount === 0n) {
-    return '0x';
-  }
-  return ethers.AbiCoder.defaultAbiCoder().encode(
-    ['address', 'uint256'],
-    [receiver, feeAmount],
-  );
-}
 
 /**
  * CCTP `depositForBurn` with explicit burn amount (net after optional fee).
@@ -87,7 +77,7 @@ function buildBridgeCalldata(
     signerAddress: string;
     inputToken: string;
     inputAmount: bigint;
-    feeBytes: string;
+    fee: FeeData;
     tokenMessenger: string;
     depositData: string;
   },
@@ -98,17 +88,17 @@ function buildBridgeCalldata(
     inputAmount: args.inputAmount,
   };
 
-  const bridgeData: StaticBridgeData = {
+  const bridgeData: BridgeData = {
     target: args.tokenMessenger,
     approvalSpender: args.tokenMessenger,
     value: 0n,
-    data: args.depositData,
   };
 
   return routerIface.encodeFunctionData('bridge', [
     input,
-    args.feeBytes,
+    args.fee,
     bridgeData,
+    args.depositData,
   ]);
 }
 
@@ -157,13 +147,13 @@ async function main(): Promise<void> {
     true,
   );
 
-  const feeBytes = encodeFeeBytes(signerAddress, feeAmount);
+  const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
   const routerIface = new ethers.Interface(ROUTER_ABI);
   const execCalldata = buildBridgeCalldata(routerIface, {
     signerAddress,
     inputToken,
     inputAmount,
-    feeBytes,
+    fee,
     tokenMessenger: polyCctp.tokenMessenger,
     depositData,
   });

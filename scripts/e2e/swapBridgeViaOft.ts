@@ -68,7 +68,13 @@ import {
 import { ROUTER_ABI } from './utils/routerAbi';
 import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
 import type { ModularAction } from './utils/modularActionsBuilder/index';
-import { MonolithicExecution, NO_FEE, NO_SWAP } from './utils/contractTypes';
+import {
+  MonolithicExecutionCall,
+  NO_FEE,
+  NO_SWAP,
+  bridgeAmountPositionFlag,
+  monolithicArgs,
+} from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
 import {
@@ -234,7 +240,7 @@ function buildOftSendCalldata(nativeFee: bigint, recipient: string): string {
  *   - Swap AAVE → USDT0 via OpenOcean (swap step)
  *   - Post-swap fee: FEE_BPS of estimated USDT0 output transferred to signer
  *   - Bridge remaining USDT0 via OFT Adapter (approval required)
- *   - useFinalAmountAsValue=false; amountPositions=[196n] splices actual balance into amountLD
+ *   - bridge amount position flag splices actual balance into amountLD at byte 196
  *   - bridge.value = nativeFeeWithBuffer (forwarded as LZ msg.value)
  */
 function buildCase1Monolithic(
@@ -246,35 +252,36 @@ function buildCase1Monolithic(
   swapData: string,
   oftSendData: string,
   nativeFeeWithBuffer: bigint,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: {
-      user: signer,
-      inputToken: TOKENS.AAVE_POLYGON,
-      inputAmount,
+    exec: {
+      input: {
+        user: signer,
+        inputToken: TOKENS.AAVE_POLYGON,
+        inputAmount,
+      },
+      preFee: NO_FEE,
+      swap: {
+        target: ooRouter,
+        approvalSpender: ooRouter,
+        outputToken: TOKENS.USDT0_POLYGON,
+        value: 0n,
+        minOutput: minAmountOut,
+        returnDataWordOffset: 0n,
+      },
+      postFee: {
+        receiver: signer,
+        amount: feeAmount,
+      },
+      bridge: {
+        target: USDT0_OFT_ADAPTER_POLYGON,
+        approvalSpender: USDT0_OFT_ADAPTER_POLYGON, // adapter needs ERC-20 approval
+        value: nativeFeeWithBuffer, // forwarded as LZ native fee
+      },
+      flags: bridgeAmountPositionFlag(OFT_AMOUNT_LD_OFFSET),
     },
-    preFee: NO_FEE,
-    swap: {
-      target: ooRouter,
-      approvalSpender: ooRouter,
-      outputToken: TOKENS.USDT0_POLYGON,
-      value: 0n,
-      minOutput: minAmountOut,
-      data: swapData,
-      returnDataWordOffset: 0n,
-    },
-    postFee: {
-      receiver: signer,
-      amount: feeAmount,
-    },
-    bridge: {
-      target: USDT0_OFT_ADAPTER_POLYGON,
-      approvalSpender: USDT0_OFT_ADAPTER_POLYGON, // adapter needs ERC-20 approval
-      value: nativeFeeWithBuffer, // forwarded as LZ native fee
-      data: oftSendData,
-      amountPositions: [BigInt(OFT_AMOUNT_LD_OFFSET)], // splice actual USDT0 balance at byte 196
-      useFinalAmountAsValue: false,
-    },
+    swapCallData: swapData,
+    bridgeCallData: oftSendData,
   };
 }
 
@@ -397,7 +404,7 @@ async function executeCase1Leg(args: {
       ),
     ]);
   } else {
-    execCalldata = routerIface.encodeFunctionData('performExecution', [
+    execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(
       buildCase1Monolithic(
         signerAddress,
         inputAmount,
@@ -408,7 +415,7 @@ async function executeCase1Leg(args: {
         oftSendData,
         nativeFeeWithBuffer,
       ),
-    ]);
+    ));
   }
 
   await ensureAllowanceForAllowanceHolder(
@@ -448,7 +455,7 @@ async function executeCase1Leg(args: {
  *   - No swap (NO_SWAP)
  *   - Pre-bridge fee: FEE_BPS of input USDT0 transferred to signer
  *   - Bridge remaining USDT0 via OFT Adapter (approval required)
- *   - useFinalAmountAsValue=false; amountPositions=[196n] splices actual balance
+ *   - bridge amount position flag splices actual balance at byte 196
  *   - bridge.value = nativeFeeWithBuffer (forwarded as LZ msg.value)
  */
 function buildCase2Monolithic(
@@ -457,27 +464,29 @@ function buildCase2Monolithic(
   feeAmount: bigint,
   oftSendData: string,
   nativeFeeWithBuffer: bigint,
-): MonolithicExecution {
+): MonolithicExecutionCall {
   return {
-    input: {
-      user: signer,
-      inputToken: TOKENS.USDT0_POLYGON,
-      inputAmount,
+    exec: {
+      input: {
+        user: signer,
+        inputToken: TOKENS.USDT0_POLYGON,
+        inputAmount,
+      },
+      preFee: {
+        receiver: signer,
+        amount: feeAmount,
+      },
+      swap: NO_SWAP,
+      postFee: NO_FEE,
+      bridge: {
+        target: USDT0_OFT_ADAPTER_POLYGON,
+        approvalSpender: USDT0_OFT_ADAPTER_POLYGON,
+        value: nativeFeeWithBuffer,
+      },
+      flags: bridgeAmountPositionFlag(OFT_AMOUNT_LD_OFFSET),
     },
-    preFee: {
-      receiver: signer,
-      amount: feeAmount,
-    },
-    swap: NO_SWAP,
-    postFee: NO_FEE,
-    bridge: {
-      target: USDT0_OFT_ADAPTER_POLYGON,
-      approvalSpender: USDT0_OFT_ADAPTER_POLYGON,
-      value: nativeFeeWithBuffer,
-      data: oftSendData,
-      amountPositions: [BigInt(OFT_AMOUNT_LD_OFFSET)],
-      useFinalAmountAsValue: false,
-    },
+    swapCallData: '0x',
+    bridgeCallData: oftSendData,
   };
 }
 
@@ -584,7 +593,7 @@ async function executeCase2Leg(args: {
       ),
     ]);
   } else {
-    execCalldata = routerIface.encodeFunctionData('performExecution', [
+    execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(
       buildCase2Monolithic(
         signerAddress,
         inputAmount,
@@ -592,7 +601,7 @@ async function executeCase2Leg(args: {
         oftSendData,
         nativeFeeWithBuffer,
       ),
-    ]);
+    ));
   }
 
   await ensureAllowanceForAllowanceHolder(
