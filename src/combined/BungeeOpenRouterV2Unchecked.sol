@@ -85,6 +85,9 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         SwapData swap;
         FeeData postFee;
         BridgeData bridge;
+        /// Packed byte; monolithic pipeline only tests `BALANCE_FLAG_BIT_MASK` (bit 1) in `_execSwap`.
+        /// Fee timing uses `preFee` / `postFee` structs — `FEE_FLAG_BIT_MASK` (bit 0) is ignored here.
+        uint8 flags;
     }
 
     // =========================================================================
@@ -102,6 +105,43 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         bytes data;
         uint256[] splices;
     }
+
+    // =========================================================================
+    // Flags (swap / swapAndBridge / monolithic swap step)
+    // =========================================================================
+    //
+    // Instead of two bool parameters, one uint8 packs independent switches; future flags can use
+    // bit 2 (0x04), bit 3 (0x08), etc. without changing the ABI shape.
+    //
+    // Bit layout (least significant bits); test with `(flags & MASK) != 0`:
+    //   bits 7..2 : reserved (0)
+    //   bit 1     : BALANCE_FLAG_BIT_MASK (0x02) — swap output: returndata vs balance delta
+    //   bit 0     : FEE_FLAG_BIT_MASK (0x01)   — swap fee: pre- vs post-swap (standalone paths only)
+    //
+    // Combined values for swap()/swapAndBridge():
+    //
+    //   flags  binary (low byte)    postFee?   balance-of output?
+    //   ─────  ──────────────────  ────────   ──────────────────
+    //   0x00   00000000              no         returndata word
+    //   0x01   00000001              yes        returndata word
+    //   0x02   00000010              no         balance delta on outputToken
+    //   0x03   00000011              yes        balance delta on outputToken
+    //
+    // FEE_FLAG_BIT_MASK selects bit 0 — fee timing (see `_collectFee` + swap flow).
+    //   Cleared — pull → deduct fee from input token → swap remainder → standalone swap skips minOutput.
+    //   Set     — pull → swap full input → deduct fee from output token → standalone swap checks minOutput.
+    //
+    // BALANCE_FLAG_BIT_MASK selects bit 1 — swap output sizing.
+    //   Cleared — decode returned amount from call returndata at `swapData.returnDataWordOffset`.
+    //   Set     — snapshot outputToken balance before call, measure (after − before) as output.
+    //
+    // Monolithic `performExecution` applies only `BALANCE_FLAG_BIT_MASK` in `_execSwap`; fee timing is `preFee`/`postFee` structs.
+
+    /// @dev Bit mask 0x01: post-swap fee path when `(flags & mask) != 0`; clear = pre-swap fee from input token.
+    uint8 internal constant FEE_FLAG_BIT_MASK   = 0x01;
+
+    /// @dev Bit mask 0x02: measure swap output by balance delta when `(flags & mask) != 0`; clear = returndata word.
+    uint8 internal constant BALANCE_FLAG_BIT_MASK = 0x02;
 
     // =========================================================================
     // Errors
@@ -137,9 +177,126 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      * @dev The caller MUST route through `AllowanceHolder.exec` so that
      *      `_msgSender()` resolves to `exec.input.user`. There is no nonce or
      *      deadline; replay protection is the caller's responsibility.
+     *      Bit 0 (`FEE_FLAG_BIT_MASK`) is unused in monolithic runs; fee placement is `preFee` / `postFee` structs.
+     *      `exec.flags` only contributes `BALANCE_FLAG_BIT_MASK` to the optional `_execSwap` step.
      */
     function performExecution(MonolithicExecution calldata exec) external payable {
         _runMonolithic(exec);
+    }
+
+    // =========================================================================
+    // External: standalone swap
+    // =========================================================================
+
+    /**
+     * @notice Pull → optional pre/post fee → swap.
+     * @param flags     Packed `uint8`; OR masks then test with `flags & MASK != 0`. Masks: `FEE_FLAG_BIT_MASK` (0x01), `BALANCE_FLAG_BIT_MASK` (0x02).
+     *                  Common values: `0` (pre-fee, returndata), `1` (post-fee, returndata),
+     *                  `2` (pre-fee, balance delta), `3` (post-fee, balance delta).
+     * @param feeBytes  0x = no fee; 64 bytes = abi.encode(address receiver, uint256 amount).
+     * @dev   minOutput is only enforced in post-fee mode. Pre-fee skips minOutput check.
+     *        Post-fee: fee collected from output token after swap, then minOutput validated.
+     *        Pre-fee: fee collected from input token before swap, minOutput skipped.
+     *        Bits are read with bitwise AND against each mask; omitting both flags ⇒ pre-fee + returndata.
+     */
+    function swap(
+        InputData calldata input,
+        uint8 flags,
+        bytes calldata feeBytes,
+        SwapData calldata swapData
+    ) external payable returns (uint256 finalAmount) {
+        if (input.user == address(0) || input.inputToken == address(0) || swapData.target == address(0)) {
+            revert InvalidExecution();
+        }
+
+        _pullFromUser(input.inputToken, input.user, input.inputAmount);
+
+        // Check feeBytes first: flag bit is only read when a fee is actually present.
+        // FEE_FLAG_BIT_MASK: unset ⇒ collect fee from input before swap; set ⇒ swap first, fee from output
+        bool hasFee = feeBytes.length != 0;
+        /// @dev if hasFee is false, we short-circuit and flag check wont execute at runtime saving gas
+        bool postFee = hasFee && flags & FEE_FLAG_BIT_MASK != 0;
+        uint256 swapInput = input.inputAmount;
+
+        if (hasFee && !postFee) {
+            uint256 fee = _collectFee(input.inputToken, feeBytes);
+            if (fee > swapInput) revert InsufficientFunds();
+            unchecked { swapInput -= fee; }
+        }
+
+        if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
+        }
+
+        // BALANCE_FLAG_BIT_MASK: unset ⇒ decode output word from returndata; set ⇒ output = delta on outputToken
+        finalAmount = _execSwap(swapData, flags & BALANCE_FLAG_BIT_MASK != 0);
+
+        if (postFee) {
+            uint256 fee = _collectFee(swapData.outputToken, feeBytes);
+            if (fee > finalAmount) revert InsufficientFunds();
+            unchecked { finalAmount -= fee; }
+            if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
+        }
+    }
+
+    // =========================================================================
+    // External: swap + bridge
+    // =========================================================================
+
+    /**
+     * @notice Pull → optional pre/post swap fee → swap → bridge with runtime amount splicing.
+     * @param flags     Same packing as `swap`: 0x00–0x03 as documented on the flag constants block.
+     * @param feeBytes  0x = no fee; 64 bytes = abi.encode(address receiver, uint256 amount).
+     * @dev   minOutput is always enforced (after fee deduction in post-fee mode).
+     *        Post-fee: fee collected from output token after swap, then minOutput validated.
+     *        Pre-fee: fee collected from input token before swap, minOutput still validated.
+     */
+    function swapAndBridge(
+        InputData calldata input,
+        uint8 flags,
+        bytes calldata feeBytes,
+        SwapData calldata swapData,
+        BridgeData calldata bridgeData
+    ) external payable {
+        if (
+            bridgeData.target == address(0) || input.user == address(0) ||
+            input.inputToken == address(0) || swapData.target == address(0)
+        ) {
+            revert InvalidExecution();
+        }
+
+        _pullFromUser(input.inputToken, input.user, input.inputAmount);
+
+        // Check feeBytes first: flag bit is only read when a fee is actually present.
+        // FEE_FLAG_BIT_MASK: same semantics as standalone `swap` (fee from input vs output token)
+        bool hasFee = feeBytes.length != 0;
+        bool postFee = hasFee && flags & FEE_FLAG_BIT_MASK != 0;
+        uint256 swapInput = input.inputAmount;
+
+        if (hasFee && !postFee) {
+            uint256 fee = _collectFee(input.inputToken, feeBytes);
+            if (fee > swapInput) revert InsufficientFunds();
+            unchecked { swapInput -= fee; }
+        }
+
+        if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
+        }
+
+        address finalToken = swapData.outputToken;
+        // BALANCE_FLAG_BIT_MASK: same returndata vs balance-delta measurement as `swap`
+        uint256 finalAmount = _execSwap(swapData, flags & BALANCE_FLAG_BIT_MASK != 0);
+
+        if (postFee) {
+            uint256 fee = _collectFee(finalToken, feeBytes);
+            if (fee > finalAmount) revert InsufficientFunds();
+            unchecked { finalAmount -= fee; }
+        }
+
+        // Always check minOutput (unlike standalone swap where pre-fee skips this)
+        if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
+
+        _doBridge(finalToken, finalAmount, bridgeData);
     }
 
     // =========================================================================
@@ -263,43 +420,75 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             }
         }
 
-        // 5. splice finalAmount into bridge calldata at every signed offset
-        bytes memory bridgeData = exec.bridge.data;
-        BytesSpliceLib.spliceWords({data: bridgeData, positions: exec.bridge.amountPositions, word: finalAmount});
-
-        // 6. optional approval to bridge spender
-        if (exec.bridge.approvalSpender != address(0) && finalToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeApproveWithRetry(finalToken, exec.bridge.approvalSpender, finalAmount);
-        }
-
-        // 7. bridge call, bubbling any revert
-        // when useFinalAmountAsValue is set, forward finalAmount as msg.value so
-        // native-token bridges (e.g. Arbitrum inbox) receive the exact bridged amount.
-        uint256 bridgeValue = exec.bridge.useFinalAmountAsValue ? finalAmount : exec.bridge.value;
-        _doCall(exec.bridge.target, bridgeValue, bridgeData, false);
+        // 5. bridge: splice, approve, call
+        _doBridge(finalToken, finalAmount, exec.bridge);
     }
 
-    /// @dev Swap helper; decodes final amount from a returndata word.
     function _performSwap(MonolithicExecution calldata exec)
         internal
         returns (address finalToken, uint256 finalAmount)
     {
         if (exec.swap.approvalSpender != address(0) && exec.input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
             uint256 swapInput;
-            unchecked {
-                swapInput = exec.input.inputAmount - exec.preFee.amount;
-            }
+            unchecked { swapInput = exec.input.inputAmount - exec.preFee.amount; }
             SafeTransferLib.safeApproveWithRetry(exec.input.inputToken, exec.swap.approvalSpender, swapInput);
         }
 
-        bytes memory ret = _doCall(exec.swap.target, exec.swap.value, exec.swap.data, true);
-        finalAmount = _decodeReturnWord(ret, exec.swap.returnDataWordOffset);
+        // Monolithic path: only `BALANCE_FLAG_BIT_MASK` is read for `_execSwap`; fee uses `preFee` / `postFee`, not bit 0.
+        finalAmount = _execSwap(exec.swap, exec.flags & BALANCE_FLAG_BIT_MASK != 0);
+        if (finalAmount < exec.swap.minOutput) revert SwapOutputInsufficient();
+        finalToken = exec.swap.outputToken;
+    }
 
-        if (finalAmount < exec.swap.minOutput) {
-            revert SwapOutputInsufficient();
+    // =========================================================================
+    // Internal: swap / fee / bridge helpers
+    // =========================================================================
+
+    /// @dev Execute swap; output measured via returndata word or output-token balance delta.
+    ///      useBalanceOf=true: measure output as (balance after - balance before).
+    ///      useBalanceOf=false: decode output from returndata at swapData.returnDataWordOffset.
+    function _execSwap(SwapData calldata swapData, bool useBalanceOf) internal returns (uint256 finalAmount) {
+        if (useBalanceOf) {
+            // Balance delta mode: snapshot before, call, measure delta
+            uint256 before = CurrencyLib.balanceOf(swapData.outputToken, address(this));
+            _doCall(swapData.target, swapData.value, swapData.data, false);
+            finalAmount = CurrencyLib.balanceOf(swapData.outputToken, address(this)) - before;
+        } else {
+            // Returndata mode: decode output from a specific word in returndata
+            bytes memory ret = _doCall(swapData.target, swapData.value, swapData.data, true);
+            finalAmount = _decodeReturnWord(ret, swapData.returnDataWordOffset);
+        }
+    }
+
+    /// @dev Decode, validate, and collect fee from feeBytes. Returns fee amount (0 if feeBytes empty).
+    ///      feeBytes encoding:
+    ///        - 0x (zero length): no fee, return 0 immediately.
+    ///        - 64 bytes: abi.encode(address receiver, uint256 amount). Transfer amount to receiver.
+    ///      Caller must pass the correct `token` address:
+    ///        - Pre-fee: pass inputToken (fee deducted before swap).
+    ///        - Post-fee: pass outputToken (fee deducted after swap).
+    function _collectFee(address token, bytes calldata feeBytes) internal returns (uint256 feeAmount) {
+        if (feeBytes.length != 64) revert InvalidExecution();
+        address receiver;
+        assembly ("memory-safe") {
+            receiver := calldataload(feeBytes.offset)
+            feeAmount := calldataload(add(feeBytes.offset, 0x20))
+        }
+        if (feeAmount != 0) CurrencyLib.transfer(token, receiver, feeAmount);
+    }
+
+    /// @dev Splice finalAmount into bridge calldata, approve, and call bridge target.
+    function _doBridge(address token, uint256 amount, BridgeData calldata bd) internal {
+        bytes memory bData = bd.data;
+        BytesSpliceLib.spliceWords({data: bData, positions: bd.amountPositions, word: amount});
+
+        if (bd.approvalSpender != address(0) && token != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeApproveWithRetry(token, bd.approvalSpender, amount);
         }
 
-        finalToken = exec.swap.outputToken;
+        // when useFinalAmountAsValue, forward amount as msg.value for native-token bridges
+        uint256 bridgeValue = bd.useFinalAmountAsValue ? amount : bd.value;
+        _doCall(bd.target, bridgeValue, bData, false);
     }
 
     // =========================================================================
