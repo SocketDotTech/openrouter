@@ -26,6 +26,7 @@ dotenv.config();
 import { CHAIN_IDS, routerAddressForChain, RPC, TOKENS } from './config';
 import { encodeApprove } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
+import { ZERO_BYTES32 } from './utils/contractTypes';
 
 // ─── actionInfo helpers ───────────────────────────────────────────────────────
 
@@ -96,6 +97,7 @@ async function run(): Promise<void> {
   ];
 
   const calldata = routerIface.encodeFunctionData('performModularExecution', [
+    ZERO_BYTES32,
     actions,
   ]);
 

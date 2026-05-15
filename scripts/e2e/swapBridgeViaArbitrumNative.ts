@@ -50,6 +50,7 @@ import {
   bpsOf,
   RPC,
   OPEN_OCEAN_API_KEY,
+  OO_SLIPPAGE_PERCENT,
   ALLOWANCE_HOLDER,
   NATIVE_TOKEN_ADDRESS,
 } from './config';
@@ -67,6 +68,7 @@ import {
   MonolithicExecutionCall,
   NO_FEE,
   ZERO_ADDRESS,
+  ZERO_BYTES32,
   monolithicArgs,
 } from './utils/contractTypes';
 import { sleep } from './utils/sleep';
@@ -167,7 +169,6 @@ interface OoSwapQuoteResponse {
 async function fetchOoQuote(
   routerAddress: string,
   inputAmount: bigint,
-  slippageBps: number = 100,
 ): Promise<{
   ooRouter: string;
   swapData: string;
@@ -178,7 +179,7 @@ async function fetchOoQuote(
     inTokenAddress: TOKENS.AAVE_ETH,
     outTokenAddress: NATIVE_TOKEN_ADDRESS,
     amount: ethers.formatUnits(inputAmount, 18),
-    slippage: (slippageBps / 100).toString(),
+    slippage: OO_SLIPPAGE_PERCENT,
     sender: routerAddress,
     account: routerAddress,
     gasPrice: '20',
@@ -343,7 +344,7 @@ async function executeLeg(
       ooRouter,
       swapData,
     );
-    execCalldata = routerIface.encodeFunctionData('performModularExecution', [actions]);
+    execCalldata = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, actions]);
   } else {
     const mono = buildMonolithic(signerAddress, inputAmount, feeAmount, minAmountOut, ooRouter, swapData);
     execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono));

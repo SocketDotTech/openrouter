@@ -35,6 +35,7 @@ import {
 import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
+import { ZERO_BYTES32 } from './utils/contractTypes';
 import type { BridgeData, FeeData, InputData } from './utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from './utils/relayLinkQuote';
 import { logTxnSummary } from './utils/txnLogSummary';
@@ -73,7 +74,13 @@ function buildBridgeCalldata(routerIface: ethers.Interface, p: BridgeParams): st
     value: 0n,
   };
 
-  return routerIface.encodeFunctionData('bridge', [input, p.fee, bridgeData, p.depositData]);
+  return routerIface.encodeFunctionData('bridge', [
+    ZERO_BYTES32,
+    input,
+    p.fee,
+    bridgeData,
+    p.depositData,
+  ]);
 }
 
 // ─── Execution leg ────────────────────────────────────────────────────────────

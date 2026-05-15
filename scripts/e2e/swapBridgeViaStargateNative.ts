@@ -68,6 +68,7 @@ import {
   bpsOf,
   RPC,
   OPEN_OCEAN_API_KEY,
+  OO_SLIPPAGE_PERCENT,
   ALLOWANCE_HOLDER,
   NATIVE_TOKEN_ADDRESS,
   STARGATE_NATIVE_ARB,
@@ -94,6 +95,7 @@ import {
   NO_FEE,
   NO_SWAP,
   ZERO_ADDRESS,
+  ZERO_BYTES32,
   bridgeAmountPositionFlag,
   monolithicArgs,
 } from './utils/contractTypes';
@@ -366,7 +368,6 @@ async function fetchOoQuote(
   cfg: OoSwapConfig,
   routerAddress: string,
   amount: bigint,
-  slippageBps: number = 100,
 ): Promise<{
   ooRouter: string;
   swapData: string;
@@ -379,7 +380,7 @@ async function fetchOoQuote(
     inTokenAddress: cfg.inToken,
     outTokenAddress: cfg.outToken,
     amount: ethers.formatUnits(amount, cfg.inDecimals),
-    slippage: (slippageBps / 100).toString(),
+    slippage: OO_SLIPPAGE_PERCENT,
     sender: routerAddress,
     account: routerAddress,
     gasPrice: cfg.gasPrice,
@@ -973,7 +974,7 @@ async function executeLeg(
         signerAddress, routerAddress, cfg, inputAmountWei, feeAmount, nativeFeeWithBuffer, stargateData,
       );
     }
-    execCalldata = routerIface.encodeFunctionData('performModularExecution', [actions]);
+    execCalldata = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, actions]);
   } else {
     let mono: MonolithicExecutionCall;
     if (cfg.isNativePool) {

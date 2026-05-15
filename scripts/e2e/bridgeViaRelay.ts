@@ -40,7 +40,7 @@ import {
 import { ROUTER_ABI } from './utils/routerAbi';
 import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
 import type { ModularAction } from './utils/modularActionsBuilder/index';
-import { MonolithicExecutionCall, NO_FEE, NO_SWAP, monolithicArgs } from './utils/contractTypes';
+import { MonolithicExecutionCall, NO_FEE, NO_SWAP, ZERO_BYTES32, monolithicArgs } from './utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from './utils/relayLinkQuote';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
@@ -164,6 +164,7 @@ async function executeLeg(args: {
       depositData,
     );
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
+      ZERO_BYTES32,
       actions,
     ]);
   } else {
@@ -310,6 +311,7 @@ async function executeLegUsdcPolygonToBase(args: {
       depositData,
     );
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
+      ZERO_BYTES32,
       actions,
     ]);
   } else {

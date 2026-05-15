@@ -51,6 +51,7 @@ import {
   bpsOf,
   RPC,
   OPEN_OCEAN_API_KEY,
+  OO_SLIPPAGE_PERCENT,
   ALLOWANCE_HOLDER,
   ARBITRUM_LZ_EID,
   USDT0_OFT_ADAPTER_POLYGON,
@@ -72,6 +73,7 @@ import {
   MonolithicExecutionCall,
   NO_FEE,
   NO_SWAP,
+  ZERO_BYTES32,
   bridgeAmountPositionFlag,
   monolithicArgs,
 } from './utils/contractTypes';
@@ -124,7 +126,6 @@ interface OoSwapQuoteResponse {
  */
 async function fetchOpenOceanQuote(
   inputAmount: bigint,
-  slippageBps: number = 100,
 ): Promise<{
   ooRouter: string;
   swapData: string;
@@ -135,7 +136,7 @@ async function fetchOpenOceanQuote(
     inTokenAddress: TOKENS.AAVE_POLYGON,
     outTokenAddress: TOKENS.USDT0_POLYGON,
     amount: ethers.formatUnits(inputAmount, 18), // AAVE has 18 decimals
-    slippage: (slippageBps / 100).toString(),
+    slippage: OO_SLIPPAGE_PERCENT,
     sender: ROUTER_POLYGON,
     account: ROUTER_POLYGON,
     gasPrice: '1',
@@ -393,6 +394,7 @@ async function executeCase1Leg(args: {
   let execCalldata: string;
   if (useModular) {
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
+      ZERO_BYTES32,
       buildCase1Modular(
         signerAddress,
         inputAmount,
@@ -584,6 +586,7 @@ async function executeCase2Leg(args: {
   let execCalldata: string;
   if (useModular) {
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
+      ZERO_BYTES32,
       buildCase2Modular(
         signerAddress,
         inputAmount,

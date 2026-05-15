@@ -14,7 +14,9 @@
  */
 import { ethers } from 'ethers';
 import { getErc20Contract, encodeApprove } from './erc20';
+import { execViaAH } from './allowanceHolder';
 import { ROUTER_ABI } from './routerAbi';
+import { ZERO_BYTES32 } from './contractTypes';
 
 const SEED_WEI = 20n;
 
@@ -100,7 +102,11 @@ export async function ensureRouterApproval(
       splices: [],
     },
   ];
-  const calldata = routerIface.encodeFunctionData('performModularExecution', [actions]);
-  const tx = await signer.sendTransaction({ to: openRouter, data: calldata });
-  await tx.wait();
+  const calldata = routerIface.encodeFunctionData('performModularExecution', [
+    ZERO_BYTES32,
+    actions,
+  ]);
+  // Route through AllowanceHolder so _msgSender() resolves correctly inside the router.
+  // amount=0 because we are not pulling user tokens — we only need AH to forward the call.
+  await execViaAH(signer, openRouter, tokenResolved, 0n, openRouter, calldata);
 }

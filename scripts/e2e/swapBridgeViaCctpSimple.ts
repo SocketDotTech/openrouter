@@ -33,7 +33,7 @@ import {
 import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
 import { getWalletErc20Balance } from './utils/erc20';
 import { ROUTER_ABI } from './utils/routerAbi';
-import type { BridgeData, FeeData, InputData } from './utils/contractTypes';
+import { ZERO_BYTES32, type BridgeData, type FeeData, type InputData } from './utils/contractTypes';
 import { logTxnSummary } from './utils/txnLogSummary';
 import {
   ensureRouterErc20Balance,
@@ -95,6 +95,7 @@ function buildBridgeCalldata(
   };
 
   return routerIface.encodeFunctionData('bridge', [
+    ZERO_BYTES32,
     input,
     args.fee,
     bridgeData,

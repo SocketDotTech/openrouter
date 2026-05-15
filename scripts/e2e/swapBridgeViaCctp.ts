@@ -27,6 +27,7 @@ import {
   bpsOf,
   RPC,
   OPEN_OCEAN_API_KEY,
+  OO_SLIPPAGE_PERCENT,
   ALLOWANCE_HOLDER,
 } from './config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from './utils/allowanceHolder';
@@ -38,6 +39,7 @@ import {
   MonolithicExecutionCall,
   NO_FEE,
   NO_SWAP,
+  ZERO_BYTES32,
   bridgeAmountPositionFlag,
   monolithicArgs,
 } from './utils/contractTypes';
@@ -64,7 +66,6 @@ interface OpenOceanSwapQuoteResponse {
 async function fetchOpenOceanSwapQuote(
   routerAddress: string,
   inputAmount: bigint,
-  slippageBps: number = 100,
 ): Promise<{
   routerAddress: string;
   swapData: string;
@@ -75,7 +76,7 @@ async function fetchOpenOceanSwapQuote(
     inTokenAddress: TOKENS.AAVE_POLYGON,
     outTokenAddress: TOKENS.USDC_POLYGON_CIRCLE,
     amount: ethers.formatUnits(inputAmount, 18),
-    slippage: (slippageBps / 100).toString(),
+    slippage: OO_SLIPPAGE_PERCENT,
     sender: routerAddress,
     account: routerAddress,
     gasPrice: '1',
@@ -286,6 +287,7 @@ async function executeLegUsdcPolygonToBaseCctp(args: {
   let execCalldata: string;
   if (useModular) {
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
+      ZERO_BYTES32,
       buildModularActionsUsdcPolygonToBaseCctp(
         signerAddress,
         ROUTER_POLYGON,
@@ -373,6 +375,7 @@ async function executeLeg(args: {
   let execCalldata: string;
   if (useModular) {
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
+      ZERO_BYTES32,
       buildModularActions(
         signerAddress,
         ROUTER_POLYGON,

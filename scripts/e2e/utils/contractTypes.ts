@@ -52,6 +52,10 @@ export const BRIDGE_AMOUNT_POSITION_FLAG = 8n;
 export const BRIDGE_AMOUNT_POSITION_SHIFT = 16n;
 export const MAX_BRIDGE_AMOUNT_POSITION = 0xffffn;
 
+/** 32-byte zero; use as `requestHash` when scripts do not assign a request id. */
+export const ZERO_BYTES32 =
+  '0x0000000000000000000000000000000000000000000000000000000000000000' as const;
+
 export function bridgeAmountPositionFlag(position: bigint | number): bigint {
   const positionBigInt = BigInt(position);
   if (positionBigInt < 0n || positionBigInt > MAX_BRIDGE_AMOUNT_POSITION) {
@@ -60,12 +64,11 @@ export function bridgeAmountPositionFlag(position: bigint | number): bigint {
   return BRIDGE_AMOUNT_POSITION_FLAG | (positionBigInt << BRIDGE_AMOUNT_POSITION_SHIFT);
 }
 
-export function monolithicArgs(call: MonolithicExecutionCall) {
-  return [
-    call.exec,
-    call.swapCallData,
-    call.bridgeCallData,
-  ] as const;
+export function monolithicArgs(
+  call: MonolithicExecutionCall,
+  requestHash: string = ZERO_BYTES32,
+): readonly [string, MonolithicExecution, string, string] {
+  return [requestHash, call.exec, call.swapCallData, call.bridgeCallData] as const;
 }
 
 // ─── Sentinel / zero helpers ──────────────────────────────────────────────────
