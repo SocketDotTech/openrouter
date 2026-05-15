@@ -168,6 +168,12 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     error ReturnDataOutOfBounds();
 
     // =========================================================================
+    // Events
+    // =========================================================================
+
+    event RequestExecuted(bytes32 indexed requestHash);
+
+    // =========================================================================
     // Constructor
     // =========================================================================
 
@@ -189,13 +195,16 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      *      Bit 0 (`FEE_FLAG_BIT_MASK`) is unused in monolithic runs; fee placement is `preFee` / `postFee` structs.
      *      `exec.flags` contributes `BALANCE_FLAG_BIT_MASK` to `_execSwap` and
      *      `BRIDGE_VALUE_FLAG_BIT_MASK` to bridge msg.value selection.
+     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
      */
     function performExecution(
+        bytes32 requestHash,
         MonolithicExecution calldata exec,
         bytes calldata swapCallData,
         bytes calldata bridgeCallData
     ) external payable {
         _runMonolithic(exec, swapCallData, bridgeCallData);
+        emit RequestExecuted(requestHash);
     }
 
     // =========================================================================
@@ -204,6 +213,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
 
     /**
      * @notice Pull → optional pre/post fee → swap.
+     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
      * @param flags     Packed flags; OR masks then test with `flags & MASK != 0`. Masks: `FEE_FLAG_BIT_MASK` (0x01), `BALANCE_FLAG_BIT_MASK` (0x02).
      *                  Common values: `0` (pre-fee, returndata), `1` (post-fee, returndata),
      *                  `2` (pre-fee, balance delta), `3` (post-fee, balance delta).
@@ -214,6 +224,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      *        Bits are read with bitwise AND against each mask; omitting both masks ⇒ pre-fee + returndata.
      */
     function swap(
+        bytes32 requestHash,
         InputData calldata input,
         uint256 flags,
         FeeData calldata fee,
@@ -261,6 +272,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
                 finalAmount -= feeAmount;
             }
         }
+
+        emit RequestExecuted(requestHash);
     }
 
     // =========================================================================
@@ -269,11 +282,13 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
 
     /**
      * @notice Pull → optional pre/post swap fee → swap → bridge with runtime amount splicing.
+     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
      * @param flags     Same packing as `swap`; additionally bit 2 forwards final amount as bridge msg.value.
      * @param fee       Set `amount` to 0 to skip fee collection.
      * @dev   Same `minOutput` rule as `swap`: validated on gross `_execSwap` output, then optional output fee applies.
      */
     function swapAndBridge(
+        bytes32 requestHash,
         InputData calldata input,
         uint256 flags,
         FeeData calldata fee,
@@ -292,6 +307,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         uint256 finalAmount = _swapAndBridgeSwap(input, flags, fee, swapData, swapCallData);
 
         _finishSwapAndBridge(swapData.outputToken, finalAmount, bridgeData, bridgeCallData, flags);
+        emit RequestExecuted(requestHash);
     }
 
     function _swapAndBridgeSwap(
@@ -354,6 +370,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
 
     /**
      * @notice Pull → optional pre-bridge fee → bridge, with no swap step.
+     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
      * @dev Because no swap is involved, `finalAmount = inputAmount - feeAmount` is
      *      fully knowable by the caller before signing.  The caller must therefore
      *      bake the correct amount directly into `bridgeCallData` and set
@@ -364,6 +381,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      *      inputs so that `_msgSender()` resolves to `input.user`.
      */
     function bridge(
+        bytes32 requestHash,
         InputData calldata input,
         FeeData calldata fee,
         BridgeData calldata bridgeData,
@@ -396,6 +414,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
 
         // 4. bridge call — data and value are pre-encoded by the caller
         _doCallCalldata(bridgeData.target, bridgeData.value, bridgeCallData, false);
+        emit RequestExecuted(requestHash);
     }
 
     // =========================================================================
@@ -405,9 +424,15 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     /**
      * @notice Runs a sequence of generic actions with optional returndata
      *         splicing between steps. No signature verification.
+     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
      */
-    function performModularExecution(Action[] calldata actions) external payable returns (bytes[] memory results) {
+    function performModularExecution(bytes32 requestHash, Action[] calldata actions)
+        external
+        payable
+        returns (bytes[] memory results)
+    {
         results = _performActions(actions);
+        emit RequestExecuted(requestHash);
     }
 
     // =========================================================================
