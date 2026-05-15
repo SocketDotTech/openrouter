@@ -128,8 +128,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //   0x03   00000011              yes        balance delta on outputToken
     //
     // FEE_FLAG_BIT_MASK selects bit 0 — fee timing (see `_collectFee` + swap flow).
-    //   Cleared — pull → deduct fee from input token → swap remainder → standalone swap skips minOutput.
-    //   Set     — pull → swap full input → deduct fee from output token → standalone swap checks minOutput.
+    //   Cleared — pull → deduct fee from input token → swap remainder.
+    //   Set     — pull → swap full input → deduct fee from output token (after minOutput check on swap result).
     //
     // BALANCE_FLAG_BIT_MASK selects bit 1 — swap output sizing.
     //   Cleared — decode returned amount from call returndata at `swapData.returnDataWordOffset`.
@@ -138,7 +138,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     // Monolithic `performExecution` applies only `BALANCE_FLAG_BIT_MASK` in `_execSwap`; fee timing is `preFee`/`postFee` structs.
 
     /// @dev Bit mask 0x01: post-swap fee path when `(flags & mask) != 0`; clear = pre-swap fee from input token.
-    uint8 internal constant FEE_FLAG_BIT_MASK   = 0x01;
+    uint8 internal constant FEE_FLAG_BIT_MASK = 0x01;
 
     /// @dev Bit mask 0x02: measure swap output by balance delta when `(flags & mask) != 0`; clear = returndata word.
     uint8 internal constant BALANCE_FLAG_BIT_MASK = 0x02;
@@ -194,17 +194,16 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      *                  Common values: `0` (pre-fee, returndata), `1` (post-fee, returndata),
      *                  `2` (pre-fee, balance delta), `3` (post-fee, balance delta).
      * @param feeBytes  0x = no fee; 64 bytes = abi.encode(address receiver, uint256 amount).
-     * @dev   minOutput is only enforced in post-fee mode. Pre-fee skips minOutput check.
-     *        Post-fee: fee collected from output token after swap, then minOutput validated.
-     *        Pre-fee: fee collected from input token before swap, minOutput skipped.
-     *        Bits are read with bitwise AND against each mask; omitting both flags ⇒ pre-fee + returndata.
+     * @dev   `minOutput` is the minimum gross amount coming out of the swap (before any output-token fee).
+     *        It is enforced immediately after `_execSwap`, then post-swap fee (if any) is collected.
+     *        Pre-fee paths take the input-side fee before the swap; `minOutput` still guards the swap outcome.
+     *        Bits are read with bitwise AND against each mask; omitting both masks ⇒ pre-fee + returndata.
      */
-    function swap(
-        InputData calldata input,
-        uint8 flags,
-        bytes calldata feeBytes,
-        SwapData calldata swapData
-    ) external payable returns (uint256 finalAmount) {
+    function swap(InputData calldata input, uint8 flags, bytes calldata feeBytes, SwapData calldata swapData)
+        external
+        payable
+        returns (uint256 finalAmount)
+    {
         if (input.user == address(0) || input.inputToken == address(0) || swapData.target == address(0)) {
             revert InvalidExecution();
         }
@@ -218,24 +217,33 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         bool postFee = hasFee && flags & FEE_FLAG_BIT_MASK != 0;
         uint256 swapInput = input.inputAmount;
 
+        // collect pre-swap fee
         if (hasFee && !postFee) {
             uint256 fee = _collectFee(input.inputToken, feeBytes);
             if (fee > swapInput) revert InsufficientFunds();
-            unchecked { swapInput -= fee; }
+            unchecked {
+                swapInput -= fee;
+            }
         }
 
+        // approve swap router
         if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
             SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
         }
 
         // BALANCE_FLAG_BIT_MASK: unset ⇒ decode output word from returndata; set ⇒ output = delta on outputToken
+        // perform swap
         finalAmount = _execSwap(swapData, flags & BALANCE_FLAG_BIT_MASK != 0);
+        // check swap output
+        if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
+        // collect post-swap fee
         if (postFee) {
             uint256 fee = _collectFee(swapData.outputToken, feeBytes);
             if (fee > finalAmount) revert InsufficientFunds();
-            unchecked { finalAmount -= fee; }
-            if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
+            unchecked {
+                finalAmount -= fee;
+            }
         }
     }
 
@@ -247,9 +255,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      * @notice Pull → optional pre/post swap fee → swap → bridge with runtime amount splicing.
      * @param flags     Same packing as `swap`: 0x00–0x03 as documented on the flag constants block.
      * @param feeBytes  0x = no fee; 64 bytes = abi.encode(address receiver, uint256 amount).
-     * @dev   minOutput is always enforced (after fee deduction in post-fee mode).
-     *        Post-fee: fee collected from output token after swap, then minOutput validated.
-     *        Pre-fee: fee collected from input token before swap, minOutput still validated.
+     * @dev   Same `minOutput` rule as `swap`: validated on gross `_execSwap` output, then optional output fee applies.
      */
     function swapAndBridge(
         InputData calldata input,
@@ -259,8 +265,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         BridgeData calldata bridgeData
     ) external payable {
         if (
-            bridgeData.target == address(0) || input.user == address(0) ||
-            input.inputToken == address(0) || swapData.target == address(0)
+            bridgeData.target == address(0) || input.user == address(0) || input.inputToken == address(0)
+                || swapData.target == address(0)
         ) {
             revert InvalidExecution();
         }
@@ -273,28 +279,36 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         bool postFee = hasFee && flags & FEE_FLAG_BIT_MASK != 0;
         uint256 swapInput = input.inputAmount;
 
+        // collect pre-swap fee
         if (hasFee && !postFee) {
             uint256 fee = _collectFee(input.inputToken, feeBytes);
             if (fee > swapInput) revert InsufficientFunds();
-            unchecked { swapInput -= fee; }
+            unchecked {
+                swapInput -= fee;
+            }
         }
 
+        // approve swap router
         if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
             SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
         }
 
         address finalToken = swapData.outputToken;
+        // perform swap
         // BALANCE_FLAG_BIT_MASK: same returndata vs balance-delta measurement as `swap`
         uint256 finalAmount = _execSwap(swapData, flags & BALANCE_FLAG_BIT_MASK != 0);
 
+        // check swap output
+        if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
+
+        // collect post-swap fee
         if (postFee) {
             uint256 fee = _collectFee(finalToken, feeBytes);
             if (fee > finalAmount) revert InsufficientFunds();
-            unchecked { finalAmount -= fee; }
+            unchecked {
+                finalAmount -= fee;
+            }
         }
-
-        // Always check minOutput (unlike standalone swap where pre-fee skips this)
-        if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
         _doBridge(finalToken, finalAmount, bridgeData);
     }
@@ -430,7 +444,9 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     {
         if (exec.swap.approvalSpender != address(0) && exec.input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
             uint256 swapInput;
-            unchecked { swapInput = exec.input.inputAmount - exec.preFee.amount; }
+            unchecked {
+                swapInput = exec.input.inputAmount - exec.preFee.amount;
+            }
             SafeTransferLib.safeApproveWithRetry(exec.input.inputToken, exec.swap.approvalSpender, swapInput);
         }
 
