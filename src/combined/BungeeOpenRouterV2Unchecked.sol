@@ -117,8 +117,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //   0x04   00000100              no         returndata word            finalAmount
     //
     // FEE_FLAG_BIT_MASK selects bit 0 — fee timing.
-    //   Cleared — pull → deduct fee from input token → swap remainder → standalone swap skips minOutput.
-    //   Set     — pull → swap full input → deduct fee from output token → standalone swap checks minOutput.
+    //   Cleared — pull → deduct fee from input token → swap remainder.
+    //   Set     — pull → swap full input → deduct fee from output token (after minOutput check on swap result).
     //
     // BALANCE_FLAG_BIT_MASK selects bit 1 — swap output sizing.
     //   Cleared — decode returned amount from call returndata at `swapData.returnDataWordOffset`.
@@ -208,10 +208,10 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      *                  Common values: `0` (pre-fee, returndata), `1` (post-fee, returndata),
      *                  `2` (pre-fee, balance delta), `3` (post-fee, balance delta).
      * @param fee       Set `amount` to 0 to skip fee collection.
-     * @dev   minOutput is only enforced in post-fee mode. Pre-fee skips minOutput check.
-     *        Post-fee: fee collected from output token after swap, then minOutput validated.
-     *        Pre-fee: fee collected from input token before swap, minOutput skipped.
-     *        Bits are read with bitwise AND against each mask; omitting both flags ⇒ pre-fee + returndata.
+     * @dev   `minOutput` is the minimum gross amount coming out of the swap (before any output-token fee).
+     *        It is enforced immediately after `_execSwap`, then post-swap fee (if any) is collected.
+     *        Pre-fee paths take the input-side fee before the swap; `minOutput` still guards the swap outcome.
+     *        Bits are read with bitwise AND against each mask; omitting both masks ⇒ pre-fee + returndata.
      */
     function swap(
         InputData calldata input,
@@ -233,6 +233,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         bool postFee = hasFee && flags & FEE_FLAG_BIT_MASK != 0;
         uint256 swapInput = input.inputAmount;
 
+        // collect pre-swap fee
         if (hasFee && !postFee) {
             uint256 feeAmount = fee.amount;
             if (feeAmount > swapInput) revert InsufficientFunds();
@@ -242,13 +243,16 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             }
         }
 
+        // approve swap router
         if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
             SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
         }
 
         // BALANCE_FLAG_BIT_MASK: unset ⇒ decode output word from returndata; set ⇒ output = delta on outputToken
         finalAmount = _execSwap(swapData, swapCallData, flags & BALANCE_FLAG_BIT_MASK != 0);
+        if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
+        // collect post-swap fee
         if (postFee) {
             uint256 feeAmount = fee.amount;
             if (feeAmount > finalAmount) revert InsufficientFunds();
@@ -256,7 +260,6 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             unchecked {
                 finalAmount -= feeAmount;
             }
-            if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
         }
     }
 
@@ -268,9 +271,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      * @notice Pull → optional pre/post swap fee → swap → bridge with runtime amount splicing.
      * @param flags     Same packing as `swap`; additionally bit 2 forwards final amount as bridge msg.value.
      * @param fee       Set `amount` to 0 to skip fee collection.
-     * @dev   minOutput is always enforced (after fee deduction in post-fee mode).
-     *        Post-fee: fee collected from output token after swap, then minOutput validated.
-     *        Pre-fee: fee collected from input token before swap, minOutput still validated.
+     * @dev   Same `minOutput` rule as `swap`: validated on gross `_execSwap` output, then optional output fee applies.
      */
     function swapAndBridge(
         InputData calldata input,
@@ -289,9 +290,6 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         }
 
         uint256 finalAmount = _swapAndBridgeSwap(input, flags, fee, swapData, swapCallData);
-
-        // Always check minOutput (unlike standalone swap where pre-fee skips this)
-        if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
         _finishSwapAndBridge(swapData.outputToken, finalAmount, bridgeData, bridgeCallData, flags);
     }
@@ -328,6 +326,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         // BALANCE_FLAG_BIT_MASK: same returndata vs balance-delta measurement as `swap`
         bool useBalanceOf = flags & BALANCE_FLAG_BIT_MASK != 0;
         finalAmount = _execSwap(swapData, swapCallData, useBalanceOf);
+        if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
         if (postFee) {
             uint256 feeAmount = fee.amount;
