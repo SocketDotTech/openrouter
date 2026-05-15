@@ -69,6 +69,16 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         bool useFinalAmountAsValue;
     }
 
+    /// @dev Simplified bridge descriptor for the no-swap `bridge()` path.
+    ///      The caller knows `finalAmount = inputAmount - feeAmount` before encoding,
+    ///      so no amount-splicing or runtime value overrides are needed.
+    struct StaticBridgeData {
+        address target;
+        address approvalSpender;
+        uint256 value;
+        bytes data;
+    }
+
     struct MonolithicExecution {
         InputData input;
         FeeData preFee;
@@ -130,6 +140,72 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      */
     function performExecution(MonolithicExecution calldata exec) external payable {
         _runMonolithic(exec);
+    }
+
+    // =========================================================================
+    // External: simple bridge path (no swap)
+    // =========================================================================
+
+    /**
+     * @notice Pull → optional pre-bridge fee → bridge, with no swap step.
+     * @dev `feeBytes` must be either empty (`0x`, skip fee) or exactly 64 bytes
+     *      ABI-encoded as `(address receiver, uint256 amount)`.  Any other
+     *      length reverts with `InvalidExecution`.
+     *
+     *      Because no swap is involved, `finalAmount = inputAmount - feeAmount` is
+     *      fully knowable by the caller before signing.  The caller must therefore
+     *      bake the correct amount directly into `bridgeData.data` and set
+     *      `bridgeData.value` to the desired `msg.value` for the bridge call.
+     *      No runtime calldata splicing is performed.
+     *
+     *      The caller MUST route through `AllowanceHolder.exec` for ERC-20
+     *      inputs so that `_msgSender()` resolves to `input.user`.
+     */
+    function bridge(InputData calldata input, bytes calldata feeBytes, StaticBridgeData calldata bridgeData)
+        external
+        payable
+    {
+        if (bridgeData.target == address(0) || input.user == address(0) || input.inputToken == address(0)) {
+            revert InvalidExecution();
+        }
+
+        // feeBytes must be empty or exactly one ABI word-pair (address + uint256 = 64 bytes)
+        if (feeBytes.length != 0 && feeBytes.length != 64) {
+            revert InvalidExecution();
+        }
+
+        // 1. pull funds from user via AllowanceHolder
+        _pullFromUser(input.inputToken, input.user, input.inputAmount);
+
+        // 2. optional pre-bridge fee decoded from feeBytes; track net amount for approval
+        uint256 feeAmount;
+        if (feeBytes.length == 64) {
+            address feeReceiver;
+            assembly ("memory-safe") {
+                // feeBytes is a calldata slice: feeBytes.offset points at the raw bytes
+                feeReceiver := calldataload(feeBytes.offset)
+                feeAmount := calldataload(add(feeBytes.offset, 0x20))
+            }
+            if (feeAmount != 0) {
+                if (feeAmount > input.inputAmount) {
+                    revert InsufficientFunds();
+                }
+                CurrencyLib.transfer(input.inputToken, feeReceiver, feeAmount);
+            }
+        }
+
+        // 3. optional approval to bridge spender for the net amount (inputAmount - feeAmount)
+        if (bridgeData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+            uint256 netAmount;
+            unchecked {
+                netAmount = input.inputAmount - feeAmount;
+            }
+            SafeTransferLib.safeApproveWithRetry(input.inputToken, bridgeData.approvalSpender, netAmount);
+        }
+
+        // 4. bridge call — data and value are pre-encoded by the caller
+        bytes memory bData = bridgeData.data;
+        _doCall(bridgeData.target, bridgeData.value, bData, false);
     }
 
     // =========================================================================
