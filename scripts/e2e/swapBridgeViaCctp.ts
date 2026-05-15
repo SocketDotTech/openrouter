@@ -41,6 +41,10 @@ import {
 } from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
+import {
+  ensureRouterErc20Balance,
+  ensureRouterApproval,
+} from './utils/reproducibility';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
@@ -271,6 +275,9 @@ async function executeLegUsdcPolygonToBaseCctp(args: {
     true,
   );
 
+  await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, polyCctp.tokenMessenger);
+
   let execCalldata: string;
   if (useModular) {
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
@@ -353,6 +360,11 @@ async function executeLeg(args: {
     true,
   );
 
+  await ensureRouterErc20Balance(signer, TOKENS.AAVE_POLYGON, ROUTER_POLYGON);
+  await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, ooRouterAddress);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, polyCctp.tokenMessenger);
+
   let execCalldata: string;
   if (useModular) {
     execCalldata = routerIface.encodeFunctionData('performModularExecution', [
@@ -422,7 +434,7 @@ async function mainUsdcPolygonToBaseCctp() {
     );
   }
 
-  const legAmount = walletBalance / 2n;
+  const legAmount = (walletBalance - 20n) / 2n;
   if (legAmount === 0n) {
     throw new Error(
       `Balance ${walletBalance} too small for two nonzero 50% legs.`,
@@ -490,7 +502,7 @@ async function main() {
     );
   }
 
-  const legAmount = walletBalance / 2n;
+  const legAmount = (walletBalance - 20n) / 2n;
   if (legAmount === 0n) {
     throw new Error(
       `Balance ${walletBalance} too small for two nonzero 50% legs.`,

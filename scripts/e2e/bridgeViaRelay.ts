@@ -44,6 +44,10 @@ import { MonolithicExecution, NO_FEE, NO_SWAP } from './utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from './utils/relayLinkQuote';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
+import {
+  ensureRouterErc20Balance,
+  ensureRouterApproval,
+} from './utils/reproducibility';
 
 /** Router on Polygon — quotes + modular recipient target must match executing chain deployment. */
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
@@ -141,6 +145,9 @@ async function executeLeg(args: {
   const { relaySpender, depositTarget, depositData } = parseRelayQuote(quote);
   console.log(`Relay spender:   ${relaySpender}`);
   console.log(`Deposit target:  ${depositTarget}`);
+
+  await ensureRouterErc20Balance(signer, TOKENS.AAVE_POLYGON, ROUTER_POLYGON);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, relaySpender);
 
   let execCalldata: string;
   if (useModular) {
@@ -285,6 +292,9 @@ async function executeLegUsdcPolygonToBase(args: {
   console.log(`Relay spender:   ${relaySpender}`);
   console.log(`Deposit target:  ${depositTarget}`);
 
+  await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, relaySpender);
+
   let execCalldata: string;
   if (useModular) {
     const actions = buildModularActionsUsdcPolygonToBase(
@@ -360,7 +370,7 @@ async function mainUsdcPolygonToBaseRelay() {
     );
   }
 
-  const legAmount = walletBalance / 2n;
+  const legAmount = (walletBalance - 20n) / 2n;
   if (legAmount === 0n) {
     throw new Error(
       `Wallet balance (${walletBalance}) is too small to split into two nonzero halves.`,
@@ -431,7 +441,7 @@ async function main() {
     );
   }
 
-  const legAmount = walletBalance / 2n;
+  const legAmount = (walletBalance - 20n) / 2n;
   if (legAmount === 0n) {
     throw new Error(
       `Wallet balance (${walletBalance}) is too small to split into two nonzero halves.`,

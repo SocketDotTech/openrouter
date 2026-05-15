@@ -71,6 +71,10 @@ import type { ModularAction } from './utils/modularActionsBuilder/index';
 import { MonolithicExecution, NO_FEE, NO_SWAP } from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
+import {
+  ensureRouterErc20Balance,
+  ensureRouterApproval,
+} from './utils/reproducibility';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
@@ -372,6 +376,11 @@ async function executeCase1Leg(args: {
     `  Est. received:     ${ethers.formatUnits(amountReceivedLD, 6)} USDT0`,
   );
 
+  await ensureRouterErc20Balance(signer, TOKENS.AAVE_POLYGON, ROUTER_POLYGON);
+  await ensureRouterErc20Balance(signer, TOKENS.USDT0_POLYGON, ROUTER_POLYGON);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, ooRouter);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDT0_POLYGON, USDT0_OFT_ADAPTER_POLYGON);
+
   const oftSendData = buildOftSendCalldata(nativeFeeWithBuffer, signerAddress);
 
   let execCalldata: string;
@@ -558,6 +567,9 @@ async function executeCase2Leg(args: {
     `  Est. received:     ${ethers.formatUnits(amountReceivedLD, 6)} USDT0`,
   );
 
+  await ensureRouterErc20Balance(signer, TOKENS.USDT0_POLYGON, ROUTER_POLYGON);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDT0_POLYGON, USDT0_OFT_ADAPTER_POLYGON);
+
   const oftSendData = buildOftSendCalldata(nativeFeeWithBuffer, signerAddress);
 
   let execCalldata: string;
@@ -640,7 +652,7 @@ async function runCase1(
     );
   }
 
-  const legAmount = walletBalance / 2n;
+  const legAmount = (walletBalance - 20n) / 2n;
   if (legAmount === 0n) {
     throw new Error('Case 1: AAVE balance too small to split into two halves.');
   }
@@ -702,7 +714,7 @@ async function runCase2(
     );
   }
 
-  const legAmount = walletBalance / 2n;
+  const legAmount = (walletBalance - 20n) / 2n;
   if (legAmount === 0n) {
     throw new Error(
       'Case 2: USDT0 balance too small to split into two halves.',

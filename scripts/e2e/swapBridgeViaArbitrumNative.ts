@@ -65,6 +65,11 @@ import type { ModularAction } from './utils/modularActionsBuilder/index';
 import { MonolithicExecution, NO_FEE, ZERO_ADDRESS } from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
+import {
+  ensureRouterErc20Balance,
+  ensureRouterNativeBalance,
+  ensureRouterApproval,
+} from './utils/reproducibility';
 
 // ─── Exec-mode selection ──────────────────────────────────────────────────────
 
@@ -302,6 +307,10 @@ async function executeLeg(
   console.log(`  Fee:             ${ethers.formatEther(feeAmount)} ETH (${FEE_BPS} bps)`);
   console.log(`  Min ETH out:     ${ethers.formatEther(minAmountOut)} ETH`);
 
+  await ensureRouterErc20Balance(signer, TOKENS.AAVE_ETH, routerAddress);
+  await ensureRouterNativeBalance(signer, routerAddress);
+  await ensureRouterApproval(signer, routerAddress, TOKENS.AAVE_ETH, ooRouter);
+
   const arbFee = await estimateArbitrumBridgeFee(provider);
   const minEthRequired = feeAmount + arbFee;
   if (estimatedOut < minEthRequired) {
@@ -388,7 +397,7 @@ async function main(): Promise<void> {
     );
   }
 
-  const legAmount = fullBalance / 2n;
+  const legAmount = (fullBalance - 20n) / 2n;
   if (legAmount === 0n) {
     throw new Error('AAVE balance too small to split into two legs.');
   }

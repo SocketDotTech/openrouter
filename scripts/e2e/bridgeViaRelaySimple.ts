@@ -39,6 +39,10 @@ import { ROUTER_ABI } from './utils/routerAbi';
 import type { InputData, StaticBridgeData } from './utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from './utils/relayLinkQuote';
 import { logTxnSummary } from './utils/txnLogSummary';
+import {
+  ensureRouterErc20Balance,
+  ensureRouterApproval,
+} from './utils/reproducibility';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
@@ -140,6 +144,9 @@ async function executeLeg(args: {
   console.log(`Relay spender:   ${relaySpender}`);
   console.log(`Deposit target:  ${depositTarget}`);
 
+  await ensureRouterErc20Balance(signer, config.inputToken, ROUTER_POLYGON);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, config.inputToken, relaySpender);
+
   const execCalldata = buildBridgeCalldata(routerIface, {
     signerAddress,
     inputToken: config.inputToken,
@@ -221,7 +228,7 @@ async function run(useUsdc: boolean): Promise<void> {
     config: legConfig,
     signer,
     signerAddress,
-    inputAmount: walletBalance,
+    inputAmount: (walletBalance - 20n) / 2n,
     routerIface,
   });
 

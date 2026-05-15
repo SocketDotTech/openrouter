@@ -91,6 +91,11 @@ import type { ModularAction } from './utils/modularActionsBuilder/index';
 import { MonolithicExecution, NO_FEE, NO_SWAP, ZERO_ADDRESS } from './utils/contractTypes';
 import { sleep } from './utils/sleep';
 import { logTxnSummary } from './utils/txnLogSummary';
+import {
+  ensureRouterErc20Balance,
+  ensureRouterNativeBalance,
+  ensureRouterApproval,
+} from './utils/reproducibility';
 
 /**
  * LZ extra options for Polygon USDT0 OFT Adapter `send()` (executor gas).
@@ -900,6 +905,32 @@ async function executeLeg(
     inputAmountWei = maxAffordableSwapIn;
   }
 
+  // ── State prep for reproducible gas ─────────────────────────────────────────
+  // Determine the token the router will approve to the bridge contract (null for native pools).
+  const bridgeToken: string | null =
+    cfg.isNativePool
+      ? null
+      : cfg.ooSwap !== null
+        ? cfg.ooSwap.outToken
+        : cfg.inputToken;
+
+  if (!cfg.isNativeInput) {
+    await ensureRouterErc20Balance(signer, cfg.inputToken, routerAddress);
+  }
+  if (cfg.isNativeInput || cfg.isNativePool || (cfg.ooSwap && cfg.ooSwap.outToken.toLowerCase() === NATIVE_TOKEN_ADDRESS.toLowerCase())) {
+    await ensureRouterNativeBalance(signer, routerAddress);
+  }
+  if (cfg.ooSwap && cfg.ooSwap.outToken.toLowerCase() !== NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+    await ensureRouterErc20Balance(signer, cfg.ooSwap.outToken, routerAddress);
+  }
+  if (cfg.ooSwap && !cfg.isNativeInput) {
+    await ensureRouterApproval(signer, routerAddress, cfg.inputToken, ooRouter);
+  }
+  if (bridgeToken && bridgeToken.toLowerCase() !== NATIVE_TOKEN_ADDRESS.toLowerCase()) {
+    await ensureRouterApproval(signer, routerAddress, bridgeToken, cfg.bridgeContract);
+  }
+  // ────────────────────────────────────────────────────────────────────────────
+
   let amountLD: bigint;
   if (cfg.isNativePool) {
     amountLD = minAmountOut - feeAmount - nativeFeeWithBuffer;
@@ -997,7 +1028,7 @@ async function runCase(
       );
     }
     // Reserve wei for signer gas; lz fee itself is deducted inside executeLeg (`txValue = swap + fee`).
-    walletBalance = raw - NATIVE_INPUT_GAS_RESERVE;
+    walletBalance = raw - NATIVE_INPUT_GAS_RESERVE - 20n;
     decimals = 18;
   } else {
     ({ balance: walletBalance, decimals } = await getWalletErc20Balance(
@@ -1012,7 +1043,7 @@ async function runCase(
     );
   }
 
-  const legAmount = walletBalance / 2n;
+  const legAmount = cfg.isNativeInput ? walletBalance / 2n : (walletBalance - 20n) / 2n;
   if (legAmount === 0n) {
     throw new Error(`${cfg.name}: balance too small to split into two halves.`);
   }
