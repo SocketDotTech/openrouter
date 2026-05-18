@@ -1,14 +1,17 @@
 /**
- * Route:  Polygon AAVE → USDC (OpenOcean) — standalone swap, no bridge
+ * Route:  Polygon AAVE → USDC (KyberSwap) — standalone swap, no bridge
  * Flags:  post-fee (fee taken from USDC output after swap), output read from swap returndata word 0
  *
  * Post-fee (bit0=1): feeAmount = FEE_BPS of estimatedOut USDC, deducted from swap output.
  * Returndata (bit1=0): final USDC amount is read from word 0 of the swap call returndata.
  *
+ * Build uses sender = recipient = router so gross USDC stays on the router until post-fee forward
+ * (same shape as the balanceOf post-fee script; only the output-measurement flag differs).
+ *
  * USDC lands in signer's wallet on Polygon.
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/swap/swap.postFee.returndata.ts
+ *   PRIVATE_KEY=0x... KYBERSWAP_API_KEY=... ts-node scripts/e2e/swap/kyberswap.postFee.returndata.ts
  */
 import axios from "axios";
 import { ethers } from "ethers";
@@ -22,8 +25,8 @@ import {
   FEE_BPS,
   bpsOf,
   RPC,
-  OPEN_OCEAN_API_KEY,
-  OO_SLIPPAGE_PERCENT,
+  KYBERSWAP_API_KEY,
+  SWAP_SLIPPAGE_BPS,
 } from "../config";
 import {
   execViaAH,
@@ -38,44 +41,98 @@ import {
   ensureRouterApproval,
 } from "../utils/reproducibility";
 
-// post-fee (0x01) | returndata (0x00)
+// post-fee (0x01) | returndata (bit1=0 ⇒ no 0x02)
 const FLAGS = 0x01n;
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
+const KYBERSWAP_BASE_URL = "https://aggregator-api.kyberswap.com";
+const KYBERSWAP_CHAIN = "polygon";
 
-interface OoQuoteResponse {
-  data: { to: string; data: string; outAmount: string; minOutAmount: string };
+interface KyberRouteData {
+  routeSummary: object;
+  routerAddress: string;
 }
 
-async function fetchOpenOceanQuote(inputAmount: bigint): Promise<{
-  ooRouter: string;
+interface KyberBuildData {
+  routerAddress: string;
+  amountOut: string;
+  data: string;
+  transactionValue: string;
+}
+
+/**
+ * Fetches a KyberSwap route quote then builds executable calldata.
+ * Post-fee path: both sender and recipient are the router so output settles on-contract before fee.
+ */
+async function fetchKyberSwapQuote(
+  amountIn: bigint,
+  routerAddress: string,
+): Promise<{
+  ksRouter: string;
   swapData: string;
   estimatedOut: bigint;
   minAmountOut: bigint;
+  value: bigint;
 }> {
-  const params: Record<string, string> = {
-    inTokenAddress: TOKENS.AAVE_POLYGON,
-    outTokenAddress: TOKENS.USDC_POLYGON_CIRCLE,
-    amount: ethers.formatUnits(inputAmount, 18),
-    slippage: OO_SLIPPAGE_PERCENT,
-    sender: ROUTER_POLYGON,
-    account: ROUTER_POLYGON,
-    gasPrice: "1",
-  };
-  if (OPEN_OCEAN_API_KEY) params.apikey = OPEN_OCEAN_API_KEY;
-  const url = `https://open-api.openocean.finance/v3/${CHAIN_IDS.POLYGON}/swap_quote`;
-  const response = await axios.get<OoQuoteResponse>(url, { params });
-  const q = response.data.data;
+  const headers: Record<string, string> = {};
+  if (KYBERSWAP_API_KEY) {
+    headers["x-client-id"] = KYBERSWAP_API_KEY;
+  }
+
+  const routeUrl =
+    `${KYBERSWAP_BASE_URL}/${KYBERSWAP_CHAIN}/api/v1/routes` +
+    `?tokenIn=${TOKENS.AAVE_POLYGON}&tokenOut=${TOKENS.USDC_POLYGON_CIRCLE}` +
+    `&amountIn=${amountIn.toString()}&excludedSources=bebop&gasInclude=true`;
+
+  const routeResp = await axios.get<{ code: number; data: KyberRouteData }>(
+    routeUrl,
+    { headers },
+  );
+  if (!routeResp.data?.data?.routeSummary) {
+    throw new Error(
+      `KyberSwap routes call failed: ${JSON.stringify(routeResp.data)}`,
+    );
+  }
+  const { routeSummary } = routeResp.data.data;
+
+  const buildUrl = `${KYBERSWAP_BASE_URL}/${KYBERSWAP_CHAIN}/api/v1/route/build`;
+  const buildResp = await axios.post<{ code: number; data: KyberBuildData }>(
+    buildUrl,
+    {
+      routeSummary,
+      sender: routerAddress,
+      recipient: routerAddress,
+      slippageTolerance: SWAP_SLIPPAGE_BPS,
+    },
+    { headers },
+  );
+  if (!buildResp.data?.data?.data) {
+    throw new Error(
+      `KyberSwap build call failed: ${JSON.stringify(buildResp.data)}`,
+    );
+  }
+
+  const { routerAddress: ksRouter, amountOut, data, transactionValue } =
+    buildResp.data.data;
+  const estimatedOut = BigInt(amountOut);
+
   return {
-    ooRouter: q.to,
-    swapData: q.data,
-    estimatedOut: BigInt(q.outAmount),
-    minAmountOut: BigInt(q.minOutAmount),
+    ksRouter,
+    swapData: data,
+    estimatedOut,
+    minAmountOut:
+      (estimatedOut * (10000n - BigInt(SWAP_SLIPPAGE_BPS))) / 10000n,
+    value: BigInt(transactionValue ?? "0"),
   };
 }
 
 async function main() {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) throw new Error("PRIVATE_KEY env var required");
+  if (!KYBERSWAP_API_KEY) {
+    console.warn(
+      "KYBERSWAP_API_KEY not set — unauthenticated requests may be rate-limited",
+    );
+  }
 
   const provider = new ethers.JsonRpcProvider(RPC.POLYGON);
   const signer = new ethers.Wallet(privateKey, provider);
@@ -84,10 +141,11 @@ async function main() {
   const { balance: walletBalance } = await getWalletErc20Balance(
     TOKENS.AAVE_POLYGON,
     signerAddress,
-    provider
+    provider,
   );
-  if (walletBalance === 0n)
+  if (walletBalance === 0n) {
     throw new Error(`Signer ${signerAddress} has zero AAVE on Polygon`);
+  }
 
   const inputAmount = walletBalance - 20n;
   if (inputAmount === 0n) throw new Error("Balance too small");
@@ -99,16 +157,16 @@ async function main() {
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
 
-  console.log("Fetching OpenOcean quote (AAVE → USDC)...");
-  const { ooRouter, swapData, estimatedOut, minAmountOut } =
-    await fetchOpenOceanQuote(inputAmount);
+  console.log("Fetching KyberSwap quote (AAVE → USDC)...");
+  const { ksRouter, swapData, estimatedOut, minAmountOut, value } =
+    await fetchKyberSwapQuote(inputAmount, ROUTER_POLYGON);
 
   // post-fee: deduct from estimated USDC output after swap
   const feeAmount = bpsOf(estimatedOut, FEE_BPS);
-  console.log(`  OO router:   ${ooRouter}`);
+  console.log(`  KS router:   ${ksRouter}`);
   console.log(`  Est. USDC:   ${ethers.formatUnits(estimatedOut, 6)}`);
   console.log(
-    `  Post-fee:    ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`
+    `  Post-fee:    ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`,
   );
   console.log(`  Min USDC:    ${ethers.formatUnits(minAmountOut, 6)}`);
 
@@ -117,7 +175,7 @@ async function main() {
     signer,
     ROUTER_POLYGON,
     TOKENS.AAVE_POLYGON,
-    ooRouter
+    ksRouter,
   );
 
   const callData = routerIface.encodeFunctionData("swap", [
@@ -131,10 +189,10 @@ async function main() {
     FLAGS,
     { receiver: signerAddress, amount: feeAmount },
     {
-      target: ooRouter,
-      approvalSpender: ooRouter,
+      target: ksRouter,
+      approvalSpender: ksRouter,
       outputToken: TOKENS.USDC_POLYGON_CIRCLE,
-      value: 0n,
+      value,
       minOutput: minAmountOut,
       returnDataWordOffset: 0n,
     },
@@ -144,7 +202,7 @@ async function main() {
   await ensureAllowanceForAllowanceHolder(
     signer,
     TOKENS.AAVE_POLYGON,
-    inputAmount
+    inputAmount,
   );
   const receipt = await execViaAH(
     signer,
@@ -152,15 +210,14 @@ async function main() {
     TOKENS.AAVE_POLYGON,
     inputAmount,
     ROUTER_POLYGON,
-    callData
+    callData,
   );
 
   logTxnSummary(
-    `Polygon AAVE → USDC — swap postFee/returndata`,
+    `Polygon AAVE → USDC — kyberswap postFee/returndata`,
     CHAIN_IDS.POLYGON,
-    receipt
+    receipt,
   );
-
   console.log(`\nUSDC is now in signer's wallet on Polygon.`);
 }
 

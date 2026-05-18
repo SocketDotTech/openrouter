@@ -34,9 +34,9 @@ export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
  * Chains without an entry fall back to legacy `ROUTER_ADDRESS` when set.
  */
 export const ROUTER_BY_CHAIN_ID: Record<number, string> = {
-  [CHAIN_IDS.POLYGON]: '0x7A113007177BF1cd86da69Dbd7d601dcEC9EbAbD',
+  [CHAIN_IDS.POLYGON]: '0x5abf9dccabc44ea9421f1e1Fbd6BA6A4f2387342',
   [CHAIN_IDS.ARBITRUM]: '0xe1788A0374EF5D4C35e62478FdB35F37CeE5B951',
-  [CHAIN_IDS.BASE]: '0x96E8c261fCCDFca2CCffe8b4A33dC8a65f153785',
+  [CHAIN_IDS.BASE]: '0x91b536E79cd3607b593f3011937862609D608253',
   [CHAIN_IDS.ETHEREUM]: '0xeB5ae85Fe7e3E272Ac77fd316079589C0Ed91648',
 };
 
@@ -236,3 +236,12 @@ export const RPC = {
 export const RELAY_API_KEY: string | undefined = process.env.RELAY_API_KEY;
 export const OPEN_OCEAN_API_KEY: string | undefined =
   process.env.OPEN_OCEAN_API_KEY;
+export const KYBERSWAP_API_KEY: string | undefined =
+  process.env.KYBERSWAP_API_KEY;
+export const ZEROX_API_KEY: string | undefined = process.env.ZEROX_API_KEY;
+
+/**
+ * Swap slippage in basis points for KyberSwap and 0x (300 = 3%).
+ * Matches the default OO_SLIPPAGE_PERCENT of 3%.
+ */
+export const SWAP_SLIPPAGE_BPS = 300;

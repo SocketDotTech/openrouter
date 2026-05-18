@@ -1,14 +1,17 @@
 /**
- * Route:  Polygon AAVE → USDC (OpenOcean) — standalone swap, no bridge
+ * Route:  Polygon AAVE → USDC (0x v2 AllowanceHolder) — standalone swap, no bridge
  * Flags:  post-fee (fee taken from USDC output after swap), output read from swap returndata word 0
  *
  * Post-fee (bit0=1): feeAmount = FEE_BPS of estimatedOut USDC, deducted from swap output.
  * Returndata (bit1=0): final USDC amount is read from word 0 of the swap call returndata.
  *
+ * 0x: taker=router, recipient=router so gross USDC stays on the router for post-fee settle
+ * (same quote shape as balanceOf post-fee; only the output-measurement flag differs).
+ *
  * USDC lands in signer's wallet on Polygon.
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/swap/swap.postFee.returndata.ts
+ *   PRIVATE_KEY=0x... ZEROX_API_KEY=... ts-node scripts/e2e/swap/zerox.postFee.returndata.ts
  */
 import axios from "axios";
 import { ethers } from "ethers";
@@ -22,8 +25,9 @@ import {
   FEE_BPS,
   bpsOf,
   RPC,
-  OPEN_OCEAN_API_KEY,
-  OO_SLIPPAGE_PERCENT,
+  ZEROX_API_KEY,
+  SWAP_SLIPPAGE_BPS,
+  ALLOWANCE_HOLDER,
 } from "../config";
 import {
   execViaAH,
@@ -38,38 +42,79 @@ import {
   ensureRouterApproval,
 } from "../utils/reproducibility";
 
-// post-fee (0x01) | returndata (0x00)
+// post-fee (0x01) | returndata (no 0x02)
 const FLAGS = 0x01n;
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
+const ZEROX_BASE_URL = "https://api.0x.org";
 
-interface OoQuoteResponse {
-  data: { to: string; data: string; outAmount: string; minOutAmount: string };
+interface ZeroXTransaction {
+  to: string;
+  data: string;
+  value: string;
+  gas: string;
+  gasPrice: string;
 }
 
-async function fetchOpenOceanQuote(inputAmount: bigint): Promise<{
-  ooRouter: string;
-  swapData: string;
-  estimatedOut: bigint;
-  minAmountOut: bigint;
-}> {
-  const params: Record<string, string> = {
-    inTokenAddress: TOKENS.AAVE_POLYGON,
-    outTokenAddress: TOKENS.USDC_POLYGON_CIRCLE,
-    amount: ethers.formatUnits(inputAmount, 18),
-    slippage: OO_SLIPPAGE_PERCENT,
-    sender: ROUTER_POLYGON,
-    account: ROUTER_POLYGON,
-    gasPrice: "1",
+interface ZeroXQuoteResponse {
+  transaction: ZeroXTransaction;
+  buyAmount: string;
+  minBuyAmount: string;
+  issues?: {
+    balance?: { token: string; actual: string; expected: string };
+    allowance?: { actual: string; spender: string };
+    simulationIncomplete?: boolean;
   };
-  if (OPEN_OCEAN_API_KEY) params.apikey = OPEN_OCEAN_API_KEY;
-  const url = `https://open-api.openocean.finance/v3/${CHAIN_IDS.POLYGON}/swap_quote`;
-  const response = await axios.get<OoQuoteResponse>(url, { params });
-  const q = response.data.data;
+}
+
+/**
+ * Fetches a 0x v2 AllowanceHolder swap quote.
+ * taker and recipient are the router so execution and settlement stay on-contract for post-fee.
+ */
+async function fetchZeroXQuote(
+  sellAmount: bigint,
+  taker: string,
+  recipient: string,
+  txOrigin: string,
+): Promise<{
+  swapTarget: string;
+  swapData: string;
+  buyAmount: bigint;
+  minBuyAmount: bigint;
+  value: bigint;
+}> {
+  if (!ZEROX_API_KEY) {
+    throw new Error("ZEROX_API_KEY env var required");
+  }
+
+  const url =
+    `${ZEROX_BASE_URL}/swap/allowance-holder/quote` +
+    `?chainId=${CHAIN_IDS.POLYGON}` +
+    `&buyToken=${TOKENS.USDC_POLYGON_CIRCLE}` +
+    `&sellToken=${TOKENS.AAVE_POLYGON}` +
+    `&sellAmount=${sellAmount.toString()}` +
+    `&taker=${taker}` +
+    `&recipient=${recipient}` +
+    `&txOrigin=${txOrigin}` +
+    `&slippageBps=${SWAP_SLIPPAGE_BPS}`;
+
+  const resp = await axios.get<ZeroXQuoteResponse>(url, {
+    headers: {
+      "0x-api-key": ZEROX_API_KEY,
+      "0x-version": "v2",
+    },
+  });
+
+  if (!resp.data?.transaction) {
+    throw new Error(`0x quote call failed: ${JSON.stringify(resp.data)}`);
+  }
+
+  const { transaction, buyAmount, minBuyAmount } = resp.data;
   return {
-    ooRouter: q.to,
-    swapData: q.data,
-    estimatedOut: BigInt(q.outAmount),
-    minAmountOut: BigInt(q.minOutAmount),
+    swapTarget: transaction.to,
+    swapData: transaction.data,
+    buyAmount: BigInt(buyAmount),
+    minBuyAmount: BigInt(minBuyAmount),
+    value: BigInt(transaction.value ?? "0"),
   };
 }
 
@@ -84,10 +129,11 @@ async function main() {
   const { balance: walletBalance } = await getWalletErc20Balance(
     TOKENS.AAVE_POLYGON,
     signerAddress,
-    provider
+    provider,
   );
-  if (walletBalance === 0n)
+  if (walletBalance === 0n) {
     throw new Error(`Signer ${signerAddress} has zero AAVE on Polygon`);
+  }
 
   const inputAmount = walletBalance - 20n;
   if (inputAmount === 0n) throw new Error("Balance too small");
@@ -99,25 +145,27 @@ async function main() {
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
 
-  console.log("Fetching OpenOcean quote (AAVE → USDC)...");
-  const { ooRouter, swapData, estimatedOut, minAmountOut } =
-    await fetchOpenOceanQuote(inputAmount);
+  console.log("Fetching 0x quote (AAVE → USDC)...");
+  const { swapTarget, swapData, buyAmount, minBuyAmount, value } =
+    await fetchZeroXQuote(inputAmount, ROUTER_POLYGON, ROUTER_POLYGON, signerAddress);
 
   // post-fee: deduct from estimated USDC output after swap
-  const feeAmount = bpsOf(estimatedOut, FEE_BPS);
-  console.log(`  OO router:   ${ooRouter}`);
-  console.log(`  Est. USDC:   ${ethers.formatUnits(estimatedOut, 6)}`);
+  const feeAmount = bpsOf(buyAmount, FEE_BPS);
+  console.log(`  0x target:   ${swapTarget}`);
+  console.log(`  Est. USDC:   ${ethers.formatUnits(buyAmount, 6)}`);
   console.log(
-    `  Post-fee:    ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`
+    `  Post-fee:    ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`,
   );
-  console.log(`  Min USDC:    ${ethers.formatUnits(minAmountOut, 6)}`);
+  console.log(`  Min USDC:    ${ethers.formatUnits(minBuyAmount, 6)}`);
+
+  const approvalSpender = ALLOWANCE_HOLDER;
 
   await ensureRouterErc20Balance(signer, TOKENS.AAVE_POLYGON, ROUTER_POLYGON);
   await ensureRouterApproval(
     signer,
     ROUTER_POLYGON,
     TOKENS.AAVE_POLYGON,
-    ooRouter
+    approvalSpender,
   );
 
   const callData = routerIface.encodeFunctionData("swap", [
@@ -131,11 +179,11 @@ async function main() {
     FLAGS,
     { receiver: signerAddress, amount: feeAmount },
     {
-      target: ooRouter,
-      approvalSpender: ooRouter,
+      target: swapTarget,
+      approvalSpender,
       outputToken: TOKENS.USDC_POLYGON_CIRCLE,
-      value: 0n,
-      minOutput: minAmountOut,
+      value,
+      minOutput: minBuyAmount,
       returnDataWordOffset: 0n,
     },
     swapData,
@@ -144,7 +192,7 @@ async function main() {
   await ensureAllowanceForAllowanceHolder(
     signer,
     TOKENS.AAVE_POLYGON,
-    inputAmount
+    inputAmount,
   );
   const receipt = await execViaAH(
     signer,
@@ -152,15 +200,14 @@ async function main() {
     TOKENS.AAVE_POLYGON,
     inputAmount,
     ROUTER_POLYGON,
-    callData
+    callData,
   );
 
   logTxnSummary(
-    `Polygon AAVE → USDC — swap postFee/returndata`,
+    `Polygon AAVE → USDC — 0x postFee/returndata`,
     CHAIN_IDS.POLYGON,
-    receipt
+    receipt,
   );
-
   console.log(`\nUSDC is now in signer's wallet on Polygon.`);
 }
 

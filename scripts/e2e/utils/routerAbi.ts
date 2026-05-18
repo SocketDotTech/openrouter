@@ -28,6 +28,7 @@ export const ROUTER_ABI = [
   `function swap(
     bytes32 requestHash,
     (address user, address inputToken, uint256 inputAmount) input,
+    address receiver,
     uint256 flags,
     (address receiver, uint256 amount) fee,
     (address target, address approvalSpender, address outputToken, uint256 value, uint256 minOutput, uint256 returnDataWordOffset) swapData,
