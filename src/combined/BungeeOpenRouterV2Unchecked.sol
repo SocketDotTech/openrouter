@@ -577,7 +577,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         }
 
         // when set, forward amount as msg.value for native-token bridges
-        uint256 bridgeValue = flags & BRIDGE_VALUE_FLAG_BIT_MASK != 0 ? amount : bd.value;
+        uint256 bridgeValue = flags & BRIDGE_VALUE_FLAG_BIT_MASK != 0 ? amount + bd.value : bd.value;
         _doCall(bd.target, bridgeValue, bData);
     }
 
