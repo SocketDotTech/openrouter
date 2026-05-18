@@ -1,5 +1,5 @@
 /**
- * Route:  Arbitrum USDC → native ETH (OpenOcean) → Base ETH (Stargate Native Pool, LayerZero v2)
+ * Route:  Base USDC → native ETH (OpenOcean) → Arbitrum ETH (Stargate Native Pool on Base, LayerZero v2)
  * Flags:  post-fee (fee taken from ETH output after swap), output measured as ETH balanceOf delta
  *         bridge-value + bridge-amount-position flags: router splices finalETH into amountLD and
  *         forwards finalETH + nativeFeeWithBuffer as msg.value to Stargate
@@ -27,8 +27,8 @@ import {
   RPC,
   OPEN_OCEAN_API_KEY,
   OO_SLIPPAGE_PERCENT,
-  STARGATE_NATIVE_ARB,
-  BASE_LZ_EID,
+  STARGATE_NATIVE_BASE,
+  ARBITRUM_LZ_EID,
 } from "../config";
 import {
   execViaAH,
@@ -52,7 +52,7 @@ import {
 
 // post-fee (0x01) | balance-of (0x02) | bridge-value (0x04) | bridge-amount-position (0x08 + offset)
 const FLAGS = 0x03n | BRIDGE_VALUE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET);
-const ROUTER_ARB = routerAddressForChain(CHAIN_IDS.ARBITRUM);
+const ROUTER_BASE = routerAddressForChain(CHAIN_IDS.BASE);
 
 const STARGATE_ABI = [
   "function quoteSend(tuple(uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes extraOptions, bytes composeMsg, bytes oftCmd) sendParam, bool payInLzToken) external view returns (tuple(uint256 nativeFee, uint256 lzTokenFee) messagingFee)",
@@ -73,16 +73,16 @@ async function fetchOpenOceanQuote(inputAmount: bigint): Promise<{
   minAmountOut: bigint;
 }> {
   const params: Record<string, string> = {
-    inTokenAddress: TOKENS.USDC_ARB,
+    inTokenAddress: TOKENS.USDC_BASE,
     outTokenAddress: NATIVE_TOKEN_ADDRESS,
     amount: ethers.formatUnits(inputAmount, 6),
     slippage: OO_SLIPPAGE_PERCENT,
-    sender: ROUTER_ARB,
-    account: ROUTER_ARB,
+    sender: ROUTER_BASE,
+    account: ROUTER_BASE,
     gasPrice: "1",
   };
   if (OPEN_OCEAN_API_KEY) params.apikey = OPEN_OCEAN_API_KEY;
-  const url = `https://open-api.openocean.finance/v3/${CHAIN_IDS.ARBITRUM}/swap_quote`;
+  const url = `https://open-api.openocean.finance/v3/${CHAIN_IDS.BASE}/swap_quote`;
   const response = await axios.get<OoQuoteResponse>(url, { params });
   const q = response.data.data;
   return {
@@ -99,13 +99,13 @@ async function fetchStargateQuote(
   recipient: string
 ): Promise<{ nativeFee: bigint; amountReceivedLD: bigint }> {
   const contract = new ethers.Contract(
-    STARGATE_NATIVE_ARB,
+    STARGATE_NATIVE_BASE,
     STARGATE_ABI,
     provider
   );
   const to32 = ethers.zeroPadValue(recipient, 32);
   const sendParam = {
-    dstEid: BASE_LZ_EID,
+    dstEid: ARBITRUM_LZ_EID,
     to: to32,
     amountLD: bridgeAmountLD,
     minAmountLD: 0n,
@@ -130,7 +130,7 @@ function buildStargateCalldata(
 ): string {
   return STARGATE_IFACE.encodeFunctionData("send", [
     {
-      dstEid: BASE_LZ_EID,
+      dstEid: ARBITRUM_LZ_EID,
       to: ethers.zeroPadValue(recipient, 32),
       amountLD,
       minAmountLD: 0n,
@@ -147,23 +147,23 @@ async function main() {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) throw new Error("PRIVATE_KEY env var required");
 
-  const provider = new ethers.JsonRpcProvider(RPC.ARBITRUM);
+  const provider = new ethers.JsonRpcProvider(RPC.BASE);
   const signer = new ethers.Wallet(privateKey, provider);
   const signerAddress = await signer.getAddress();
 
   const { balance: walletBalance } = await getWalletErc20Balance(
-    TOKENS.USDC_ARB,
+    TOKENS.USDC_BASE,
     signerAddress,
     provider
   );
   if (walletBalance === 0n)
-    throw new Error(`Signer ${signerAddress} has zero USDC on Arbitrum`);
+    throw new Error(`Signer ${signerAddress} has zero USDC on Base`);
 
   const inputAmount = walletBalance - 20n;
   if (inputAmount === 0n) throw new Error("Balance too small");
 
   console.log(`Signer:        ${signerAddress}`);
-  console.log(`Router:        ${ROUTER_ARB}`);
+  console.log(`Router:        ${ROUTER_BASE}`);
   console.log(
     `Flags:         0x${FLAGS.toString(16)} (post-fee, balanceOf, bridge-value)`
   );
@@ -186,7 +186,7 @@ async function main() {
   console.log(`  Bridge est:  ${ethers.formatEther(bridgeEstimate)}`);
   console.log(`  Min ETH:     ${ethers.formatEther(minAmountOut)}`);
 
-  console.log("Fetching Stargate quote...");
+  console.log("Fetching Stargate quote (Base native pool → Arbitrum)...");
   const { nativeFee, amountReceivedLD } = await fetchStargateQuote(
     provider,
     bridgeEstimate,
@@ -199,9 +199,9 @@ async function main() {
   // bridgeEstimate is a placeholder for amountLD; router splices the actual finalETH at runtime
   const amountLD = bridgeEstimate;
 
-  await ensureRouterErc20Balance(signer, TOKENS.USDC_ARB, ROUTER_ARB);
-  await ensureRouterNativeBalance(signer, ROUTER_ARB);
-  await ensureRouterApproval(signer, ROUTER_ARB, TOKENS.USDC_ARB, ooRouter);
+  await ensureRouterErc20Balance(signer, TOKENS.USDC_BASE, ROUTER_BASE);
+  await ensureRouterNativeBalance(signer, ROUTER_BASE);
+  await ensureRouterApproval(signer, ROUTER_BASE, TOKENS.USDC_BASE, ooRouter);
 
   const stargateData = buildStargateCalldata(
     nativeFeeWithBuffer,
@@ -213,7 +213,7 @@ async function main() {
     ZERO_BYTES32,
     {
       user: signerAddress,
-      inputToken: TOKENS.USDC_ARB,
+      inputToken: TOKENS.USDC_BASE,
       inputAmount: inputAmount,
     },
     FLAGS,
@@ -228,31 +228,31 @@ async function main() {
     },
     swapData,
     {
-      target: STARGATE_NATIVE_ARB,
+      target: STARGATE_NATIVE_BASE,
       approvalSpender: ZERO_ADDRESS,
       value: nativeFeeWithBuffer,
     },
     stargateData,
   ]);
 
-  await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_ARB, inputAmount);
+  await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_BASE, inputAmount);
   const receipt = await execViaAH(
     signer,
-    ROUTER_ARB,
-    TOKENS.USDC_ARB,
+    ROUTER_BASE,
+    TOKENS.USDC_BASE,
     inputAmount,
-    ROUTER_ARB,
+    ROUTER_BASE,
     callData,
-    0n
+    nativeFeeWithBuffer
   );
 
   logTxnSummary(
-    `Arbitrum USDC → Base ETH (Stargate) — swapAndBridge postFee/balanceOf`,
-    CHAIN_IDS.ARBITRUM,
+    `Base USDC → Arbitrum ETH (Stargate) — swapAndBridge postFee/balanceOf`,
+    CHAIN_IDS.BASE,
     receipt
   );
 
-  console.log("\nETH arrives on Base once LZ delivers the message.");
+  console.log("\nETH arrives on Arbitrum once LZ delivers the message.");
 }
 
 main().catch((err) => {

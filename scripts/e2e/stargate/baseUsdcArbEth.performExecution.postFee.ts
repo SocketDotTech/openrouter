@@ -173,7 +173,7 @@ async function main() {
   const callData = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_BASE, inputAmount);
-  const receipt = await execViaAH(signer, ROUTER_BASE, TOKENS.USDC_BASE, inputAmount, ROUTER_BASE, callData);
+  const receipt = await execViaAH(signer, ROUTER_BASE, TOKENS.USDC_BASE, inputAmount, ROUTER_BASE, callData, nativeFeeWithBuffer);
 
   logTxnSummary(
     'Base USDC → ETH (OO) → Arbitrum ETH (Stargate native) — performExecution postFee',
