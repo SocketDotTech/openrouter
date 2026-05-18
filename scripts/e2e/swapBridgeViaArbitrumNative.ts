@@ -239,7 +239,7 @@ function buildMonolithic(
       bridge: {
         target: ARBITRUM_INBOX,
         approvalSpender: ZERO_ADDRESS,
-        value: 0n,              // ignored when BRIDGE_VALUE_FLAG is set
+        value: 0n,              // no addend: bridgeValue = finalETH + 0 = finalETH
       },
       flags: BRIDGE_VALUE_FLAG,
     },

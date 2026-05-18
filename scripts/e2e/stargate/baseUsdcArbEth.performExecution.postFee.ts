@@ -3,8 +3,9 @@
  * Function: performExecution (monolithic)
  * Fee: postFee — FEE_BPS of estimatedOut ETH deducted after swap
  *
- * BRIDGE_VALUE_FLAG set: router forwards actualFinalETH as msg.value to Stargate.
- * amountLD = minAmountOut - fee - nativeFeeWithBuffer (pre-encoded in calldata).
+ * BRIDGE_VALUE_FLAG set: router forwards finalETH + nativeFeeWithBuffer as msg.value to Stargate.
+ * BRIDGE_AMOUNT_POSITION_FLAG set: router splices finalETH into amountLD at runtime.
+ * Stargate receives the exact actual post-swap, post-fee ETH as amountLD.
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/baseUsdcArbEth.performExecution.postFee.ts
@@ -26,6 +27,7 @@ import {
   NATIVE_TOKEN_ADDRESS,
   STARGATE_NATIVE_BASE,
   ARBITRUM_LZ_EID,
+  STARGATE_AMOUNT_LD_OFFSET,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
 import { getWalletErc20Balance } from '../utils/erc20';
@@ -37,6 +39,7 @@ import {
   ZERO_ADDRESS,
   ZERO_BYTES32,
   monolithicArgs,
+  bridgeAmountPositionFlag,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
@@ -138,8 +141,8 @@ async function main() {
   console.log(`  nativeFee+5%: ${ethers.formatEther(nativeFeeWithBuffer)} ETH`);
   console.log(`  Est. received: ${ethers.formatEther(amountReceivedLD)} ETH`);
 
-  const amountLD = minAmountOut - feeAmount - nativeFeeWithBuffer;
-  if (amountLD <= 0n) throw new Error('minAmountOut too small to cover fee + nativeFee');
+  // estimatedBridgeAmount is a placeholder; router splices the actual finalETH at runtime
+  const amountLD = estimatedBridgeAmount;
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_BASE, ROUTER_BASE);
   await ensureRouterNativeBalance(signer, ROUTER_BASE);
@@ -160,8 +163,8 @@ async function main() {
         returnDataWordOffset: 0n,
       },
       postFee: { receiver: signerAddress, amount: feeAmount },
-      bridge: { target: STARGATE_NATIVE_BASE, approvalSpender: ZERO_ADDRESS, value: 0n },
-      flags: BRIDGE_VALUE_FLAG,
+      bridge: { target: STARGATE_NATIVE_BASE, approvalSpender: ZERO_ADDRESS, value: nativeFeeWithBuffer },
+      flags: BRIDGE_VALUE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET),
     },
     swapCallData: swapData,
     bridgeCallData: stargateData,

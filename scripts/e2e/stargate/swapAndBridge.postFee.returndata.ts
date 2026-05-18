@@ -1,14 +1,13 @@
 /**
  * Route:  Arbitrum USDC → native ETH (OpenOcean) → Base ETH (Stargate Native Pool, LayerZero v2)
  * Flags:  post-fee (fee taken from ETH output after swap), output read from swap returndata word 0
- *         bridge-value flag: router forwards finalETH as msg.value to Stargate
+ *         bridge-value + bridge-amount-position flags: router splices finalETH into amountLD and
+ *         forwards finalETH + nativeFeeWithBuffer as msg.value to Stargate
  *
  * Post-fee (bit0=1): feeAmount = FEE_BPS of estimatedOut ETH, deducted from swap output.
  * Returndata (bit1=0): final ETH amount is read from word 0 of the swap call returndata.
- * BridgeValue (bit2=1): router forwards finalETH as msg.value to Stargate send().
- *
- * amountLD = estimatedOut - feeAmount - nativeFeeWithBuffer (conservative floor).
- * StargatePoolNative checks msg.value >= amountLD + nativeFee; satisfied since actual >= minAmountOut.
+ * BridgeValue (bit2=1): router forwards finalETH + nativeFeeWithBuffer as msg.value to Stargate.
+ * BridgeAmountPosition (bit3=1): router splices finalETH into amountLD at STARGATE_AMOUNT_LD_OFFSET.
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/swapAndBridge.postFee.returndata.ts
@@ -41,7 +40,9 @@ import {
   ZERO_BYTES32,
   BRIDGE_VALUE_FLAG,
   ZERO_ADDRESS,
+  bridgeAmountPositionFlag,
 } from "../utils/contractTypes";
+import { STARGATE_AMOUNT_LD_OFFSET } from "../config";
 import { logTxnSummary } from "../utils/txnLogSummary";
 import {
   ensureRouterErc20Balance,
@@ -49,8 +50,8 @@ import {
   ensureRouterApproval,
 } from "../utils/reproducibility";
 
-// post-fee (0x01) | bridge-value (0x04): forward finalETH as msg.value
-const FLAGS = 0x01n | BRIDGE_VALUE_FLAG;
+// post-fee (0x01) | bridge-value (0x04) | bridge-amount-position (0x08 + offset): splice finalETH into amountLD + forward with nativeFee
+const FLAGS = 0x01n | BRIDGE_VALUE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET);
 const ROUTER_ARB = routerAddressForChain(CHAIN_IDS.ARBITRUM);
 
 const STARGATE_ABI = [
@@ -196,12 +197,8 @@ async function main() {
   console.log(`  nativeFee+5%: ${ethers.formatEther(nativeFeeWithBuffer)} ETH`);
   console.log(`  Est. received: ${ethers.formatEther(amountReceivedLD)} ETH`);
 
-  // amountLD = estimatedOut - feeAmount - nativeFeeWithBuffer (conservative floor)
-  const amountLD = estimatedOut - feeAmount - nativeFeeWithBuffer;
-  if (amountLD <= 0n)
-    throw new Error(
-      "estimatedOut too small to cover fee + nativeFeeWithBuffer"
-    );
+  // bridgeEstimate is a placeholder for amountLD; router splices the actual finalETH at runtime
+  const amountLD = bridgeEstimate;
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_ARB, ROUTER_ARB);
   await ensureRouterNativeBalance(signer, ROUTER_ARB);
@@ -234,7 +231,7 @@ async function main() {
     {
       target: STARGATE_NATIVE_ARB,
       approvalSpender: ZERO_ADDRESS,
-      value: 0n,
+      value: nativeFeeWithBuffer,
     },
     stargateData,
   ]);

@@ -9,10 +9,10 @@
  *
  * Native-pool mechanics (cases 1 & 3):
  *   send() requires msg.value >= amountLD + nativeFee (StargatePoolNative._assertMessagingFee).
- *   Monolithic: BRIDGE_VALUE_FLAG set (router forwards actualFinalAmount as msg.value).
- *               amountLD = minAmountOut - fee - nativeFeeWithBuffer; no splice flag.
- *               Since actual >= min (OO slippage), msg.value >= amountLD + nativeFeeWithBuffer ✓
- *   Modular:    amountLD = minAmountOut - fee - nativeFeeWithBuffer (same).
+ *   Monolithic: BRIDGE_VALUE_FLAG + BRIDGE_AMOUNT_POSITION_FLAG set.
+ *               Router splices finalETH into amountLD at runtime; msg.value = finalETH + nativeFeeWithBuffer.
+ *               finalETH + nativeFeeWithBuffer >= finalETH + nativeFee ✓; destination gets exact finalETH.
+ *   Modular:    amountLD = minAmountOut - fee - nativeFeeWithBuffer (static; no splice available).
  *               nativeCall Stargate with value = amountLD + nativeFeeWithBuffer = minAmountOut - fee.
  *
  * ERC20-pool mechanics (case 2):
@@ -484,9 +484,10 @@ function buildStargateCalldata(
 /**
  * Monolithic for native-pool cases (cases 1 & 3):
  *   - OO swap input token → native ETH
- *   - BRIDGE_VALUE_FLAG set: router forwards actualFinalETH as msg.value to Stargate
- *   - amountLD = minAmountOut - fee - nativeFeeWithBuffer; pre-encoded; no splice flag needed
- *   - StargatePoolNative checks msg.value >= amountLD + nativeFee; satisfied since actual >= min
+ *   - BRIDGE_VALUE_FLAG + BRIDGE_AMOUNT_POSITION_FLAG: router splices finalETH into amountLD at
+ *     runtime and forwards finalETH + nativeFeeWithBuffer as msg.value to Stargate
+ *   - StargatePoolNative checks msg.value >= amountLD + nativeFee; satisfied since
+ *     finalETH + nativeFeeWithBuffer >= finalETH + nativeFee ✓
  */
 function buildNativePoolMonolithic(
   signer: string,
@@ -497,6 +498,7 @@ function buildNativePoolMonolithic(
   ooRouter: string,
   swapData: string,
   stargateData: string,
+  nativeFeeWithBuffer: bigint,
 ): MonolithicExecutionCall {
   return {
     exec: {
@@ -514,9 +516,9 @@ function buildNativePoolMonolithic(
       bridge: {
         target: cfg.bridgeContract,
         approvalSpender: ZERO_ADDRESS, // no ERC20 approval for native ETH
-        value: 0n,                     // ignored when BRIDGE_VALUE_FLAG is set
+        value: nativeFeeWithBuffer,    // added to finalETH as msg.value by BRIDGE_VALUE_FLAG
       },
-      flags: BRIDGE_VALUE_FLAG,
+      flags: BRIDGE_VALUE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET),
     },
     swapCallData: swapData,
     bridgeCallData: stargateData,
@@ -944,15 +946,9 @@ async function executeLeg(
   }
   // ────────────────────────────────────────────────────────────────────────────
 
-  let amountLD: bigint;
-  if (cfg.isNativePool) {
-    amountLD = minAmountOut - feeAmount - nativeFeeWithBuffer;
-    if (amountLD <= 0n) {
-      throw new Error(`${cfg.name}: minAmountOut too small to cover fee + nativeFee.`);
-    }
-  } else {
-    amountLD = 0n;
-  }
+  // Native pool: use estimatedBridgeAmount as placeholder; router splices actual finalETH at runtime.
+  // ERC20 pool: 0n placeholder; router splices actual post-fee balance at runtime.
+  const amountLD = cfg.isNativePool ? estimatedBridgeAmount : 0n;
 
   const stargateData = buildStargateCalldata(cfg.destLzEid, nativeFeeWithBuffer, signerAddress, amountLD, cfg.lzExtraOptions);
 
@@ -980,7 +976,7 @@ async function executeLeg(
     if (cfg.isNativePool) {
       mono = buildNativePoolMonolithic(
         signerAddress, cfg, inputAmountWei, feeAmount, minAmountOut,
-        ooRouter, swapData, stargateData,
+        ooRouter, swapData, stargateData, nativeFeeWithBuffer,
       );
     } else if (cfg.isNativeInput) {
       mono = buildNativeInErc20BridgeMonolithic(
