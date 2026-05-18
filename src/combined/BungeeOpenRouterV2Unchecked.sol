@@ -68,8 +68,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         SwapData swap;
         FeeData postFee;
         BridgeData bridge;
-        /// Packed flags; monolithic pipeline tests `BALANCE_FLAG_BIT_MASK` in `_execSwap`
-        /// and `BRIDGE_VALUE_FLAG_BIT_MASK` in `_doBridge`.
+        /// Packed flags; monolithic pipeline tests `BALANCE_FLAG_BIT_MASK` in `_execSwap`,
+        /// `BRIDGE_VALUE_FLAG_BIT_MASK` and `BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK` in `_doBridge`.
         /// Fee timing uses `preFee` / `postFee` structs — `FEE_FLAG_BIT_MASK` (bit 0) is ignored here.
         uint256 flags;
     }
@@ -102,7 +102,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //   bits 31..16 : bridge amount word byte offset, uint16, used only when bit 3 is set
     //   bits 15..4  : reserved (0)
     //   bit 3     : BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK (0x08) — splice finalAmount into bridge calldata
-    //   bit 2     : BRIDGE_VALUE_FLAG_BIT_MASK (0x04) — bridge msg.value: static value vs final amount
+    //   bit 2     : BRIDGE_VALUE_FLAG_BIT_MASK (0x04) — bridge msg.value: bridge.value alone vs finalAmount + bridge.value
     //   bit 1     : BALANCE_FLAG_BIT_MASK (0x02) — swap output: returndata vs balance delta
     //   bit 0     : FEE_FLAG_BIT_MASK (0x01)   — swap fee: pre- vs post-swap (standalone paths only)
     //
@@ -114,7 +114,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //   0x01   00000001              yes        returndata word            bridge.value
     //   0x02   00000010              no         balance delta on outputToken bridge.value
     //   0x03   00000011              yes        balance delta on outputToken bridge.value
-    //   0x04   00000100              no         returndata word            finalAmount
+    //   0x04   00000100              no         returndata word            finalAmount + bridge.value
     //
     // FEE_FLAG_BIT_MASK selects bit 0 — fee timing.
     //   Cleared — pull → deduct fee from input token → swap remainder.
@@ -125,8 +125,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //   Set     — snapshot outputToken balance before call, measure (after − before) as output.
     //
     // BRIDGE_VALUE_FLAG_BIT_MASK selects bit 2 — bridge native value source.
-    //   Cleared — forward `bridge.value`.
-    //   Set     — forward finalAmount as msg.value.
+    //   Cleared — forward `bridge.value` as msg.value.
+    //   Set     — forward `finalAmount + bridge.value` as msg.value (bridge.value carries static addend, e.g. LZ nativeFee).
     //
     // BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK selects bit 3 — bridge calldata amount splicing.
     //   Cleared — no runtime amount splice.
@@ -140,7 +140,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     /// @dev Bit mask 0x02: measure swap output by balance delta when `(flags & mask) != 0`; clear = returndata word.
     uint256 internal constant BALANCE_FLAG_BIT_MASK = 0x02;
 
-    /// @dev Bit mask 0x04: bridge.value is ignored and finalAmount is forwarded as msg.value.
+    /// @dev Bit mask 0x04: `finalAmount + bridge.value` is forwarded as msg.value (bridge.value acts as a static addend, e.g. LZ nativeFee).
     uint256 internal constant BRIDGE_VALUE_FLAG_BIT_MASK = 0x04;
 
     /// @dev Bit mask 0x08: splice finalAmount into bridge calldata at the uint16 position packed in flags.
