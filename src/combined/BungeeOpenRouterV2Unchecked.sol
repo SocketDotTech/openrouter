@@ -59,7 +59,10 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     struct BridgeData {
         address target;
         address approvalSpender;
-        uint256 value;
+        /// @dev No `value` field — the native msg.value sent with the outer call is
+        ///      forwarded to the bridge automatically (see `_doBridge` / `bridge()`).
+        ///      For ERC-20 bridges: pass the LZ messaging fee as msg.value on the outer call.
+        ///      For native bridges: the contract uses (finalAmount + msg.value) automatically.
     }
 
     struct MonolithicExecution {
@@ -99,38 +102,43 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //
     // Bit layout (least significant bits); test with `(flags & MASK) != 0`:
     //   bits 255..32 : reserved (0)
-    //   bits 31..16 : bridge amount word byte offset, uint16, used only when bit 3 is set
-    //   bits 15..4  : reserved (0)
-    //   bit 3     : BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK (0x08) — splice finalAmount into bridge calldata
-    //   bit 2     : BRIDGE_VALUE_FLAG_BIT_MASK (0x04) — bridge msg.value: static value vs final amount
+    //   bits 31..16 : bridge amount word byte offset, uint16, used only when bit 2 is set
+    //   bits 15..3  : reserved (0)
+    //   bit 3     : reserved (0x08) — was BRIDGE_AMOUNT_POSITION_FLAG (old layout); now unused
+    //   bit 2     : BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK (0x04) — splice finalAmount into bridge calldata
     //   bit 1     : BALANCE_FLAG_BIT_MASK (0x02) — swap output: returndata vs balance delta
-    //   bit 0     : FEE_FLAG_BIT_MASK (0x01)   — swap fee: pre- vs post-swap (standalone paths only)
+    //   bit 0     : FEE_FLAG_BIT_MASK (0x01) — swap fee: pre- vs post-swap (standalone paths only)
     //
-    // Combined values for swap()/swapAndBridge():
+    // Bridge msg.value is no longer controlled by a flag. Instead it is determined by the bridge
+    // token type (see `_doBridge` / `bridge()`):
+    //   - Native token bridge (swapData.outputToken == NATIVE_TOKEN_ADDRESS):
+    //       msg.value to bridge = finalAmount + msg.value (outer call)
+    //       Caller passes the LZ messaging fee as msg.value on the outer AllowanceHolder.exec.
+    //   - ERC-20 token bridge:
+    //       msg.value to bridge = msg.value (outer call, i.e. just the LZ messaging fee or 0)
+    // `BridgeData` no longer carries a `value` field.
     //
-    //   flags  binary (low byte)    postFee?   balance-of output?         bridge value?
-    //   ─────  ──────────────────  ────────   ──────────────────         ─────────────
-    //   0x00   00000000              no         returndata word            bridge.value
-    //   0x01   00000001              yes        returndata word            bridge.value
-    //   0x02   00000010              no         balance delta on outputToken bridge.value
-    //   0x03   00000011              yes        balance delta on outputToken bridge.value
-    //   0x04   00000100              no         returndata word            finalAmount
+    // Combined values for swap()/swapAndBridge() (bridge bits shown separately):
     //
-    // FEE_FLAG_BIT_MASK selects bit 0 — fee timing.
+    //   flags  binary (low byte)    postFee?  balance-of output?   bridge amount splice?
+    //   ─────  ──────────────────  ────────  ──────────────────    ────────────────────
+    //   0x00   00000000              no        returndata word       no
+    //   0x01   00000001              yes       returndata word       no
+    //   0x02   00000010              no        balance delta         no
+    //   0x03   00000011              yes       balance delta         no
+    //   0x04   00000100              no        returndata word       yes (position in bits 31..16)
+    //
+    // FEE_FLAG_BIT_MASK selects bit 0 — fee timing (standalone `swap` / `swapAndBridge` only).
     //   Cleared — pull → deduct fee from input token → swap remainder.
-    //   Set     — pull → swap full input → deduct fee from output token (after minOutput check on swap result).
+    //   Set     — pull → swap full input → deduct fee from output token (after minOutput check).
     //
     // BALANCE_FLAG_BIT_MASK selects bit 1 — swap output sizing.
     //   Cleared — decode returned amount from call returndata at `swapData.returnDataWordOffset`.
     //   Set     — snapshot outputToken balance before call, measure (after − before) as output.
     //
-    // BRIDGE_VALUE_FLAG_BIT_MASK selects bit 2 — bridge native value source.
-    //   Cleared — forward `bridge.value`.
-    //   Set     — forward finalAmount as msg.value.
-    //
-    // BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK selects bit 3 — bridge calldata amount splicing.
+    // BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK selects bit 2 — bridge calldata amount splicing.
     //   Cleared — no runtime amount splice.
-    //   Set     — splice finalAmount at uint16(flags >> BRIDGE_AMOUNT_POSITION_SHIFT).
+    //   Set     — splice finalAmount at byte offset uint16(flags >> BRIDGE_AMOUNT_POSITION_SHIFT).
     //
     // Monolithic `performExecution` ignores `FEE_FLAG_BIT_MASK`; fee timing is `preFee`/`postFee` structs.
 
@@ -140,11 +148,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     /// @dev Bit mask 0x02: measure swap output by balance delta when `(flags & mask) != 0`; clear = returndata word.
     uint256 internal constant BALANCE_FLAG_BIT_MASK = 0x02;
 
-    /// @dev Bit mask 0x04: bridge.value is ignored and finalAmount is forwarded as msg.value.
-    uint256 internal constant BRIDGE_VALUE_FLAG_BIT_MASK = 0x04;
-
-    /// @dev Bit mask 0x08: splice finalAmount into bridge calldata at the uint16 position packed in flags.
-    uint256 internal constant BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK = 0x08;
+    /// @dev Bit mask 0x04: splice finalAmount into bridge calldata at the uint16 position packed in flags.
+    uint256 internal constant BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK = 0x04;
 
     /// @dev Shift for the packed uint16 bridge amount position.
     uint256 internal constant BRIDGE_AMOUNT_POSITION_SHIFT = 16;
@@ -389,9 +394,12 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
      * @dev Because no swap is involved, `finalAmount = inputAmount - feeAmount` is
      *      fully knowable by the caller before signing.  The caller must therefore
-     *      bake the correct amount directly into `bridgeCallData` and set
-     *      `bridgeData.value` to the desired `msg.value` for the bridge call.
+     *      bake the correct amount directly into `bridgeCallData`.
      *      No runtime calldata splicing is performed.
+     *
+     *      The caller passes the LZ messaging fee (or 0) as msg.value on the outer call.
+     *      For ERC-20 input bridges, msg.value is forwarded as-is to the bridge target.
+     *      Note: native-input + fee is not supported in this path — use `performExecution`.
      *
      *      The caller MUST route through `AllowanceHolder.exec` for ERC-20
      *      inputs so that `_msgSender()` resolves to `input.user`.
@@ -428,8 +436,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             SafeTransferLib.safeApproveWithRetry(input.inputToken, bridgeData.approvalSpender, netAmount);
         }
 
-        // 4. bridge call — data and value are pre-encoded by the caller
-        _doCallCalldata(bridgeData.target, bridgeData.value, bridgeCallData, false);
+        // 4. bridge call — forward msg.value (LZ fee or 0) to the bridge target
+        _doCallCalldata(bridgeData.target, msg.value, bridgeCallData, false);
         emit RequestExecuted(requestHash);
     }
 
@@ -559,6 +567,13 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     }
 
     /// @dev Splice finalAmount into bridge calldata, approve, and call bridge target.
+    ///      Bridge msg.value is determined by the bridge token type:
+    ///        - Native token (token == NATIVE_TOKEN_ADDRESS):
+    ///            msg.value = amount + msg.value (outer call)
+    ///            The caller forwards the LZ messaging fee as msg.value on the outer call;
+    ///            the contract adds finalAmount on top, so Stargate receives amountLD + nativeFee.
+    ///        - ERC-20 token:
+    ///            msg.value = msg.value (outer call only, i.e. just the LZ messaging fee or 0)
     function _doBridge(
         address token,
         uint256 amount,
@@ -576,8 +591,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             SafeTransferLib.safeApproveWithRetry(token, bd.approvalSpender, amount);
         }
 
-        // when set, forward amount as msg.value for native-token bridges
-        uint256 bridgeValue = flags & BRIDGE_VALUE_FLAG_BIT_MASK != 0 ? amount : bd.value;
+        uint256 bridgeValue = token == CurrencyLib.NATIVE_TOKEN_ADDRESS ? amount + msg.value : msg.value;
         _doCall(bd.target, bridgeValue, bData);
     }
 
