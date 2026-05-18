@@ -8,6 +8,7 @@ import {AllowanceHolderContext} from "../common/allowance/AllowanceHolderContext
 import {ALLOWANCE_HOLDER} from "../common/interfaces/IAllowanceHolder.sol";
 import {BytesSpliceLib} from "../common/lib/BytesSpliceLib.sol";
 import {CurrencyLib} from "../common/lib/CurrencyLib.sol";
+import {RescueFundsLib} from "../common/lib/RescueFundsLib.sol";
 
 /// @title BungeeOpenRouterV2Unchecked
 /// @notice Identical execution logic to `BungeeOpenRouterV2` with all backend
@@ -762,4 +763,15 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             word := mload(add(add(ret, 0x20), offset))
         }
     }
+
+    /**
+     * @notice Rescues funds from the contract if they are locked by mistake.
+     * @param token_ The address of the token contract.
+     * @param rescueTo_ The address where rescued tokens need to be sent.
+     * @param amount_ The amount of tokens to be rescued.
+     */
+    function rescueFunds(address token_, address rescueTo_, uint256 amount_) external onlyOwner {
+        RescueFundsLib.rescueFunds(token_, rescueTo_, amount_);
+    }
 }
+
