@@ -214,6 +214,10 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     /**
      * @notice Pull → optional pre/post fee → swap.
      * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
+     * @param receiver  Address that ultimately receives the swap output (net of any post-swap fee).
+     *                  For pre-fee / no-fee: the swap router must be instructed (via `swapCallData`) to send
+     *                  tokens directly to `receiver`; the contract never holds the output.
+     *                  For post-fee: tokens land at this contract, fee is deducted, net is forwarded to `receiver`.
      * @param flags     Packed flags; OR masks then test with `flags & MASK != 0`. Masks: `FEE_FLAG_BIT_MASK` (0x01), `BALANCE_FLAG_BIT_MASK` (0x02).
      *                  Common values: `0` (pre-fee, returndata), `1` (post-fee, returndata),
      *                  `2` (pre-fee, balance delta), `3` (post-fee, balance delta).
@@ -226,12 +230,16 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     function swap(
         bytes32 requestHash,
         InputData calldata input,
+        address receiver,
         uint256 flags,
         FeeData calldata fee,
         SwapData calldata swapData,
         bytes calldata swapCallData
     ) external payable returns (uint256 finalAmount) {
-        if (input.user == address(0) || input.inputToken == address(0) || swapData.target == address(0)) {
+        if (
+            input.user == address(0) || input.inputToken == address(0) || swapData.target == address(0)
+                || receiver == address(0)
+        ) {
             revert InvalidExecution();
         }
 
@@ -259,11 +267,15 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
         }
 
+        // Post-fee: swap output lands at this contract so the fee can be deducted before forwarding.
+        // Pre-fee / no-fee: swap calldata encodes `receiver` as the output recipient; tokens never touch this contract.
+        address outputReceiver = postFee ? address(this) : receiver;
+
         // BALANCE_FLAG_BIT_MASK: unset ⇒ decode output word from returndata; set ⇒ output = delta on outputToken
-        finalAmount = _execSwap(swapData, swapCallData, flags & BALANCE_FLAG_BIT_MASK != 0);
+        finalAmount = _execSwap(swapData, swapCallData, flags & BALANCE_FLAG_BIT_MASK != 0, outputReceiver);
         if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
-        // collect post-swap fee
+        // collect post-swap fee and forward net to receiver
         if (postFee) {
             uint256 feeAmount = fee.amount;
             if (feeAmount > finalAmount) revert InsufficientFunds();
@@ -271,7 +283,10 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             unchecked {
                 finalAmount -= feeAmount;
             }
+            // Tokens are at this contract; transfer net output to receiver
+            CurrencyLib.transfer(swapData.outputToken, receiver, finalAmount);
         }
+        // Pre-fee / no-fee: tokens were sent directly to `receiver` by the swap router; nothing to transfer
 
         emit RequestExecuted(requestHash);
     }
@@ -340,8 +355,9 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         }
 
         // BALANCE_FLAG_BIT_MASK: same returndata vs balance-delta measurement as `swap`
+        // Swap output always lands at this contract regardless of fee timing — tokens must be here for bridging.
         bool useBalanceOf = flags & BALANCE_FLAG_BIT_MASK != 0;
-        finalAmount = _execSwap(swapData, swapCallData, useBalanceOf);
+        finalAmount = _execSwap(swapData, swapCallData, useBalanceOf, address(this));
         if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
         if (postFee) {
@@ -508,7 +524,8 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         }
 
         // Monolithic path: only `BALANCE_FLAG_BIT_MASK` is read for `_execSwap`; fee uses `preFee` / `postFee`, not bit 0.
-        finalAmount = _execSwap(exec.swap, swapCallData, exec.flags & BALANCE_FLAG_BIT_MASK != 0);
+        // Swap output always lands at this contract; it feeds directly into the bridge step.
+        finalAmount = _execSwap(exec.swap, swapCallData, exec.flags & BALANCE_FLAG_BIT_MASK != 0, address(this));
         if (finalAmount < exec.swap.minOutput) revert SwapOutputInsufficient();
         finalToken = exec.swap.outputToken;
     }
@@ -518,17 +535,22 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     // =========================================================================
 
     /// @dev Execute swap; output measured via returndata word or output-token balance delta.
-    ///      useBalanceOf=true: measure output as (balance after - balance before).
+    ///      useBalanceOf=true: measure output as (balance after - balance before) at `outputReceiver`.
     ///      useBalanceOf=false: decode output from returndata at swapData.returnDataWordOffset.
-    function _execSwap(SwapData calldata swapData, bytes calldata swapCallData, bool useBalanceOf)
-        internal
-        returns (uint256 finalAmount)
-    {
+    ///      `outputReceiver` must be `address(this)` when tokens are expected at the contract
+    ///      (post-swap fee path, bridge path) or `user` when the swap router sends directly to them
+    ///      (pre-swap fee / no-fee standalone swap).
+    function _execSwap(
+        SwapData calldata swapData,
+        bytes calldata swapCallData,
+        bool useBalanceOf,
+        address outputReceiver
+    ) internal returns (uint256 finalAmount) {
         if (useBalanceOf) {
-            // Balance delta mode: snapshot before, call, measure delta
-            uint256 before = CurrencyLib.balanceOf(swapData.outputToken, address(this));
+            // Balance delta mode: snapshot before, call, measure delta at the expected recipient
+            uint256 before = CurrencyLib.balanceOf(swapData.outputToken, outputReceiver);
             _doCallCalldata(swapData.target, swapData.value, swapCallData, false);
-            finalAmount = CurrencyLib.balanceOf(swapData.outputToken, address(this)) - before;
+            finalAmount = CurrencyLib.balanceOf(swapData.outputToken, outputReceiver) - before;
         } else {
             // Returndata mode: decode output from a specific word in returndata
             bytes memory ret = _doCallCalldata(swapData.target, swapData.value, swapCallData, true);
