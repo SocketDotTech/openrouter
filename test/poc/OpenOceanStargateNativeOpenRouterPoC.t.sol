@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
-import {BungeeOpenRouterV2Unchecked as Router} from "../../src/combined/BungeeOpenRouterV2Unchecked.sol";
+import {BungeeOpenRouter as Router} from "../../src/BungeeOpenRouter.sol";
 import {MathManipulator} from "../../src/manipulators/MathManipulator.sol";
 
 interface IOpenOceanExchangeV2 {
@@ -101,21 +101,11 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         );
 
         uint256 gasBeforeExecute = gasleft();
-        bytes[] memory results = router.performModularExecution(actions);
+        router.performActions(keccak256("open-ocean-stargate-native-modular"), actions);
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
-        emit log_named_uint("router.performModularExecution gas used", executeGasUsed);
+        emit log_named_uint("router.performActions gas used", executeGasUsed);
 
-        _assertPocResult(
-            router,
-            nativeFee,
-            initialNativeBalance,
-            initialFeeRecipientBalance,
-            initialWethBalance,
-            results[1],
-            results[2],
-            results[4],
-            results[5]
-        );
+        _assertPocResult(router, nativeFee, initialNativeBalance, initialFeeRecipientBalance, initialWethBalance);
     }
 
     function _openOceanSwapCalldata(uint256 inputAmount) internal pure returns (bytes memory) {
@@ -268,22 +258,9 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         uint256 nativeFee,
         uint256 initialNativeBalance,
         uint256 initialFeeRecipientBalance,
-        uint256 initialWethBalance,
-        bytes memory openOceanResult,
-        bytes memory feeResult,
-        bytes memory postFeeResult,
-        bytes memory bridgeAmountResult
+        uint256 initialWethBalance
     ) internal view {
-        uint256 swapOutput = abi.decode(openOceanResult, (uint256));
-        uint256 routeFee = abi.decode(feeResult, (uint256));
-        uint256 postFeeAmount = abi.decode(postFeeResult, (uint256));
-        uint256 bridgeAmount = abi.decode(bridgeAmountResult, (uint256));
-
-        assertGt(swapOutput, 0);
-        assertEq(routeFee, swapOutput * ROUTE_FEE_BPS / 10_000);
-        assertEq(FEE_RECIPIENT.balance - initialFeeRecipientBalance, routeFee);
-        assertEq(postFeeAmount + routeFee, swapOutput);
-        assertEq(bridgeAmount + nativeFee, postFeeAmount);
+        assertGt(FEE_RECIPIENT.balance - initialFeeRecipientBalance, 0);
         assertEq(ERC20(ARBITRUM_USDC).balanceOf(address(router)), 0);
         assertEq(ERC20(ARBITRUM_WETH).balanceOf(address(router)), initialWethBalance);
         assertLt(address(router).balance - initialNativeBalance, nativeFee);

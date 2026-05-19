@@ -684,4 +684,3 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
         RescueFundsLib.rescueFunds(token, rescueTo, amount);
     }
 }
-
