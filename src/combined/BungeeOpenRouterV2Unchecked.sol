@@ -1,37 +1,27 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
-import {Ownable} from "../common/utils/Ownable.sol";
+import {AccessControl} from "../common/utils/AccessControl.sol";
 import {AllowanceHolderContext} from "../common/allowance/AllowanceHolderContext.sol";
 import {ALLOWANCE_HOLDER} from "../common/interfaces/IAllowanceHolder.sol";
 import {BytesSpliceLib} from "../common/lib/BytesSpliceLib.sol";
 import {CurrencyLib} from "../common/lib/CurrencyLib.sol";
 import {RescueFundsLib} from "../common/lib/RescueFundsLib.sol";
+import {RESCUE_ROLE} from "../common/AccessRoles.sol";
 
-/// @title BungeeOpenRouterV2Unchecked
-/// @notice Identical execution logic to `BungeeOpenRouterV2` with all backend
-///         signature verification removed. There are no nonce or deadline
-///         fields; either entrypoint can be called by anyone.
-///
-///         Fund safety still rests on AllowanceHolder's transient allowance
-///         scoping (operator + owner + token): only the user whose address was
-///         passed to `AllowanceHolder.exec` can authorise a pull of their own
-///         funds. The `_msgSender() == user` check in `_pullFromUser` enforces
-///         this at the contract level.
-///
-///         Intended for development / testing environments where spinning up a
-///         backend signer is inconvenient, or for operational flows where the
-///         operator calls through AllowanceHolder directly without a separate
-///         signing step. Do NOT deploy to production without adding an access
-///         control layer appropriate to your threat model.
-///
-/// @dev Both struct types mirror their `BungeeOpenRouterV2` counterparts but
-///      drop the `nonce` and `deadline` fields, which are only relevant for
-///      signature-based replay protection.
-contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
+/// @title BungeeOpenRouter
+/// @notice Pull → optional fee → swap/bridge execution without backend signature verification.
+///         Fund safety rests on AllowanceHolder's transient allowance scoping (operator + owner + token):
+///         only the user whose address was passed to `AllowanceHolder.exec` can authorise a pull of
+///         their own funds. The `_msgSender() == user` check in `_pullFromUser` enforces this.
+contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
     using SafeTransferLib for address;
+
+    // =========================================================================
+    // Structs
+    // =========================================================================
 
     struct InputData {
         address user;
@@ -89,19 +79,19 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //   bit 3     : BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK (0x08) — splice finalAmount into bridge calldata
     //   bit 2     : BRIDGE_VALUE_FLAG_BIT_MASK (0x04) — bridge msg.value: bridge.value alone vs finalAmount + bridge.value
     //   bit 1     : BALANCE_FLAG_BIT_MASK (0x02) — swap output: returndata vs balance delta
-    //   bit 0     : FEE_FLAG_BIT_MASK (0x01)   — swap fee: pre- vs post-swap (standalone paths only)
+    //   bit 0     : POST_FEE_FLAG_BIT_MASK (0x01)   — swap fee: pre- vs post-swap
     //
     // Combined values for swap()/swapAndBridge():
     //
-    //   flags  binary (low byte)    postFee?   balance-of output?         bridge value?
-    //   ─────  ──────────────────  ────────   ──────────────────         ─────────────
-    //   0x00   00000000              no         returndata word            bridge.value
-    //   0x01   00000001              yes        returndata word            bridge.value
-    //   0x02   00000010              no         balance delta on outputToken bridge.value
-    //   0x03   00000011              yes        balance delta on outputToken bridge.value
-    //   0x04   00000100              no         returndata word            finalAmount + bridge.value
+    //   flags  binary (low byte)    postFee?   balance-of output?            bridge value?
+    //   ─────  ──────────────────  ────────   ──────────────────             ─────────────
+    //   0x00   00000000              no         returndata word               bridge.value
+    //   0x01   00000001              yes        returndata word               bridge.value
+    //   0x02   00000010              no         balance delta on outputToken  bridge.value
+    //   0x03   00000011              yes        balance delta on outputToken  bridge.value
+    //   0x04   00000100              no         returndata word               finalAmount + bridge.value
     //
-    // FEE_FLAG_BIT_MASK selects bit 0 — fee timing.
+    // POST_FEE_FLAG_BIT_MASK selects bit 0 — fee timing.
     //   Cleared — pull → deduct fee from input token → swap remainder.
     //   Set     — pull → swap full input → deduct fee from output token (after minOutput check on swap result).
     //
@@ -119,7 +109,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //
 
     /// @dev Bit mask 0x01: post-swap fee path when `(flags & mask) != 0`; clear = pre-swap fee from input token.
-    uint256 internal constant FEE_FLAG_BIT_MASK = 0x01;
+    uint256 internal constant POST_FEE_FLAG_BIT_MASK = 0x01;
 
     /// @dev Bit mask 0x02: measure swap output by balance delta when `(flags & mask) != 0`; clear = returndata word.
     uint256 internal constant BALANCE_FLAG_BIT_MASK = 0x02;
@@ -141,7 +131,6 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     // =========================================================================
 
     error SwapOutputInsufficient();
-    error InsufficientFunds();
     error InvalidExecution();
     error CallerNotSignedUser();
     error InsufficientMsgValue();
@@ -155,38 +144,44 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     // Events
     // =========================================================================
 
-    event RequestExecuted(bytes32 indexed requestHash);
+    event RequestExecuted(bytes32 indexed quoteId);
 
     // =========================================================================
     // Constructor
     // =========================================================================
 
-    constructor(address _owner) Ownable(_owner) {}
+    /// @notice Deploys the router and grants `RESCUE_ROLE` to `_owner`.
+    /// @param _owner Initial contract owner and rescue-role holder.
+    constructor(address _owner) AccessControl(_owner) {
+        _grantRole(RESCUE_ROLE, _owner);
+    }
 
+    /// @notice Accepts native ETH forwarded with bridge/swap calls.
     receive() external payable {}
 
     // =========================================================================
-    // External: standalone swap
+    // External functions
     // =========================================================================
 
     /**
      * @notice Pull → optional pre/post fee → swap.
-     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
-     * @param receiver  Address that ultimately receives the swap output (net of any post-swap fee).
-     *                  For pre-fee / no-fee: the swap router must be instructed (via `swapCallData`) to send
-     *                  tokens directly to `receiver`; the contract never holds the output.
-     *                  For post-fee: tokens land at this contract, fee is deducted, net is forwarded to `receiver`.
-     * @param flags     Packed flags; OR masks then test with `flags & MASK != 0`. Masks: `FEE_FLAG_BIT_MASK` (0x01), `BALANCE_FLAG_BIT_MASK` (0x02).
-     *                  Common values: `0` (pre-fee, returndata), `1` (post-fee, returndata),
-     *                  `2` (pre-fee, balance delta), `3` (post-fee, balance delta).
-     * @param fee       Set `amount` to 0 to skip fee collection.
-     * @dev   `minOutput` is the minimum gross amount coming out of the swap (before any output-token fee).
-     *        It is enforced immediately after `_execSwap`, then post-swap fee (if any) is collected.
-     *        Pre-fee paths take the input-side fee before the swap; `minOutput` still guards the swap outcome.
-     *        Bits are read with bitwise AND against each mask; omitting both masks ⇒ pre-fee + returndata.
+     * @param quoteId Caller-defined correlation id logged in `RequestExecuted`.
+     * @param input User, input token, and pull amount.
+     * @param receiver Address that ultimately receives the swap output (net of any post-swap fee). For pre-fee / no-fee: the swap router must
+     *                 be instructed (via `swapCallData`) to send tokens directly to `receiver`; the contract never holds the output. For post-fee: tokens land
+     *                 at this contract, fee is deducted, net is forwarded to `receiver`.
+     * @param flags Packed flags; OR masks then test with `flags & MASK != 0`. Masks: `POST_FEE_FLAG_BIT_MASK` (0x01), `BALANCE_FLAG_BIT_MASK`
+     *              (0x02). Common values: `0` (pre-fee, returndata), `1` (post-fee, returndata), `2` (pre-fee, balance delta), `3` (post-fee, balance delta).
+     * @param fee Set `amount` to 0 to skip fee collection.
+     * @param swapData Swap target, spender, output token, value, `minOutput`, and returndata offset.
+     * @param swapCallData Calldata forwarded to `swapData.target`.
+     * @return finalAmount Gross swap output before any post-swap fee; net delivered to `receiver` on post-fee paths.
+     * @dev `minOutput` is the minimum gross amount coming out of the swap (before any output-token fee). It is enforced immediately after
+     *      `_execSwap`, then post-swap fee (if any) is collected. Pre-fee paths take the input-side fee before the swap; `minOutput` still guards the
+     *      swap outcome.
      */
     function swap(
-        bytes32 requestHash,
+        bytes32 quoteId,
         InputData calldata input,
         address receiver,
         uint256 flags,
@@ -203,24 +198,19 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
 
         _pullFromUser(input.inputToken, input.user, input.inputAmount);
 
-        // Check fee amount first: flag bit is only read when a fee is actually present.
-        // FEE_FLAG_BIT_MASK: unset ⇒ collect fee from input before swap; set ⇒ swap first, fee from output
+        // POST_FEE_FLAG_BIT_MASK: unset ⇒ collect fee from input before swap; set ⇒ swap first, fee from output
         bool hasFee = fee.amount != 0;
-        /// @dev if hasFee is false, we short-circuit and flag check wont execute at runtime saving gas
-        bool postFee = hasFee && flags & FEE_FLAG_BIT_MASK != 0;
+        bool postFee = hasFee && flags & POST_FEE_FLAG_BIT_MASK != 0;
         uint256 swapInput = input.inputAmount;
 
-        // collect pre-swap fee
         if (hasFee && !postFee) {
             uint256 feeAmount = fee.amount;
-            if (feeAmount > swapInput) revert InsufficientFunds();
             CurrencyLib.transfer(input.inputToken, fee.receiver, feeAmount);
             unchecked {
                 swapInput -= feeAmount;
             }
         }
 
-        // approve swap router
         if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
             SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
         }
@@ -233,35 +223,33 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         finalAmount = _execSwap(swapData, swapCallData, flags & BALANCE_FLAG_BIT_MASK != 0, outputReceiver);
         if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
-        // collect post-swap fee and forward net to receiver
         if (postFee) {
             uint256 feeAmount = fee.amount;
-            if (feeAmount > finalAmount) revert InsufficientFunds();
             CurrencyLib.transfer(swapData.outputToken, fee.receiver, feeAmount);
             unchecked {
                 finalAmount -= feeAmount;
             }
-            // Tokens are at this contract; transfer net output to receiver
             CurrencyLib.transfer(swapData.outputToken, receiver, finalAmount);
         }
         // Pre-fee / no-fee: tokens were sent directly to `receiver` by the swap router; nothing to transfer
 
-        emit RequestExecuted(requestHash);
+        emit RequestExecuted(quoteId);
     }
-
-    // =========================================================================
-    // External: swap + bridge
-    // =========================================================================
 
     /**
      * @notice Pull → optional pre/post swap fee → swap → bridge with runtime amount splicing.
-     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
-     * @param flags     Same packing as `swap`; additionally bit 2 forwards final amount as bridge msg.value.
-     * @param fee       Set `amount` to 0 to skip fee collection.
-     * @dev   Same `minOutput` rule as `swap`: validated on gross `_execSwap` output, then optional output fee applies.
+     * @param quoteId Caller-defined correlation id logged in `RequestExecuted`.
+     * @param input User, input token, and pull amount.
+     * @param flags Same packing as `swap`; bits 2–3 also control bridge `msg.value` and calldata splicing.
+     * @param fee Set `amount` to 0 to skip fee collection.
+     * @param swapData Swap target, spender, output token, value, `minOutput`, and returndata offset.
+     * @param swapCallData Calldata forwarded to `swapData.target`.
+     * @param bridgeData Bridge target, approval spender, and static `msg.value` addend.
+     * @param bridgeCallData Bridge calldata; optionally spliced with swap output per `flags`.
+     * @dev Same `minOutput` rule as `swap`: validated on gross `_execSwap` output, then optional output fee applies.
      */
     function swapAndBridge(
-        bytes32 requestHash,
+        bytes32 quoteId,
         InputData calldata input,
         uint256 flags,
         FeeData calldata fee,
@@ -277,13 +265,89 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
             revert InvalidExecution();
         }
 
-        uint256 finalAmount = _swapAndBridgeSwap(input, flags, fee, swapData, swapCallData);
-
-        _finishSwapAndBridge(swapData.outputToken, finalAmount, bridgeData, bridgeCallData, flags);
-        emit RequestExecuted(requestHash);
+        uint256 finalAmount = _swapBeforeBridge(input, flags, fee, swapData, swapCallData);
+        _doBridge(swapData.outputToken, finalAmount, bridgeData, bridgeCallData, flags);
+        emit RequestExecuted(quoteId);
     }
 
-    function _swapAndBridgeSwap(
+    /**
+     * @notice Pull → optional pre-bridge fee → bridge, with no swap step.
+     * @param quoteId Caller-defined correlation id logged in `RequestExecuted`.
+     * @param input User, input token, and pull amount.
+     * @param fee Pre-bridge fee taken from the input token; set `amount` to 0 to skip.
+     * @param bridgeData Bridge target, approval spender, and `msg.value` for the bridge call.
+     * @param bridgeCallData Calldata forwarded to `bridgeData.target` (amount must be baked in by the caller).
+     * @dev Because no swap is involved, `finalAmount = inputAmount - feeAmount` is fully knowable by the caller before signing. The caller must
+     *      therefore bake the correct amount directly into `bridgeCallData` and set `bridgeData.value` to the desired `msg.value` for the bridge
+     *      call. No runtime calldata splicing is performed. The caller MUST route through `AllowanceHolder.exec` for ERC-20 inputs so that
+     *      `_msgSender()` resolves to `input.user`.
+     */
+    function bridge(
+        bytes32 quoteId,
+        InputData calldata input,
+        FeeData calldata fee,
+        BridgeData calldata bridgeData,
+        bytes calldata bridgeCallData
+    ) external payable {
+        if (bridgeData.target == address(0) || input.user == address(0) || input.inputToken == address(0)) {
+            revert InvalidExecution();
+        }
+
+        _pullFromUser(input.inputToken, input.user, input.inputAmount);
+
+        uint256 feeAmount = fee.amount;
+        if (feeAmount != 0) {
+            CurrencyLib.transfer(input.inputToken, fee.receiver, feeAmount);
+        }
+
+        if (bridgeData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+            uint256 netAmount;
+            unchecked {
+                netAmount = input.inputAmount - feeAmount;
+            }
+            SafeTransferLib.safeApproveWithRetry(input.inputToken, bridgeData.approvalSpender, netAmount);
+        }
+
+        _doCallCalldata(bridgeData.target, bridgeData.value, bridgeCallData, false);
+        emit RequestExecuted(quoteId);
+    }
+
+    /**
+     * @notice Runs a sequence of generic actions with optional returndata splicing between steps.
+     * @param quoteId Caller-defined correlation id logged in `RequestExecuted`.
+     * @param actions Ordered actions; each may splice bytes from a prior action's returndata into its calldata.
+     * @return results Per-action returndata when the action's `actionInfo` store-result bit is set.
+     */
+    function performActions(bytes32 quoteId, Action[] calldata actions)
+        external
+        payable
+        returns (bytes[] memory results)
+    {
+        results = _performActions(actions);
+        emit RequestExecuted(quoteId);
+    }
+
+    // =========================================================================
+    // Internal functions
+    // =========================================================================
+    //
+    // swap / bridge — orchestration is inline in the external functions; they use
+    // _pullFromUser, _execSwap (swap), and _doCallCalldata (bridge) from common below.
+
+    // -------------------------------------
+    //   swapAndBridge internal functions
+    // -------------------------------------
+
+    /**
+     * @dev Pull, optional pre/post swap fee, and swap for `swapAndBridge`. Swap output always remains at `address(this)` for bridging.
+     * @param input User, input token, and pull amount.
+     * @param flags Fee timing and swap output measurement flags (same as `swap`).
+     * @param fee Fee receiver and amount; `amount == 0` skips fee collection.
+     * @param swapData Swap target, spender, output token, value, `minOutput`, and returndata offset.
+     * @param swapCallData Calldata forwarded to `swapData.target`.
+     * @return finalAmount Swap output net of any post-swap fee, ready for `_doBridge`.
+     */
+    function _swapBeforeBridge(
         InputData calldata input,
         uint256 flags,
         FeeData calldata fee,
@@ -293,14 +357,12 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         _pullFromUser(input.inputToken, input.user, input.inputAmount);
         bool postFee;
         {
-            // Check fee amount first: flag bit is only read when a fee is actually present.
-            // FEE_FLAG_BIT_MASK: same semantics as standalone `swap` (fee from input vs output token)
+            // POST_FEE_FLAG_BIT_MASK: same semantics as standalone `swap` (fee from input vs output token)
             uint256 feeAmount = fee.amount;
-            postFee = feeAmount != 0 && flags & FEE_FLAG_BIT_MASK != 0;
+            postFee = feeAmount != 0 && flags & POST_FEE_FLAG_BIT_MASK != 0;
             uint256 swapInput = input.inputAmount;
 
             if (feeAmount != 0 && !postFee) {
-                if (feeAmount > swapInput) revert InsufficientFunds();
                 CurrencyLib.transfer(input.inputToken, fee.receiver, feeAmount);
                 unchecked {
                     swapInput -= feeAmount;
@@ -320,7 +382,6 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
 
         if (postFee) {
             uint256 feeAmount = fee.amount;
-            if (feeAmount > finalAmount) revert InsufficientFunds();
             CurrencyLib.transfer(swapData.outputToken, fee.receiver, feeAmount);
             unchecked {
                 finalAmount -= feeAmount;
@@ -328,116 +389,14 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         }
     }
 
-    function _finishSwapAndBridge(
-        address finalToken,
-        uint256 finalAmount,
-        BridgeData calldata bridgeData,
-        bytes calldata bridgeCallData,
-        uint256 flags
-    ) internal {
-        _doBridge(finalToken, finalAmount, bridgeData, bridgeCallData, flags);
-    }
-
-    // =========================================================================
-    // External: simple bridge path (no swap)
-    // =========================================================================
-
     /**
-     * @notice Pull → optional pre-bridge fee → bridge, with no swap step.
-     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
-     * @dev Because no swap is involved, `finalAmount = inputAmount - feeAmount` is
-     *      fully knowable by the caller before signing.  The caller must therefore
-     *      bake the correct amount directly into `bridgeCallData` and set
-     *      `bridgeData.value` to the desired `msg.value` for the bridge call.
-     *      No runtime calldata splicing is performed.
-     *
-     *      The caller MUST route through `AllowanceHolder.exec` for ERC-20
-     *      inputs so that `_msgSender()` resolves to `input.user`.
+     * @dev Splice `amount` into bridge calldata when flagged, approve the bridge spender, and call the bridge target.
+     * @param token ERC-20 bridged (or native sentinel); used for approval only.
+     * @param amount Post-swap token amount spliced into calldata and/or forwarded as `msg.value`.
+     * @param bd Bridge target, approval spender, and static `msg.value` addend.
+     * @param bridgeCallData Base bridge calldata; copied to memory when splicing is required.
+     * @param flags Bridge splice position, `msg.value` composition, and related bit flags.
      */
-    function bridge(
-        bytes32 requestHash,
-        InputData calldata input,
-        FeeData calldata fee,
-        BridgeData calldata bridgeData,
-        bytes calldata bridgeCallData
-    ) external payable {
-        if (bridgeData.target == address(0) || input.user == address(0) || input.inputToken == address(0)) {
-            revert InvalidExecution();
-        }
-
-        // 1. pull funds from user via AllowanceHolder
-        _pullFromUser(input.inputToken, input.user, input.inputAmount);
-
-        // 2. optional pre-bridge fee; track net amount for approval
-        uint256 feeAmount = fee.amount;
-        if (feeAmount != 0) {
-            if (feeAmount > input.inputAmount) {
-                revert InsufficientFunds();
-            }
-            CurrencyLib.transfer(input.inputToken, fee.receiver, feeAmount);
-        }
-
-        // 3. optional approval to bridge spender for the net amount (inputAmount - feeAmount)
-        if (bridgeData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-            uint256 netAmount;
-            unchecked {
-                netAmount = input.inputAmount - feeAmount;
-            }
-            SafeTransferLib.safeApproveWithRetry(input.inputToken, bridgeData.approvalSpender, netAmount);
-        }
-
-        // 4. bridge call — data and value are pre-encoded by the caller
-        _doCallCalldata(bridgeData.target, bridgeData.value, bridgeCallData, false);
-        emit RequestExecuted(requestHash);
-    }
-
-    // =========================================================================
-    // External: modular path
-    // =========================================================================
-
-    /**
-     * @notice Runs a sequence of generic actions with optional returndata
-     *         splicing between steps. No signature verification.
-     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
-     */
-    function performModularExecution(bytes32 requestHash, Action[] calldata actions)
-        external
-        payable
-        returns (bytes[] memory results)
-    {
-        results = _performActions(actions);
-        emit RequestExecuted(requestHash);
-    }
-
-    // =========================================================================
-    // Internal: swap / fee / bridge helpers
-    // =========================================================================
-
-    /// @dev Execute swap; output measured via returndata word or output-token balance delta.
-    ///      useBalanceOf=true: measure output as (balance after - balance before) at `outputReceiver`.
-    ///      useBalanceOf=false: decode output from returndata at swapData.returnDataWordOffset.
-    ///      `outputReceiver` must be `address(this)` when tokens are expected at the contract
-    ///      (post-swap fee path, bridge path) or `user` when the swap router sends directly to them
-    ///      (pre-swap fee / no-fee standalone swap).
-    function _execSwap(
-        SwapData calldata swapData,
-        bytes calldata swapCallData,
-        bool useBalanceOf,
-        address outputReceiver
-    ) internal returns (uint256 finalAmount) {
-        if (useBalanceOf) {
-            // Balance delta mode: snapshot before, call, measure delta at the expected recipient
-            uint256 before = CurrencyLib.balanceOf(swapData.outputToken, outputReceiver);
-            _doCallCalldata(swapData.target, swapData.value, swapCallData, false);
-            finalAmount = CurrencyLib.balanceOf(swapData.outputToken, outputReceiver) - before;
-        } else {
-            // Returndata mode: decode output from a specific word in returndata
-            bytes memory ret = _doCallCalldata(swapData.target, swapData.value, swapCallData, true);
-            finalAmount = _decodeReturnWord(ret, swapData.returnDataWordOffset);
-        }
-    }
-
-    /// @dev Splice finalAmount into bridge calldata, approve, and call bridge target.
     function _doBridge(
         address token,
         uint256 amount,
@@ -460,55 +419,16 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         _doCall(bd.target, bridgeValue, bData);
     }
 
-    // =========================================================================
-    // Internal: AllowanceHolder pull
-    // =========================================================================
+    // --------------------------------------
+    //   performActions internal functions
+    // --------------------------------------
 
     /**
-     * @notice Pulls `amount` of `token` from `user` into this contract.
-     * @dev For ERC20: enforces `_msgSender() == user` (caller must have routed
-     *      through `AllowanceHolder.exec`) and calls AH.transferFrom via assembly.
-     *      AH selector: transferFrom(address,address,address,uint256) = 0x15dacbea
-     *      For native ETH: ETH must already be present as msg.value; we simply
-     *      verify sufficient value was forwarded. No AH call is needed.
+     * @dev Executes `actions` in order, applying returndata splices before each call. `actionInfo` layout: bits 0–7 call type (`CallType`), bit 8
+     *      store returndata, bits 16+ target address. `splices[j]` packs source index, src/dst byte offsets, and length.
+     * @param actions Ordered list of actions to run.
+     * @return results Stored returndata per action when the store-result bit is set.
      */
-    function _pullFromUser(address token, address user, uint256 amount) internal {
-        if (token == CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-            // ETH is already sent as msg.value directly to this contract.
-            if (msg.value < amount) {
-                revert InsufficientMsgValue();
-            }
-            return;
-        }
-
-        if (_msgSender() != user) {
-            revert CallerNotSignedUser();
-        }
-
-        address allowanceHolder = address(ALLOWANCE_HOLDER);
-        assembly ("memory-safe") {
-            let ptr := mload(0x40)
-            mstore(add(0x80, ptr), amount)
-            mstore(add(0x60, ptr), address())
-            mstore(add(0x4c, ptr), shl(0x60, user)) // clears `recipient`'s padding
-            // `shl(0x60)` (96-bit), NOT `shl(0xa0)` (160-bit): 0xa0 here is literal 160, which
-            // shifts the 20-byte address out of place and corrupts the calldata token. Same as
-            // 0x-settler `Permit2Payment._allowanceHolderTransferFrom`.
-            mstore(add(0x2c, ptr), shl(0x60, token)) // clears `owner`'s padding (settler wording)
-            mstore(add(0x0c, ptr), 0x15dacbea000000000000000000000000) // selector + token padding
-
-            if iszero(call(gas(), allowanceHolder, 0x00, add(0x1c, ptr), 0x84, 0x00, 0x00)) {
-                let p := mload(0x40)
-                returndatacopy(p, 0x00, returndatasize())
-                revert(p, returndatasize())
-            }
-        }
-    }
-
-    // =========================================================================
-    // Internal: modular action loop
-    // =========================================================================
-
     function _performActions(Action[] calldata actions) internal returns (bytes[] memory results) {
         uint256 actionsLength = actions.length;
         results = new bytes[](actionsLength);
@@ -582,10 +502,84 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         }
     }
 
-    // =========================================================================
-    // Internal: simple call dispatcher
-    // =========================================================================
+    // -------------------------------
+    //   Common internal functions
+    // -------------------------------
 
+    /**
+     * @dev Pulls `amount` of `token` from `user` into this contract. For ERC20: enforces `_msgSender() == user` (caller must have routed through
+     *      `AllowanceHolder.exec`) and calls AH.transferFrom via assembly. AH selector:
+     *      transferFrom(address,address,address,uint256) = 0x15dacbea. For native ETH: ETH must already be present as msg.value; verify sufficient
+     *      value was forwarded. No AH call is needed.
+     * @param token Input token or `CurrencyLib.NATIVE_TOKEN_ADDRESS`.
+     * @param user Owner whose AllowanceHolder-scoped allowance is consumed.
+     * @param amount Tokens or wei to pull.
+     */
+    function _pullFromUser(address token, address user, uint256 amount) internal {
+        if (token == CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+            if (msg.value < amount) {
+                revert InsufficientMsgValue();
+            }
+            return;
+        }
+
+        if (_msgSender() != user) {
+            revert CallerNotSignedUser();
+        }
+
+        address allowanceHolder = address(ALLOWANCE_HOLDER);
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            mstore(add(0x80, ptr), amount)
+            mstore(add(0x60, ptr), address())
+            mstore(add(0x4c, ptr), shl(0x60, user)) // clears `recipient`'s padding
+            // `shl(0x60)` (96-bit), NOT `shl(0xa0)` (160-bit): 0xa0 here is literal 160, which
+            // shifts the 20-byte address out of place and corrupts the calldata token. Same as
+            // 0x-settler `Permit2Payment._allowanceHolderTransferFrom`.
+            mstore(add(0x2c, ptr), shl(0x60, token)) // clears `owner`'s padding (settler wording)
+            mstore(add(0x0c, ptr), 0x15dacbea000000000000000000000000) // selector + token padding
+
+            if iszero(call(gas(), allowanceHolder, 0x00, add(0x1c, ptr), 0x84, 0x00, 0x00)) {
+                let p := mload(0x40)
+                returndatacopy(p, 0x00, returndatasize())
+                revert(p, returndatasize())
+            }
+        }
+    }
+
+    /**
+     * @dev Executes the swap call and returns the output amount. `useBalanceOf=true`: measure output as (balance after − balance before) at
+     *      `outputReceiver`. `useBalanceOf=false`: decode output from returndata at `swapData.returnDataWordOffset`. `outputReceiver` must be
+     *      `address(this)` when tokens are expected at the contract (post-swap fee path, bridge path) or the end user when the router sends directly
+     *      to them.
+     * @param swapData Swap target, value, output token, and returndata layout.
+     * @param swapCallData Calldata forwarded to `swapData.target`.
+     * @param useBalanceOf When true, use balance delta instead of returndata decoding.
+     * @param outputReceiver Account whose output-token balance is measured or credited.
+     * @return finalAmount Gross swap output amount.
+     */
+    function _execSwap(
+        SwapData calldata swapData,
+        bytes calldata swapCallData,
+        bool useBalanceOf,
+        address outputReceiver
+    ) internal returns (uint256 finalAmount) {
+        if (useBalanceOf) {
+            uint256 before = CurrencyLib.balanceOf(swapData.outputToken, outputReceiver);
+            _doCallCalldata(swapData.target, swapData.value, swapCallData, false);
+            finalAmount = CurrencyLib.balanceOf(swapData.outputToken, outputReceiver) - before;
+        } else {
+            bytes memory ret = _doCallCalldata(swapData.target, swapData.value, swapCallData, true);
+            finalAmount = _decodeReturnWord(ret, swapData.returnDataWordOffset);
+        }
+    }
+
+    /**
+     * @dev Low-level `call` with bubbled revert data on failure.
+     * @param target Call recipient.
+     * @param value Wei forwarded with the call.
+     * @param data ABI-encoded calldata in memory.
+     */
     function _doCall(address target, uint256 value, bytes memory data) internal {
         bool success;
         assembly ("memory-safe") {
@@ -605,6 +599,14 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         }
     }
 
+    /**
+     * @dev Low-level `call` using calldata copied to memory; optionally captures returndata.
+     * @param target Call recipient.
+     * @param value Wei forwarded with the call.
+     * @param data Calldata slice forwarded to `target`.
+     * @param storeResult When true, copy returndata into memory even on success.
+     * @return ret Returndata when `storeResult` is true or the call reverts (revert bubbles).
+     */
     function _doCallCalldata(address target, uint256 value, bytes calldata data, bool storeResult)
         internal
         returns (bytes memory ret)
@@ -633,6 +635,12 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         }
     }
 
+    /**
+     * @dev Reads the 32-byte word at `wordOffset` from ABI-encoded `ret` (word index, not byte offset).
+     * @param ret Return blob from a prior call.
+     * @param wordOffset Zero-based index of the 32-byte word to load.
+     * @return word Decoded amount or value at that offset.
+     */
     function _decodeReturnWord(bytes memory ret, uint256 wordOffset) internal pure returns (uint256 word) {
         uint256 offset = wordOffset * 32;
         if (offset + 32 > ret.length) revert ReturnDataOutOfBounds();
@@ -648,7 +656,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
      * @param rescueTo_ The address where rescued tokens need to be sent.
      * @param amount_ The amount of tokens to be rescued.
      */
-    function rescueFunds(address token_, address rescueTo_, uint256 amount_) external onlyOwner {
+    function rescueFunds(address token_, address rescueTo_, uint256 amount_) external onlyRole(RESCUE_ROLE) {
         RescueFundsLib.rescueFunds(token_, rescueTo_, amount_);
     }
 }
