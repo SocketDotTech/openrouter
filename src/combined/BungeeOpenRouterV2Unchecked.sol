@@ -182,12 +182,12 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
      */
     function swap(
         bytes32 quoteId,
-        InputData calldata input,
-        address receiver,
         uint256 flags,
+        InputData calldata input,
         FeeData calldata fee,
         SwapData calldata swapData,
-        bytes calldata swapCallData
+        bytes calldata swapCallData,
+        address receiver
     ) external payable returns (uint256 finalAmount) {
         if (
             input.user == address(0) || input.inputToken == address(0) || swapData.target == address(0)
@@ -196,23 +196,25 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
             revert InvalidExecution();
         }
 
-        _pullFromUser(input.inputToken, input.user, input.inputAmount);
+        bool postFee = fee.amount != 0 && flags & POST_FEE_FLAG_BIT_MASK != 0;
+        bool useBalanceOf = flags & BALANCE_FLAG_BIT_MASK != 0;
 
-        // POST_FEE_FLAG_BIT_MASK: unset ⇒ collect fee from input before swap; set ⇒ swap first, fee from output
-        bool hasFee = fee.amount != 0;
-        bool postFee = hasFee && flags & POST_FEE_FLAG_BIT_MASK != 0;
-        uint256 swapInput = input.inputAmount;
+        {
+            _pullFromUser(input.inputToken, input.user, input.inputAmount);
 
-        if (hasFee && !postFee) {
-            uint256 feeAmount = fee.amount;
-            CurrencyLib.transfer(input.inputToken, fee.receiver, feeAmount);
-            unchecked {
-                swapInput -= feeAmount;
+            // POST_FEE_FLAG_BIT_MASK: unset ⇒ collect fee from input before swap; set ⇒ swap first, fee from output
+            uint256 swapInput = input.inputAmount;
+            if (fee.amount != 0 && !postFee) {
+                uint256 feeAmount = fee.amount;
+                CurrencyLib.transfer(input.inputToken, fee.receiver, feeAmount);
+                unchecked {
+                    swapInput -= feeAmount;
+                }
             }
-        }
 
-        if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
+            if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+                SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
+            }
         }
 
         // Post-fee: swap output lands at this contract so the fee can be deducted before forwarding.
@@ -220,7 +222,7 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
         address outputReceiver = postFee ? address(this) : receiver;
 
         // BALANCE_FLAG_BIT_MASK: unset ⇒ decode output word from returndata; set ⇒ output = delta on outputToken
-        finalAmount = _execSwap(swapData, swapCallData, flags & BALANCE_FLAG_BIT_MASK != 0, outputReceiver);
+        finalAmount = _execSwap(swapData, swapCallData, useBalanceOf, outputReceiver);
         if (finalAmount < swapData.minOutput) revert SwapOutputInsufficient();
 
         if (postFee) {
@@ -250,8 +252,8 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
      */
     function swapAndBridge(
         bytes32 quoteId,
-        InputData calldata input,
         uint256 flags,
+        InputData calldata input,
         FeeData calldata fee,
         SwapData calldata swapData,
         bytes calldata swapCallData,
@@ -265,8 +267,8 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
             revert InvalidExecution();
         }
 
-        uint256 finalAmount = _swapBeforeBridge(input, flags, fee, swapData, swapCallData);
-        _doBridge(swapData.outputToken, finalAmount, bridgeData, bridgeCallData, flags);
+        uint256 finalAmount = _swapBeforeBridge(flags, input, fee, swapData, swapCallData);
+        _doBridge(swapData.outputToken, finalAmount, flags, bridgeData, bridgeCallData);
         emit RequestExecuted(quoteId);
     }
 
@@ -348,8 +350,8 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
      * @return finalAmount Swap output net of any post-swap fee, ready for `_doBridge`.
      */
     function _swapBeforeBridge(
-        InputData calldata input,
         uint256 flags,
+        InputData calldata input,
         FeeData calldata fee,
         SwapData calldata swapData,
         bytes calldata swapCallData
@@ -393,30 +395,30 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
      * @dev Splice `amount` into bridge calldata when flagged, approve the bridge spender, and call the bridge target.
      * @param token ERC-20 bridged (or native sentinel); used for approval only.
      * @param amount Post-swap token amount spliced into calldata and/or forwarded as `msg.value`.
-     * @param bd Bridge target, approval spender, and static `msg.value` addend.
+     * @param bridgeData Bridge target, approval spender, and static `msg.value` addend.
      * @param bridgeCallData Base bridge calldata; copied to memory when splicing is required.
      * @param flags Bridge splice position, `msg.value` composition, and related bit flags.
      */
     function _doBridge(
         address token,
         uint256 amount,
-        BridgeData calldata bd,
-        bytes calldata bridgeCallData,
-        uint256 flags
+        uint256 flags,
+        BridgeData calldata bridgeData,
+        bytes calldata bridgeCallData
     ) internal {
-        bytes memory bData = bridgeCallData;
+        bytes memory _bridgeCallData = bridgeCallData;
         if (flags & BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK != 0) {
             uint256 position = flags >> BRIDGE_AMOUNT_POSITION_SHIFT & BRIDGE_AMOUNT_POSITION_MASK;
-            BytesSpliceLib.spliceWord({data: bData, position: position, word: amount});
+            BytesSpliceLib.spliceWord({data: _bridgeCallData, position: position, word: amount});
         }
 
-        if (bd.approvalSpender != address(0) && token != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeApproveWithRetry(token, bd.approvalSpender, amount);
+        if (bridgeData.approvalSpender != address(0) && token != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
+            SafeTransferLib.safeApproveWithRetry(token, bridgeData.approvalSpender, amount);
         }
 
         // when set, forward amount as msg.value for native-token bridges
-        uint256 bridgeValue = flags & BRIDGE_VALUE_FLAG_BIT_MASK != 0 ? amount + bd.value : bd.value;
-        _doCall(bd.target, bridgeValue, bData);
+        uint256 bridgeValue = flags & BRIDGE_VALUE_FLAG_BIT_MASK != 0 ? amount + bridgeData.value : bridgeData.value;
+        _doCall(bridgeData.target, bridgeValue, _bridgeCallData);
     }
 
     // --------------------------------------
@@ -652,12 +654,12 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
 
     /**
      * @notice Rescues funds from the contract if they are locked by mistake.
-     * @param token_ The address of the token contract.
-     * @param rescueTo_ The address where rescued tokens need to be sent.
-     * @param amount_ The amount of tokens to be rescued.
+     * @param token The address of the token contract.
+     * @param rescueTo The address where rescued tokens need to be sent.
+     * @param amount The amount of tokens to be rescued.
      */
-    function rescueFunds(address token_, address rescueTo_, uint256 amount_) external onlyRole(RESCUE_ROLE) {
-        RescueFundsLib.rescueFunds(token_, rescueTo_, amount_);
+    function rescueFunds(address token, address rescueTo, uint256 amount) external onlyRole(RESCUE_ROLE) {
+        RescueFundsLib.rescueFunds(token, rescueTo, amount);
     }
 }
 
