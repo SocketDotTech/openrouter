@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon USDT0 → Arbitrum USDT0 (USDT0 OFT Adapter, LayerZero v2, no swap)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: preFee — FEE_BPS of inputAmount USDT0 transferred to signer before bridge
  *
  * Modular action sequence:
@@ -11,7 +11,7 @@
  *   [4] nativeCall adapter.send(...) — spliceWord patches amountLD at offset 196 from [3]
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/oft/performModularExecution.preFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/oft/performActions.preFee.ts
  */
 import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
@@ -117,13 +117,13 @@ async function main() {
   exec.nativeCall(USDT0_OFT_ADAPTER_POLYGON, oftSendData, nativeFeeWithBuffer)
     .spliceWord(BigInt(OFT_AMOUNT_LD_OFFSET), usdt0Balance.returnWord());
 
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDT0_POLYGON, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_POLYGON, TOKENS.USDT0_POLYGON, inputAmount, ROUTER_POLYGON, callData, nativeFeeWithBuffer);
 
   logTxnSummary(
-    'Polygon USDT0 → Arbitrum USDT0 (OFT direct) — performModularExecution preFee',
+    'Polygon USDT0 → Arbitrum USDT0 (OFT direct) — performActions preFee',
     CHAIN_IDS.POLYGON,
     receipt,
   );

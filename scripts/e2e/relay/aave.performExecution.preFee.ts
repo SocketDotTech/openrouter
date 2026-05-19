@@ -1,10 +1,7 @@
 /**
  * Route:  Polygon AAVE → Base AAVE via Relay.link (no swap)
- * Function: performExecution (monolithic)
+ * Function: bridge
  * Fee: preFee — FEE_BPS of inputAmount AAVE deducted before bridge
- *
- * Fetches a Relay.link /quote/v2 for the net bridge amount, then encodes a
- * MonolithicExecutionCall with preFee and the deposit calldata.
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/relay/aave.performExecution.preFee.ts
@@ -24,13 +21,7 @@ import {
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
 import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
-import {
-  MonolithicExecutionCall,
-  NO_FEE,
-  NO_SWAP,
-  ZERO_BYTES32,
-  monolithicArgs,
-} from '../utils/contractTypes';
+import { ZERO_BYTES32, bridgeArgs, type BridgeData, type FeeData, type InputData } from '../utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from '../utils/relayLinkQuote';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
@@ -82,28 +73,19 @@ async function main(): Promise<void> {
   await ensureRouterErc20Balance(signer, inputToken, ROUTER_POLYGON);
   await ensureRouterApproval(signer, ROUTER_POLYGON, inputToken, relaySpender);
 
-  const mono: MonolithicExecutionCall = {
-    exec: {
-      input: { user: signerAddress, inputToken, inputAmount },
-      preFee: { receiver: signerAddress, amount: feeAmount },
-      swap: NO_SWAP,
-      postFee: NO_FEE,
-      bridge: { target: depositTarget, approvalSpender: relaySpender, value: 0n },
-      flags: 0n,
-    },
-    swapCallData: '0x',
-    bridgeCallData: depositData,
-  };
+  const input: InputData = { user: signerAddress, inputToken, inputAmount };
+  const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
+  const bridgeData: BridgeData = { target: depositTarget, approvalSpender: relaySpender, value: 0n };
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
-  const execCalldata = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
+  const execCalldata = routerIface.encodeFunctionData('bridge', bridgeArgs(ZERO_BYTES32, input, fee, bridgeData, depositData));
 
   await ensureAllowanceForAllowanceHolder(signer, inputToken, inputAmount);
 
-  console.log('Sending AllowanceHolder.exec → router.performExecution...');
+  console.log('Sending AllowanceHolder.exec → router.bridge...');
   const receipt = await execViaAH(signer, ROUTER_POLYGON, inputToken, inputAmount, ROUTER_POLYGON, execCalldata);
 
-  logTxnSummary('Polygon AAVE → Base AAVE — Relay — performExecution preFee', CHAIN_IDS.POLYGON, receipt);
+  logTxnSummary('Polygon AAVE → Base AAVE — Relay — bridge preFee', CHAIN_IDS.POLYGON, receipt);
 }
 
 main().catch((err) => {

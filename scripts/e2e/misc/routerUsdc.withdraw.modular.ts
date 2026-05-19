@@ -1,6 +1,6 @@
 /**
- * Polygon: sweep USDC from `BungeeOpenRouterV2Unchecked` to the tx sender using
- * `performModularExecution` only — no AllowanceHolder, no pull step.
+ * Polygon: sweep USDC from `BungeeOpenRouter` to the tx sender using
+ * `performActions` only — no AllowanceHolder, no pull step.
  *
  * Actions:
  *   [0] STATICCALL USDC.balanceOf(router) — stored returndata (32-byte uint256)
@@ -8,7 +8,7 @@
  *       is transferring the router's entire USDC balance to `msg.sender` of this tx.
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/polygon/routerUsdc.withdraw.modular.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/misc/routerUsdc.withdraw.modular.ts
  *
  * Requires the router contract to actually hold Polygon USDC
  * ({@link TOKENS.USDC_POLYGON_CIRCLE}).
@@ -17,16 +17,16 @@ import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
 dotenv.config();
 
-import { CHAIN_IDS, routerAddressForChain, TOKENS, RPC } from './config';
+import { CHAIN_IDS, routerAddressForChain, TOKENS, RPC } from '../config';
 import {
   encodeBalanceOf,
   encodeTransfer,
   getWalletErc20Balance,
-} from './utils/erc20';
-import { ROUTER_ABI } from './utils/routerAbi';
-import { ModularActionsBuilder } from './utils/modularActionsBuilder/index';
-import { ZERO_BYTES32 } from './utils/contractTypes';
-import { logTxnSummary } from './utils/txnLogSummary';
+} from '../utils/erc20';
+import { ROUTER_ABI } from '../utils/routerAbi';
+import { ModularActionsBuilder } from '../utils/modularActionsBuilder/index';
+import { ZERO_BYTES32 } from '../utils/contractTypes';
+import { logTxnSummary } from '../utils/txnLogSummary';
 
 async function main(): Promise<void> {
   const privateKey = process.env.PRIVATE_KEY;
@@ -64,13 +64,13 @@ async function main(): Promise<void> {
     .spliceArg(1, routerBal.ref().returnWord(0));
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
-  const calldata = routerIface.encodeFunctionData('performModularExecution', [
+  const calldata = routerIface.encodeFunctionData('performActions', [
     ZERO_BYTES32,
     exec.toActions(),
   ]);
 
   console.log(
-    'Sending performModularExecution (balanceOf → transfer with spliced amount)...',
+    'Sending performActions (balanceOf → transfer with spliced amount)...',
   );
   const tx = await signer.sendTransaction({
     to: routerAddress,
@@ -84,7 +84,7 @@ async function main(): Promise<void> {
   }
 
   logTxnSummary(
-    'Polygon — withdraw router USDC to caller via performModularExecution',
+    'Polygon — withdraw router USDC to caller via performActions',
     chainId,
     receipt,
   );

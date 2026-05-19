@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon POL (native) → USDT0 (OpenOcean) → Arbitrum USDT0 (LZ OFT Adapter)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: postFee — FEE_BPS of estimatedOut USDT0 transferred to signer after swap
  *
  * Input is native POL; msg.value = ooSwapNativeWei + nativeFeeWithBuffer.
@@ -13,7 +13,7 @@
  *   [4] nativeCall(adapter, oftSendData, nativeFeeWithBuffer) — splicePayloadWord(196) from [3]
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/polygonPolUsdt0Arb.performModularExecution.postFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/polygonPolUsdt0Arb.performActions.postFee.ts
  */
 import axios from 'axios';
 import { ethers, parseEther } from 'ethers';
@@ -192,12 +192,12 @@ async function main() {
     .splicePayloadWord(BigInt(STARGATE_AMOUNT_LD_OFFSET), usdt0Balance.returnWord());
 
   const txValue = inputAmountWei + nativeFeeWithBuffer;
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   const receipt = await execViaAH(signer, ROUTER_POLYGON, NATIVE_TOKEN_ADDRESS, inputAmountWei, ROUTER_POLYGON, callData, txValue);
 
   logTxnSummary(
-    'Polygon POL → USDT0 (OO) → Arbitrum USDT0 (OFT) — performModularExecution postFee',
+    'Polygon POL → USDT0 (OO) → Arbitrum USDT0 (OFT) — performActions postFee',
     CHAIN_IDS.POLYGON,
     receipt,
   );

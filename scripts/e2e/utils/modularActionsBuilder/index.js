@@ -1,6 +1,8 @@
 "use strict";
 
-const PERFORM_MODULAR_EXECUTION_SELECTOR = "0x4f85c3a5";
+const PERFORM_ACTIONS_SELECTOR = "0x197aa51e";
+/** @deprecated Use PERFORM_ACTIONS_SELECTOR */
+const PERFORM_MODULAR_EXECUTION_SELECTOR = PERFORM_ACTIONS_SELECTOR;
 const WORD_BYTES = 32;
 const WORD_HEX_CHARS = WORD_BYTES * 2;
 const UINT256_MAX = (1n << 256n) - 1n;
@@ -108,7 +110,7 @@ class ModularActionsBuilder {
 
   toCalldata() {
     this._markSpliceSources();
-    return concatHex([PERFORM_MODULAR_EXECUTION_SELECTOR, encodePerformModularExecutionArgs(this._actions)]);
+    return concatHex([PERFORM_ACTIONS_SELECTOR, encodePerformActionsArgs(this._actions)]);
   }
 
   _label(index, label) {
@@ -225,8 +227,13 @@ class ActionRef {
   }
 }
 
-function encodePerformModularExecutionArgs(actions) {
+function encodePerformActionsArgs(actions) {
   return concatHex([encodeWord(WORD_BYTES), encodeActionArray(prepareActionsForEncoding(actions))]);
+}
+
+/** @deprecated Use encodePerformActionsArgs */
+function encodePerformModularExecutionArgs(actions) {
+  return encodePerformActionsArgs(actions);
 }
 
 function encodeActionArray(actions) {
@@ -434,10 +441,12 @@ module.exports = {
   ActionHandle,
   ActionRef,
   CallType,
+  PERFORM_ACTIONS_SELECTOR,
   PERFORM_MODULAR_EXECUTION_SELECTOR,
   Offset,
   ModularActionsBuilder,
   concatHex,
+  encodePerformActionsArgs,
   encodePerformModularExecutionArgs,
   encodeWord,
   packActionInfo,

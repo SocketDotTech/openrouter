@@ -5,7 +5,7 @@
  *
  * Bridge amount is pre-encoded in Stargate send() calldata (no splice needed).
  * bridge.value = nativeFeeWithBuffer forwarded as LZ msg.value.
- * Uses router.bridge() rather than performExecution / performModularExecution.
+ * Uses router.bridge() rather than performExecution / performActions.
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/polygonUsdcBase.bridge.preFee.ts

@@ -31,7 +31,7 @@ import {
 } from "../utils/allowanceHolder";
 import { getWalletErc20Balance } from "../utils/erc20";
 import { ROUTER_ABI } from "../utils/routerAbi";
-import { ZERO_BYTES32, bridgeAmountPositionFlag } from "../utils/contractTypes";
+import { ZERO_BYTES32, bridgeAmountPositionFlag, swapAndBridgeArgs } from "../utils/contractTypes";
 import { logTxnSummary } from "../utils/txnLogSummary";
 import {
   ensureRouterErc20Balance,
@@ -164,14 +164,14 @@ async function main() {
     polyCctp.tokenMessenger
   );
 
-  const callData = routerIface.encodeFunctionData("swapAndBridge", [
+  const callData = routerIface.encodeFunctionData("swapAndBridge", swapAndBridgeArgs(
     ZERO_BYTES32,
+    FLAGS,
     {
       user: signerAddress,
       inputToken: TOKENS.AAVE_POLYGON,
       inputAmount: inputAmount,
     },
-    FLAGS,
     { receiver: signerAddress, amount: feeAmount },
     {
       target: ooRouter,
@@ -188,7 +188,7 @@ async function main() {
       value: 0n,
     },
     depositForBurnData,
-  ]);
+  ));
 
   await ensureAllowanceForAllowanceHolder(
     signer,

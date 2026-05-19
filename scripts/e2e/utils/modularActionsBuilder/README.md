@@ -1,6 +1,6 @@
 # Modular Actions Builder
 
-Dependency-free helper for formatting packed `performModularExecution(Action[])`
+Dependency-free helper for formatting packed `performActions(Action[])`
 payloads from provider SDK/API calldata.
 
 ```js
@@ -102,4 +102,4 @@ exec
 
 Use `toActions()` when the caller already has an ABI encoder for the packed modular action tuple. Use
 `toLogicalActions()` for the readable builder shape. Use `toCalldata()` when you need raw
-`performModularExecution(Action[])` calldata.
+`performActions(Action[])` calldata.

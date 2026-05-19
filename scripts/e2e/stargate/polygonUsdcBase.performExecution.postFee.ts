@@ -1,9 +1,11 @@
 /**
  * Route:  Polygon USDC → Base USDC (Stargate USDC Pool, no swap)
- * Function: performExecution (monolithic)
- * Fee: postFee — FEE_BPS of inputAmount USDC deducted; bridge amount position flag splices
- *      actual post-fee balance into amountLD at byte 196 of Stargate send() calldata.
+ * Function: bridge (simple bridge entrypoint)
+ * Fee: preFee — FEE_BPS of inputAmount USDC deducted before bridge
+ *
+ * Bridge amount is pre-encoded in Stargate send() calldata (no splice needed).
  * bridge.value = nativeFeeWithBuffer forwarded as LZ msg.value.
+ * Uses router.bridge() rather than performExecution / performActions.
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/polygonUsdcBase.performExecution.postFee.ts
@@ -21,19 +23,11 @@ import {
   RPC,
   STARGATE_USDC_POLYGON,
   BASE_LZ_EID,
-  STARGATE_AMOUNT_LD_OFFSET,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
 import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
-import {
-  MonolithicExecutionCall,
-  NO_FEE,
-  NO_SWAP,
-  ZERO_BYTES32,
-  bridgeAmountPositionFlag,
-  monolithicArgs,
-} from '../utils/contractTypes';
+import { ZERO_BYTES32, type BridgeData, type FeeData, type InputData } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
 
@@ -53,83 +47,112 @@ async function fetchStargateQuote(
 ): Promise<{ nativeFeeWithBuffer: bigint; amountReceivedLD: bigint }> {
   const contract = new ethers.Contract(STARGATE_USDC_POLYGON, STARGATE_ABI, provider);
   const to32 = ethers.zeroPadValue(recipient, 32);
-  const sendParam = { dstEid: BASE_LZ_EID, to: to32, amountLD: bridgeAmountLD, minAmountLD: 0n, extraOptions: '0x', composeMsg: '0x', oftCmd: '0x' };
-  const [fee, oft] = await Promise.all([contract.quoteSend(sendParam, false), contract.quoteOFT(sendParam)]);
+  const sendParam = {
+    dstEid: BASE_LZ_EID,
+    to: to32,
+    amountLD: bridgeAmountLD,
+    minAmountLD: 0n,
+    extraOptions: '0x',
+    composeMsg: '0x',
+    oftCmd: '0x',
+  };
+  const [fee, oft] = await Promise.all([
+    contract.quoteSend(sendParam, false),
+    contract.quoteOFT(sendParam),
+  ]);
   return {
     nativeFeeWithBuffer: ((fee.nativeFee as bigint) * 105n) / 100n,
     amountReceivedLD: oft.oftReceipt.amountReceivedLD as bigint,
   };
 }
 
-function buildStargateCalldata(nativeFee: bigint, recipient: string): string {
-  // amountLD = 0 placeholder; router splices actual balance at STARGATE_AMOUNT_LD_OFFSET
+/**
+ * Builds Stargate send() calldata with the exact bridgeAmount pre-encoded (no 0 placeholder).
+ * Used by router.bridge() which has no splice mechanism.
+ */
+function buildStargateCalldata(bridgeAmount: bigint, nativeFee: bigint, recipient: string): string {
   return STARGATE_IFACE.encodeFunctionData('send', [
-    { dstEid: BASE_LZ_EID, to: ethers.zeroPadValue(recipient, 32), amountLD: 0n, minAmountLD: 0n, extraOptions: '0x', composeMsg: '0x', oftCmd: '0x' },
+    {
+      dstEid: BASE_LZ_EID,
+      to: ethers.zeroPadValue(recipient, 32),
+      amountLD: bridgeAmount,
+      minAmountLD: 0n,
+      extraOptions: '0x',
+      composeMsg: '0x',
+      oftCmd: '0x',
+    },
     { nativeFee, lzTokenFee: 0n },
     recipient,
   ]);
 }
 
-async function main() {
+async function main(): Promise<void> {
   const privateKey = process.env.PRIVATE_KEY;
-  if (!privateKey) throw new Error('PRIVATE_KEY env var required');
+  if (!privateKey) {
+    throw new Error('PRIVATE_KEY env var required');
+  }
 
   const provider = new ethers.JsonRpcProvider(RPC.POLYGON);
   const signer = new ethers.Wallet(privateKey, provider);
   const signerAddress = await signer.getAddress();
 
-  const { balance: walletBalance } = await getWalletErc20Balance(TOKENS.USDC_POLYGON_CIRCLE, signerAddress, provider);
-  if (walletBalance === 0n) throw new Error(`Signer ${signerAddress} has zero USDC on Polygon`);
+  const inputToken = TOKENS.USDC_POLYGON_CIRCLE;
+  const { balance: walletBalance } = await getWalletErc20Balance(inputToken, signerAddress, provider);
+  if (walletBalance === 0n) {
+    throw new Error(`Signer ${signerAddress} has zero USDC on Polygon`);
+  }
 
   const inputAmount = walletBalance - 20n;
   if (inputAmount === 0n) throw new Error('Balance too small');
 
   const feeAmount = bpsOf(inputAmount, FEE_BPS);
-  const estimatedBridgeAmount = inputAmount - feeAmount;
+  const bridgeAmount = inputAmount - feeAmount;
 
-  console.log(`Signer:        ${signerAddress}`);
-  console.log(`Router:        ${ROUTER_POLYGON}`);
-  console.log(`USDC balance:  ${ethers.formatUnits(walletBalance, 6)}`);
-  console.log(`Post-fee:      ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`);
-  console.log(`Est. bridge:   ${ethers.formatUnits(estimatedBridgeAmount, 6)} USDC`);
-
-  const routerIface = new ethers.Interface(ROUTER_ABI);
+  console.log(`Signer:          ${signerAddress}`);
+  console.log(`Router:          ${ROUTER_POLYGON}`);
+  console.log(`USDC balance:    ${ethers.formatUnits(walletBalance, 6)}`);
+  console.log(`Pre-bridge fee:  ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`);
+  console.log(`Net to bridge:   ${ethers.formatUnits(bridgeAmount, 6)}`);
 
   console.log('Fetching Stargate quote (Polygon → Base USDC pool)...');
-  const { nativeFeeWithBuffer, amountReceivedLD } = await fetchStargateQuote(provider, estimatedBridgeAmount, signerAddress);
-  console.log(`  nativeFee+5%: ${ethers.formatEther(nativeFeeWithBuffer)} POL`);
+  const { nativeFeeWithBuffer, amountReceivedLD } = await fetchStargateQuote(provider, bridgeAmount, signerAddress);
+  console.log(`  nativeFee+5%:  ${ethers.formatEther(nativeFeeWithBuffer)} POL`);
   console.log(`  Est. received: ${ethers.formatUnits(amountReceivedLD, 6)} USDC`);
 
-  await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, STARGATE_USDC_POLYGON);
+  const sendData = buildStargateCalldata(bridgeAmount, nativeFeeWithBuffer, signerAddress);
 
-  const stargateData = buildStargateCalldata(nativeFeeWithBuffer, signerAddress);
-
-  const mono: MonolithicExecutionCall = {
-    exec: {
-      input: { user: signerAddress, inputToken: TOKENS.USDC_POLYGON_CIRCLE, inputAmount },
-      preFee: NO_FEE,
-      swap: NO_SWAP,
-      postFee: { receiver: signerAddress, amount: feeAmount },
-      bridge: { target: STARGATE_USDC_POLYGON, approvalSpender: STARGATE_USDC_POLYGON, value: nativeFeeWithBuffer },
-      flags: bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET),
-    },
-    swapCallData: '0x',
-    bridgeCallData: stargateData,
+  const input: InputData = { user: signerAddress, inputToken, inputAmount };
+  const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
+  const bridgeData: BridgeData = {
+    target: STARGATE_USDC_POLYGON,
+    approvalSpender: STARGATE_USDC_POLYGON,
+    value: nativeFeeWithBuffer,
   };
 
-  const callData = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
+  const routerIface = new ethers.Interface(ROUTER_ABI);
+  const execCalldata = routerIface.encodeFunctionData('bridge', [ZERO_BYTES32, input, fee, bridgeData, sendData]);
 
-  await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_POLYGON_CIRCLE, inputAmount);
-  const receipt = await execViaAH(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, inputAmount, ROUTER_POLYGON, callData, nativeFeeWithBuffer);
+  await ensureRouterErc20Balance(signer, inputToken, ROUTER_POLYGON);
+  await ensureRouterApproval(signer, ROUTER_POLYGON, inputToken, STARGATE_USDC_POLYGON);
+  await ensureAllowanceForAllowanceHolder(signer, inputToken, inputAmount);
 
-  logTxnSummary(
-    'Polygon USDC → Base USDC (Stargate USDC pool) — performExecution postFee',
-    CHAIN_IDS.POLYGON,
-    receipt,
+  console.log('Sending AllowanceHolder.exec → router.bridge...');
+  const receipt = await execViaAH(
+    signer,
+    ROUTER_POLYGON,
+    inputToken,
+    inputAmount,
+    ROUTER_POLYGON,
+    execCalldata,
+    nativeFeeWithBuffer,
   );
+
+  logTxnSummary('Polygon USDC → Base USDC (Stargate USDC pool) — bridge preFee', CHAIN_IDS.POLYGON, receipt);
 
   console.log('\nUSDC arrives on Base once LZ delivers the message.');
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

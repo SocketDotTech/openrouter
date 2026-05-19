@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon AAVE → USDC (OpenOcean) → Base USDC (CCTP depositForBurn)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: postFee — FEE_BPS of estimatedOut USDC transferred to signer after swap
  *
  * Modular action sequence:
@@ -13,7 +13,7 @@
  *   [6] tokenMessenger.depositForBurn(...)  — spliceArg(0) patches amount from [5]
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/cctp/performModularExecution.postFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/cctp/performActions.postFee.ts
  */
 import axios from 'axios';
 import { ethers } from 'ethers';
@@ -141,13 +141,13 @@ async function main() {
   const usdcBalance = exec.staticCall(TOKENS.USDC_POLYGON_CIRCLE, encodeBalanceOf(ROUTER_POLYGON));
   exec.call(polyCctp.tokenMessenger, depositForBurnData).spliceArg(0, usdcBalance.returnWord());
 
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.AAVE_POLYGON, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, inputAmount, ROUTER_POLYGON, callData);
 
   logTxnSummary(
-    'Polygon AAVE → Base USDC (CCTP) — performModularExecution postFee',
+    'Polygon AAVE → Base USDC (CCTP) — performActions postFee',
     CHAIN_IDS.POLYGON,
     receipt,
   );

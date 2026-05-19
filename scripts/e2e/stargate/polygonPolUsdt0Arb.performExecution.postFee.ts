@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon POL (native) → USDT0 (OpenOcean) → Arbitrum USDT0 (LZ OFT Adapter)
- * Function: performExecution (monolithic)
+ * Function: swapAndBridge
  * Fee: postFee — FEE_BPS of estimatedOut USDT0 deducted after swap
  *
  * Input is native POL; msg.value = ooSwapNativeWei + nativeFeeWithBuffer.
@@ -35,17 +35,17 @@ import {
 import { execViaAH } from '../utils/allowanceHolder';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import {
-  MonolithicExecutionCall,
-  NO_FEE,
+  POST_FEE_FLAG,
   ZERO_ADDRESS,
   ZERO_BYTES32,
   bridgeAmountPositionFlag,
-  monolithicArgs,
+  swapAndBridgeArgs,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
+const FLAGS = POST_FEE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET);
 const LZ_EXTRA_OPTIONS = Options.newOptions().addExecutorLzReceiveOption(65000, 0).toHex();
 const NATIVE_INPUT_GAS_RESERVE = parseEther('0.01');
 const NATIVE_INPUT_GAS_LIMIT_ESTIMATE = 2_000_000n;
@@ -189,11 +189,15 @@ async function main() {
 
   const oftSendData = buildOftSendCalldata(nativeFeeWithBuffer, signerAddress);
 
-  const mono: MonolithicExecutionCall = {
-    exec: {
-      input: { user: signerAddress, inputToken: NATIVE_TOKEN_ADDRESS, inputAmount: inputAmountWei },
-      preFee: NO_FEE,
-      swap: {
+  const txValue = inputAmountWei + nativeFeeWithBuffer;
+  const callData = routerIface.encodeFunctionData(
+    'swapAndBridge',
+    swapAndBridgeArgs(
+      ZERO_BYTES32,
+      FLAGS,
+      { user: signerAddress, inputToken: NATIVE_TOKEN_ADDRESS, inputAmount: inputAmountWei },
+      { receiver: signerAddress, amount: feeAmount },
+      {
         target: ooRouter,
         approvalSpender: ZERO_ADDRESS,
         outputToken: TOKENS.USDT0_POLYGON,
@@ -201,16 +205,11 @@ async function main() {
         minOutput: minAmountOut,
         returnDataWordOffset: 0n,
       },
-      postFee: { receiver: signerAddress, amount: feeAmount },
-      bridge: { target: USDT0_OFT_ADAPTER_POLYGON, approvalSpender: USDT0_OFT_ADAPTER_POLYGON, value: nativeFeeWithBuffer },
-      flags: bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET),
-    },
-    swapCallData: swapData,
-    bridgeCallData: oftSendData,
-  };
-
-  const txValue = inputAmountWei + nativeFeeWithBuffer;
-  const callData = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
+      swapData,
+      { target: USDT0_OFT_ADAPTER_POLYGON, approvalSpender: USDT0_OFT_ADAPTER_POLYGON, value: nativeFeeWithBuffer },
+      oftSendData,
+    ),
+  );
 
   // Native input — no ERC-20 allowance needed for AH; pass NATIVE_TOKEN_ADDRESS
   const receipt = await execViaAH(signer, ROUTER_POLYGON, NATIVE_TOKEN_ADDRESS, inputAmountWei, ROUTER_POLYGON, callData, txValue);

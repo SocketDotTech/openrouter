@@ -1,6 +1,6 @@
 /**
  * Route:  Ethereum ETH → Arbitrum ETH (Arbitrum inbox depositEth, no swap)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: preFee — FEE_BPS of inputAmount ETH deducted before bridge
  *
  * Modular action sequence:
@@ -8,10 +8,10 @@
  *   [1] nativeCall(inbox, depositEth(), bridgeValue) — bridge remaining ETH
  *
  * Input is native ETH so we call execDirect (no AllowanceHolder needed —
- * performModularExecution has no _pullFromUser; ETH arrives via msg.value).
+ * performActions has no _pullFromUser; ETH arrives via msg.value).
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/arbitrum/performModularExecution.preFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/arbitrum/performActions.preFee.ts
  */
 import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
@@ -99,13 +99,13 @@ async function main(): Promise<void> {
   exec.nativeCall(ARBITRUM_INBOX, buildDepositEthCalldata(), bridgeValue);
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   // Native ETH input — send directly to the router; no AllowanceHolder needed.
-  console.log('Sending direct router tx → router.performModularExecution...');
+  console.log('Sending direct router tx → router.performActions...');
   const receipt = await execDirect(signer, ROUTER_ETH, callData, inputAmount);
 
-  logTxnSummary('Ethereum ETH → Arbitrum ETH (depositEth direct) — performModularExecution preFee', CHAIN_IDS.ETHEREUM, receipt);
+  logTxnSummary('Ethereum ETH → Arbitrum ETH (depositEth direct) — performActions preFee', CHAIN_IDS.ETHEREUM, receipt);
 
   console.log('\nETH arrives on Arbitrum once the retryable ticket is processed.');
 

@@ -1,6 +1,6 @@
 /**
  * Route:  Arbitrum USDC → ETH (OpenOcean) → Base ETH (Stargate Native ETH Pool)
- * Function: performExecution (monolithic)
+ * Function: swapAndBridge
  * Fee: postFee — FEE_BPS of estimatedOut ETH deducted after swap
  *
  * BRIDGE_VALUE_FLAG set: router forwards finalETH + nativeFeeWithBuffer as msg.value to Stargate.
@@ -33,18 +33,18 @@ import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowance
 import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import {
-  MonolithicExecutionCall,
   BRIDGE_VALUE_FLAG,
-  NO_FEE,
+  POST_FEE_FLAG,
   ZERO_ADDRESS,
   ZERO_BYTES32,
-  monolithicArgs,
   bridgeAmountPositionFlag,
+  swapAndBridgeArgs,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
 
 const ROUTER_ARB = routerAddressForChain(CHAIN_IDS.ARBITRUM);
+const FLAGS = POST_FEE_FLAG | BRIDGE_VALUE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET);
 
 const STARGATE_ABI = [
   'function quoteSend(tuple(uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes extraOptions, bytes composeMsg, bytes oftCmd) sendParam, bool payInLzToken) external view returns (tuple(uint256 nativeFee, uint256 lzTokenFee) messagingFee)',
@@ -101,7 +101,7 @@ async function fetchStargateQuote(
   };
 }
 
-function buildStargateCalldata(nativeFee: bigint, amountLD: bigint, recipient: string): string {
+function buildStargateCalldata(nativeFee: bigint, recipient: string, amountLD: bigint): string {
   return STARGATE_IFACE.encodeFunctionData('send', [
     { dstEid: BASE_LZ_EID, to: ethers.zeroPadValue(recipient, 32), amountLD, minAmountLD: 0n, extraOptions: '0x', composeMsg: '0x', oftCmd: '0x' },
     { nativeFee, lzTokenFee: 0n },
@@ -150,13 +150,16 @@ async function main() {
   await ensureRouterNativeBalance(signer, ROUTER_ARB);
   await ensureRouterApproval(signer, ROUTER_ARB, TOKENS.USDC_ARB, ooRouter);
 
-  const stargateData = buildStargateCalldata(nativeFeeWithBuffer, amountLD, signerAddress);
+  const stargateData = buildStargateCalldata(nativeFeeWithBuffer, signerAddress, amountLD);
 
-  const mono: MonolithicExecutionCall = {
-    exec: {
-      input: { user: signerAddress, inputToken: TOKENS.USDC_ARB, inputAmount },
-      preFee: NO_FEE,
-      swap: {
+  const callData = routerIface.encodeFunctionData(
+    'swapAndBridge',
+    swapAndBridgeArgs(
+      ZERO_BYTES32,
+      FLAGS,
+      { user: signerAddress, inputToken: TOKENS.USDC_ARB, inputAmount },
+      { receiver: signerAddress, amount: feeAmount },
+      {
         target: ooRouter,
         approvalSpender: ooRouter,
         outputToken: NATIVE_TOKEN_ADDRESS,
@@ -164,15 +167,11 @@ async function main() {
         minOutput: minAmountOut,
         returnDataWordOffset: 0n,
       },
-      postFee: { receiver: signerAddress, amount: feeAmount },
-      bridge: { target: STARGATE_NATIVE_ARB, approvalSpender: ZERO_ADDRESS, value: nativeFeeWithBuffer },
-      flags: BRIDGE_VALUE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET),
-    },
-    swapCallData: swapData,
-    bridgeCallData: stargateData,
-  };
-
-  const callData = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
+      swapData,
+      { target: STARGATE_NATIVE_ARB, approvalSpender: ZERO_ADDRESS, value: nativeFeeWithBuffer },
+      stargateData,
+    ),
+  );
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_ARB, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_ARB, TOKENS.USDC_ARB, inputAmount, ROUTER_ARB, callData, nativeFeeWithBuffer);

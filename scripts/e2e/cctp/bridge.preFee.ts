@@ -4,7 +4,7 @@
  * Fee: preFee — FEE_BPS of inputAmount USDC deducted before bridge
  *
  * Bridge amount is pre-encoded in depositForBurn calldata (no splice needed).
- * Uses router.bridge() rather than performExecution / performModularExecution.
+ * Uses router.bridge() rather than performExecution / performActions.
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/cctp/bridge.preFee.ts

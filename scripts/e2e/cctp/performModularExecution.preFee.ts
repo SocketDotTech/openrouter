@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon USDC → Base USDC (CCTP depositForBurn, no swap)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: preFee — FEE_BPS of inputAmount USDC transferred to signer before bridge
  *
  * Modular action sequence:
@@ -11,7 +11,7 @@
  *   [4] tokenMessenger.depositForBurn(...)  — spliceArg(0) patches amount from [3]
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/cctp/performModularExecution.preFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/cctp/performActions.preFee.ts
  */
 import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
@@ -97,13 +97,13 @@ async function main() {
   const usdcBalance = exec.staticCall(TOKENS.USDC_POLYGON_CIRCLE, encodeBalanceOf(ROUTER_POLYGON));
   exec.call(polyCctp.tokenMessenger, depositForBurnData).spliceArg(0, usdcBalance.returnWord());
 
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_POLYGON_CIRCLE, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, inputAmount, ROUTER_POLYGON, callData);
 
   logTxnSummary(
-    'Polygon USDC → Base USDC (CCTP) — performModularExecution preFee',
+    'Polygon USDC → Base USDC (CCTP) — performActions preFee',
     CHAIN_IDS.POLYGON,
     receipt,
   );

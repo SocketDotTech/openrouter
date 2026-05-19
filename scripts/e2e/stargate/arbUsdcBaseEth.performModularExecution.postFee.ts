@@ -1,6 +1,6 @@
 /**
  * Route:  Arbitrum USDC → ETH (OpenOcean) → Base ETH (Stargate Native ETH Pool)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: postFee — FEE_BPS of estimatedOut ETH sent to signer after swap
  *
  * Modular action sequence:
@@ -14,7 +14,7 @@
  * bridgeValue = minAmountOut - feeAmount (amountLD + nativeFeeWithBuffer).
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/arbUsdcBaseEth.performModularExecution.postFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/arbUsdcBaseEth.performActions.postFee.ts
  */
 import axios from 'axios';
 import { ethers } from 'ethers';
@@ -161,13 +161,13 @@ async function main() {
   exec.nativeCall(signerAddress, '0x', feeAmount);
   exec.nativeCall(STARGATE_NATIVE_ARB, stargateData, bridgeValue);
 
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_ARB, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_ARB, TOKENS.USDC_ARB, inputAmount, ROUTER_ARB, callData, nativeFeeWithBuffer);
 
   logTxnSummary(
-    'Arbitrum USDC → ETH (OO) → Base ETH (Stargate native) — performModularExecution postFee',
+    'Arbitrum USDC → ETH (OO) → Base ETH (Stargate native) — performActions postFee',
     CHAIN_IDS.ARBITRUM,
     receipt,
   );

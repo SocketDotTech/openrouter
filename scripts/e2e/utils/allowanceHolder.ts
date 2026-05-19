@@ -114,11 +114,11 @@ export async function execViaAH(
  * AllowanceHolder. Use this when the input token is native ETH/POL — the router's
  * `_pullFromUser` path for native tokens only checks `msg.value >= amount` and does
  * NOT enforce `_msgSender() == user` nor call `AH.transferFrom`. For modular
- * execution (`performModularExecution`) there is no `_pullFromUser` at all.
+ * execution (`performActions`) there is no `_pullFromUser` at all.
  *
  * @param signer    - EOA signing and paying for the tx
  * @param target    - Router contract address
- * @param callData  - Encoded `performExecution` or `performModularExecution` calldata
+ * @param callData  - Encoded router entrypoint calldata (`swap`, `bridge`, `performActions`, etc.)
  * @param txValue   - ETH to forward (inputAmount + nativeFeeWithBuffer for native input)
  */
 export async function execDirect(

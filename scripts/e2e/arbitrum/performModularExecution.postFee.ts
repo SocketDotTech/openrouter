@@ -1,6 +1,6 @@
 /**
  * Route:  Ethereum AAVE → ETH (OpenOcean) → Arbitrum ETH (inbox depositEth)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: postFee — FEE_BPS of estimatedOut ETH sent to signer after swap
  *
  * Modular action sequence:
@@ -13,7 +13,7 @@
  * Input is AAVE (ERC-20) so AllowanceHolder.exec is required.
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/arbitrum/performModularExecution.postFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/arbitrum/performActions.postFee.ts
  */
 import axios from 'axios';
 import { ethers } from 'ethers';
@@ -145,13 +145,13 @@ async function main() {
   exec.nativeCall(signerAddress, '0x', feeAmount);
   exec.nativeCall(ARBITRUM_INBOX, buildDepositEthCalldata(), bridgeValue);
 
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.AAVE_ETH, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_ETH, TOKENS.AAVE_ETH, inputAmount, ROUTER_ETH, callData, 0n);
 
   logTxnSummary(
-    'Ethereum AAVE → Arbitrum ETH (depositEth) — performModularExecution postFee',
+    'Ethereum AAVE → Arbitrum ETH (depositEth) — performActions postFee',
     CHAIN_IDS.ETHEREUM,
     receipt,
   );

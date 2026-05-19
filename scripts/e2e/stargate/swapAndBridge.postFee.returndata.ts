@@ -41,6 +41,7 @@ import {
   BRIDGE_VALUE_FLAG,
   ZERO_ADDRESS,
   bridgeAmountPositionFlag,
+  swapAndBridgeArgs,
 } from "../utils/contractTypes";
 import { STARGATE_AMOUNT_LD_OFFSET } from "../config";
 import { logTxnSummary } from "../utils/txnLogSummary";
@@ -210,14 +211,14 @@ async function main() {
     amountLD
   );
 
-  const callData = routerIface.encodeFunctionData("swapAndBridge", [
+  const callData = routerIface.encodeFunctionData("swapAndBridge", swapAndBridgeArgs(
     ZERO_BYTES32,
+    FLAGS,
     {
       user: signerAddress,
       inputToken: TOKENS.USDC_BASE,
       inputAmount: inputAmount,
     },
-    FLAGS,
     { receiver: signerAddress, amount: feeAmount },
     {
       target: ooRouter,
@@ -234,7 +235,7 @@ async function main() {
       value: nativeFeeWithBuffer,
     },
     stargateData,
-  ]);
+  ));
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_BASE, inputAmount);
   const receipt = await execViaAH(
