@@ -15,48 +15,85 @@ contract BungeeOpenRouterV2UncheckedSwapAndBridgeTest is BungeeOpenRouterV2Unche
         address input;
         address output;
         FeeMode feeMode;
+        bool balanceDelta;
         uint256 swapInput;
         uint256 bridgeAmount;
     }
 
     function test_swapAndBridge_noFee_erc20ToNative() public {
-        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.None);
+        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.None, false);
     }
 
     function test_swapAndBridge_noFee_nativeToErc20() public {
-        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.None);
+        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.None, false);
     }
 
     function test_swapAndBridge_noFee_erc20ToErc20() public {
-        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.None);
+        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.None, false);
     }
 
     function test_swapAndBridge_prefee_erc20ToNative() public {
-        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.Pre);
+        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.Pre, false);
     }
 
     function test_swapAndBridge_prefee_nativeToErc20() public {
-        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.Pre);
+        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.Pre, false);
     }
 
     function test_swapAndBridge_prefee_erc20ToErc20() public {
-        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.Pre);
+        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.Pre, false);
     }
 
     function test_swapAndBridge_postfee_erc20ToNative() public {
-        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.Post);
+        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.Post, false);
     }
 
     function test_swapAndBridge_postfee_nativeToErc20() public {
-        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.Post);
+        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.Post, false);
     }
 
     function test_swapAndBridge_postfee_erc20ToErc20() public {
-        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.Post);
+        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.Post, false);
     }
 
-    function _runSwapAndBridge(address input, address output, FeeMode feeMode) internal {
-        Scenario memory scenario = _scenario(input, output, feeMode);
+    function test_swapAndBridge_balanceDelta_noFee_erc20ToNative() public {
+        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.None, true);
+    }
+
+    function test_swapAndBridge_balanceDelta_noFee_nativeToErc20() public {
+        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.None, true);
+    }
+
+    function test_swapAndBridge_balanceDelta_noFee_erc20ToErc20() public {
+        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.None, true);
+    }
+
+    function test_swapAndBridge_balanceDelta_prefee_erc20ToNative() public {
+        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.Pre, true);
+    }
+
+    function test_swapAndBridge_balanceDelta_prefee_nativeToErc20() public {
+        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.Pre, true);
+    }
+
+    function test_swapAndBridge_balanceDelta_prefee_erc20ToErc20() public {
+        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.Pre, true);
+    }
+
+    function test_swapAndBridge_balanceDelta_postfee_erc20ToNative() public {
+        _runSwapAndBridge(address(inputToken), NATIVE_TOKEN, FeeMode.Post, true);
+    }
+
+    function test_swapAndBridge_balanceDelta_postfee_nativeToErc20() public {
+        _runSwapAndBridge(NATIVE_TOKEN, address(outputToken), FeeMode.Post, true);
+    }
+
+    function test_swapAndBridge_balanceDelta_postfee_erc20ToErc20() public {
+        _runSwapAndBridge(address(inputToken), address(outputToken), FeeMode.Post, true);
+    }
+
+    function _runSwapAndBridge(address input, address output, FeeMode feeMode, bool balanceDelta) internal {
+        Scenario memory scenario = _scenario(input, output, feeMode, balanceDelta);
 
         _fundSwapAndBridge(scenario.input, scenario.output);
         if (scenario.input != NATIVE_TOKEN) _approveInputToken(INPUT_AMOUNT);
@@ -71,7 +108,7 @@ contract BungeeOpenRouterV2UncheckedSwapAndBridgeTest is BungeeOpenRouterV2Unche
         assertEq(bridgeTarget.receivedAmount(), scenario.bridgeAmount);
     }
 
-    function _scenario(address input, address output, FeeMode feeMode)
+    function _scenario(address input, address output, FeeMode feeMode, bool balanceDelta)
         internal
         pure
         returns (Scenario memory scenario)
@@ -79,6 +116,7 @@ contract BungeeOpenRouterV2UncheckedSwapAndBridgeTest is BungeeOpenRouterV2Unche
         scenario.input = input;
         scenario.output = output;
         scenario.feeMode = feeMode;
+        scenario.balanceDelta = balanceDelta;
         scenario.swapInput = _swapInput(feeMode);
         scenario.bridgeAmount = _bridgeAmount(feeMode);
     }
@@ -98,7 +136,7 @@ contract BungeeOpenRouterV2UncheckedSwapAndBridgeTest is BungeeOpenRouterV2Unche
             (
                 keccak256("swap-and-bridge"),
                 Router.InputData({user: USER, inputToken: scenario.input, inputAmount: INPUT_AMOUNT}),
-                _flags(scenario.output, scenario.feeMode),
+                _flags(scenario.output, scenario.feeMode, scenario.balanceDelta),
                 _fee(scenario.feeMode),
                 _swapDataWithValue(
                     scenario.input,
@@ -106,13 +144,20 @@ contract BungeeOpenRouterV2UncheckedSwapAndBridgeTest is BungeeOpenRouterV2Unche
                     SWAP_OUTPUT_AMOUNT,
                     scenario.input == NATIVE_TOKEN ? scenario.swapInput : 0
                 ),
-                _swapNoReturnCallData(
-                    scenario.input, scenario.output, scenario.swapInput, SWAP_OUTPUT_AMOUNT, address(router)
-                ),
+                _swapCallData(scenario),
                 _bridgeData(scenario.output, 0),
                 _bridgeCallData(scenario.output, 0)
             )
         );
+    }
+
+    function _swapCallData(Scenario memory scenario) internal view returns (bytes memory) {
+        if (scenario.balanceDelta) {
+            return _swapNoReturnCallData(
+                scenario.input, scenario.output, scenario.swapInput, SWAP_OUTPUT_AMOUNT, address(router)
+            );
+        }
+        return _swapCallData(scenario.input, scenario.output, scenario.swapInput, SWAP_OUTPUT_AMOUNT, address(router));
     }
 
     function _fundSwapAndBridge(address input, address output) internal {
@@ -148,8 +193,8 @@ contract BungeeOpenRouterV2UncheckedSwapAndBridgeTest is BungeeOpenRouterV2Unche
         return feeMode == FeeMode.Post ? SWAP_OUTPUT_AMOUNT - FEE_AMOUNT : SWAP_OUTPUT_AMOUNT;
     }
 
-    function _flags(address output, FeeMode feeMode) internal pure returns (uint256) {
-        uint256 flags = BALANCE_FLAG_BIT_MASK;
+    function _flags(address output, FeeMode feeMode, bool balanceDelta) internal pure returns (uint256) {
+        uint256 flags = balanceDelta ? BALANCE_FLAG_BIT_MASK : 0;
         if (output == NATIVE_TOKEN) flags |= BRIDGE_VALUE_FLAG_BIT_MASK;
         if (feeMode == FeeMode.Post) flags |= FEE_FLAG_BIT_MASK;
         return _bridgeAmountSpliceFlags(flags);
