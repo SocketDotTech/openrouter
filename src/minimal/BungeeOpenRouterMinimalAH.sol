@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 import {BungeeOpenRouterMinimal} from "./BungeeOpenRouterMinimal.sol";
 import {AllowanceHolderContext} from "../common/allowance/AllowanceHolderContext.sol";

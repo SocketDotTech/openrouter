@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 /// @title BytesSpliceLib
 /// @notice Generalisation of the in-place calldata patching used in
