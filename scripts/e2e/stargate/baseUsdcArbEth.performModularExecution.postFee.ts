@@ -33,12 +33,13 @@ import {
   ARBITRUM_LZ_EID,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
-import { encodeApprove, getWalletErc20Balance } from '../utils/erc20';
+import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import { ModularActionsBuilder } from '../utils/modularActionsBuilder/index';
 import { ZERO_BYTES32 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance, ensureRouterNativeBalance } from '../utils/reproducibility';
+import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_BASE = routerAddressForChain(CHAIN_IDS.BASE);
 
@@ -143,7 +144,6 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_BASE, ROUTER_BASE);
   await ensureRouterNativeBalance(signer, ROUTER_BASE);
-  await ensureRouterApproval(signer, ROUTER_BASE, TOKENS.USDC_BASE, ooRouter);
 
   const stargateData = buildStargateCalldata(nativeFeeWithBuffer, amountLD, signerAddress);
 
@@ -152,7 +152,7 @@ async function main() {
   ]);
   const exec = new ModularActionsBuilder();
   exec.call(ALLOWANCE_HOLDER, ahIface.encodeFunctionData('transferFrom', [TOKENS.USDC_BASE, signerAddress, ROUTER_BASE, inputAmount]));
-  exec.call(TOKENS.USDC_BASE, encodeApprove(ooRouter, inputAmount));
+  await modularApproveIfNeeded(exec, provider, ROUTER_BASE, TOKENS.USDC_BASE, ooRouter, inputAmount, inputAmount);
   exec.call(ooRouter, swapData);
   exec.nativeCall(signerAddress, '0x', feeAmount);
   exec.nativeCall(STARGATE_NATIVE_BASE, stargateData, bridgeValue);

@@ -37,8 +37,8 @@ import { ZERO_BYTES32, bridgeAmountPositionFlag, swapAndBridgeArgs } from "../ut
 import { logTxnSummary } from "../utils/txnLogSummary";
 import {
   ensureRouterErc20Balance,
-  ensureRouterApproval,
-} from "../utils/reproducibility";
+} from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 // post-fee (0x01) | balance-of (0x02) | bridge amount at byte offset 196 (sendParam.amountLD)
 const FLAGS = 0x03n | bridgeAmountPositionFlag(196);
@@ -191,17 +191,20 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.AAVE_POLYGON, ROUTER_POLYGON);
   await ensureRouterErc20Balance(signer, TOKENS.USDT0_POLYGON, ROUTER_POLYGON);
-  await ensureRouterApproval(
-    signer,
+
+  const swapApprovalSpender = await resolveApprovalSpender(
+    provider,
     ROUTER_POLYGON,
     TOKENS.AAVE_POLYGON,
-    ooRouter
+    ooRouter,
+    inputAmount,
   );
-  await ensureRouterApproval(
-    signer,
+  const bridgeApprovalSpender = await resolveApprovalSpender(
+    provider,
     ROUTER_POLYGON,
     TOKENS.USDT0_POLYGON,
-    USDT0_OFT_ADAPTER_POLYGON
+    USDT0_OFT_ADAPTER_POLYGON,
+    bridgeAmount,
   );
 
   const oftSendData = buildOftSendCalldata(nativeFeeWithBuffer, signerAddress);
@@ -217,7 +220,7 @@ async function main() {
     { receiver: signerAddress, amount: feeAmount },
     {
       target: ooRouter,
-      approvalSpender: ooRouter,
+      approvalSpender: swapApprovalSpender,
       outputToken: TOKENS.USDT0_POLYGON,
       value: 0n,
       minOutput: minAmountOut,
@@ -226,7 +229,7 @@ async function main() {
     swapData,
     {
       target: USDT0_OFT_ADAPTER_POLYGON,
-      approvalSpender: USDT0_OFT_ADAPTER_POLYGON,
+      approvalSpender: bridgeApprovalSpender,
       value: nativeFeeWithBuffer,
     },
     oftSendData,

@@ -41,7 +41,8 @@ import {
   swapAndBridgeArgs,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance, ensureRouterNativeBalance } from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 const ROUTER_ARB = routerAddressForChain(CHAIN_IDS.ARBITRUM);
 const FLAGS = POST_FEE_FLAG | BRIDGE_VALUE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET);
@@ -148,7 +149,14 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_ARB, ROUTER_ARB);
   await ensureRouterNativeBalance(signer, ROUTER_ARB);
-  await ensureRouterApproval(signer, ROUTER_ARB, TOKENS.USDC_ARB, ooRouter);
+
+  const swapApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_ARB,
+    TOKENS.USDC_ARB,
+    ooRouter,
+    inputAmount,
+  );
 
   const stargateData = buildStargateCalldata(nativeFeeWithBuffer, signerAddress, amountLD);
 
@@ -161,7 +169,7 @@ async function main() {
       { receiver: signerAddress, amount: feeAmount },
       {
         target: ooRouter,
-        approvalSpender: ooRouter,
+        approvalSpender: swapApprovalSpender,
         outputToken: NATIVE_TOKEN_ADDRESS,
         value: 0n,
         minOutput: minAmountOut,

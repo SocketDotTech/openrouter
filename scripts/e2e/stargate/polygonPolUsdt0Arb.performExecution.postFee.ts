@@ -42,7 +42,8 @@ import {
   swapAndBridgeArgs,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance, ensureRouterNativeBalance } from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 const FLAGS = POST_FEE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET);
@@ -182,7 +183,14 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.USDT0_POLYGON, ROUTER_POLYGON);
   await ensureRouterNativeBalance(signer, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDT0_POLYGON, USDT0_OFT_ADAPTER_POLYGON);
+
+  const bridgeApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_POLYGON,
+    TOKENS.USDT0_POLYGON,
+    USDT0_OFT_ADAPTER_POLYGON,
+    estimatedBridgeAmount,
+  );
 
   const rawOoWei = nativeSwapWei > 0n ? nativeSwapWei : inputAmountWei;
   const polOrEthToOo = rawOoWei <= inputAmountWei ? rawOoWei : inputAmountWei;
@@ -206,7 +214,7 @@ async function main() {
         returnDataWordOffset: 0n,
       },
       swapData,
-      { target: USDT0_OFT_ADAPTER_POLYGON, approvalSpender: USDT0_OFT_ADAPTER_POLYGON, value: nativeFeeWithBuffer },
+      { target: USDT0_OFT_ADAPTER_POLYGON, approvalSpender: bridgeApprovalSpender, value: nativeFeeWithBuffer },
       oftSendData,
     ),
   );

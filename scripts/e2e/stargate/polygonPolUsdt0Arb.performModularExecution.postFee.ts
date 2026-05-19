@@ -36,12 +36,13 @@ import {
   STARGATE_AMOUNT_LD_OFFSET,
 } from '../config';
 import { execViaAH } from '../utils/allowanceHolder';
-import { encodeApprove, encodeTransfer, encodeBalanceOf } from '../utils/erc20';
+import { encodeTransfer, encodeBalanceOf } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import { ModularActionsBuilder } from '../utils/modularActionsBuilder/index';
 import { ZERO_BYTES32 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance, ensureRouterNativeBalance } from '../utils/reproducibility';
+import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 const LZ_EXTRA_OPTIONS = Options.newOptions().addExecutorLzReceiveOption(65000, 0).toHex();
@@ -176,7 +177,6 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.USDT0_POLYGON, ROUTER_POLYGON);
   await ensureRouterNativeBalance(signer, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDT0_POLYGON, USDT0_OFT_ADAPTER_POLYGON);
 
   const rawOoWei = nativeSwapWei > 0n ? nativeSwapWei : inputAmountWei;
   const polOrEthToOo = rawOoWei <= inputAmountWei ? rawOoWei : inputAmountWei;
@@ -186,7 +186,15 @@ async function main() {
   const exec = new ModularActionsBuilder();
   exec.nativeCall(ooRouter, swapData, polOrEthToOo);
   exec.call(TOKENS.USDT0_POLYGON, encodeTransfer(signerAddress, feeAmount));
-  exec.call(TOKENS.USDT0_POLYGON, encodeApprove(USDT0_OFT_ADAPTER_POLYGON, ethers.MaxUint256));
+  await modularApproveIfNeeded(
+    exec,
+    provider,
+    ROUTER_POLYGON,
+    TOKENS.USDT0_POLYGON,
+    USDT0_OFT_ADAPTER_POLYGON,
+    estimatedBridgeAmount,
+    ethers.MaxUint256,
+  );
   const usdt0Balance = exec.staticCall(TOKENS.USDT0_POLYGON, encodeBalanceOf(ROUTER_POLYGON));
   exec.nativeCall(USDT0_OFT_ADAPTER_POLYGON, oftSendData, nativeFeeWithBuffer)
     .splicePayloadWord(BigInt(STARGATE_AMOUNT_LD_OFFSET), usdt0Balance.returnWord());

@@ -7,10 +7,9 @@
  * Before each test leg these ensure:
  *   1. The router holds ≥ 20 wei of every token whose balance slot will be written.
  *
- * Router→spender ERC-20 approvals are NOT pre-seeded here. `BungeeOpenRouter`
- * sets max allowance inside `swap`, `bridge`, and `swapAndBridge` when needed.
- * Modular `performActions` legs may still include inline `approve` actions in the
- * same transaction when testing raw modular flows.
+ * Router→spender approvals are handled per-script via `routerAllowance.ts` (check allowance,
+ * then set `approvalSpender` or modular `approve` only when insufficient). The contract also
+ * approves inside `swap` / `bridge` / `swapAndBridge` when `approvalSpender` is non-zero.
  *
  * Seeding balance slots to non-zero means subsequent SSTORE writes cost ~2 900 gas
  * (non-zero → non-zero) rather than ~20 000 gas (zero → non-zero), giving
@@ -64,19 +63,4 @@ export async function ensureRouterNativeBalance(
   );
   const tx = await signer.sendTransaction({ to: openRouter, value: SEED_WEI });
   await tx.wait();
-}
-
-/**
- * No-op: router→spender approvals are handled by the contract on `swap` /
- * `bridge` / `swapAndBridge`. Kept so existing e2e scripts do not need rewrites.
- *
- * @deprecated Pre-approval via a separate `performActions` tx is intentionally disabled.
- */
-export async function ensureRouterApproval(
-  _signer: ethers.Wallet,
-  _openRouterAddress: string,
-  _token: string,
-  _spender: string,
-): Promise<void> {
-  // Intentionally empty — see module header.
 }

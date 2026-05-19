@@ -32,7 +32,8 @@ import {
   swapAndBridgeArgs,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance } from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 const FLAGS = POST_FEE_FLAG | bridgeAmountPositionFlag(4);
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
@@ -121,8 +122,21 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.AAVE_POLYGON, ROUTER_POLYGON);
   await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, ooRouter);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, polyCctp.tokenMessenger);
+
+  const swapApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_POLYGON,
+    TOKENS.AAVE_POLYGON,
+    ooRouter,
+    inputAmount,
+  );
+  const bridgeApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_POLYGON,
+    TOKENS.USDC_POLYGON_CIRCLE,
+    polyCctp.tokenMessenger,
+    estimatedOut - feeAmount,
+  );
 
   const callData = routerIface.encodeFunctionData(
     'swapAndBridge',
@@ -133,14 +147,14 @@ async function main() {
       { receiver: signerAddress, amount: feeAmount },
       {
         target: ooRouter,
-        approvalSpender: ooRouter,
+        approvalSpender: swapApprovalSpender,
         outputToken: TOKENS.USDC_POLYGON_CIRCLE,
         value: 0n,
         minOutput: minAmountOut,
         returnDataWordOffset: 0n,
       },
       swapData,
-      { target: polyCctp.tokenMessenger, approvalSpender: polyCctp.tokenMessenger, value: 0n },
+      { target: polyCctp.tokenMessenger, approvalSpender: bridgeApprovalSpender, value: 0n },
       depositForBurnData,
     ),
   );

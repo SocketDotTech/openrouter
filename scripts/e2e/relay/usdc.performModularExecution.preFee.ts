@@ -26,13 +26,14 @@ import {
   ALLOWANCE_HOLDER,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
-import { encodeApprove, encodeTransfer, getWalletErc20Balance } from '../utils/erc20';
+import { encodeTransfer, getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import { ModularActionsBuilder } from '../utils/modularActionsBuilder/index';
 import { ZERO_BYTES32 } from '../utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from '../utils/relayLinkQuote';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance } from '../utils/reproducibility';
+import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
@@ -79,7 +80,6 @@ async function main(): Promise<void> {
   console.log(`Deposit target:  ${depositTarget}`);
 
   await ensureRouterErc20Balance(signer, inputToken, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, inputToken, relaySpender);
 
   const ahIface = new ethers.Interface([
     'function transferFrom(address token, address owner, address recipient, uint256 amount)',
@@ -87,7 +87,7 @@ async function main(): Promise<void> {
   const exec = new ModularActionsBuilder();
   exec.call(ALLOWANCE_HOLDER, ahIface.encodeFunctionData('transferFrom', [inputToken, signerAddress, ROUTER_POLYGON, inputAmount]));
   exec.call(inputToken, encodeTransfer(signerAddress, feeAmount));
-  exec.call(inputToken, encodeApprove(relaySpender, bridgeAmount));
+  await modularApproveIfNeeded(exec, provider, ROUTER_POLYGON, inputToken, relaySpender, bridgeAmount, bridgeAmount);
   exec.call(depositTarget, depositData);
 
   const routerIface = new ethers.Interface(ROUTER_ABI);

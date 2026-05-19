@@ -34,12 +34,13 @@ import {
   NATIVE_TOKEN_ADDRESS,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
-import { encodeApprove, getWalletErc20Balance } from '../utils/erc20';
+import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import { ModularActionsBuilder } from '../utils/modularActionsBuilder/index';
 import { ZERO_BYTES32 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance, ensureRouterNativeBalance } from '../utils/reproducibility';
+import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_ETH = routerAddressForChain(CHAIN_IDS.ETHEREUM);
 
@@ -133,14 +134,13 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.AAVE_ETH, ROUTER_ETH);
   await ensureRouterNativeBalance(signer, ROUTER_ETH);
-  await ensureRouterApproval(signer, ROUTER_ETH, TOKENS.AAVE_ETH, ooRouter);
 
   const ahIface = new ethers.Interface([
     'function transferFrom(address token, address owner, address recipient, uint256 amount)',
   ]);
   const exec = new ModularActionsBuilder();
   exec.call(ALLOWANCE_HOLDER, ahIface.encodeFunctionData('transferFrom', [TOKENS.AAVE_ETH, signerAddress, ROUTER_ETH, inputAmount]));
-  exec.call(TOKENS.AAVE_ETH, encodeApprove(ooRouter, inputAmount));
+  await modularApproveIfNeeded(exec, provider, ROUTER_ETH, TOKENS.AAVE_ETH, ooRouter, inputAmount, inputAmount);
   exec.call(ooRouter, swapData);
   exec.nativeCall(signerAddress, '0x', feeAmount);
   exec.nativeCall(ARBITRUM_INBOX, buildDepositEthCalldata(), bridgeValue);

@@ -24,7 +24,8 @@ import { ROUTER_ABI } from '../utils/routerAbi';
 import { ZERO_BYTES32, bridgeArgs, type BridgeData, type FeeData, type InputData } from '../utils/contractTypes';
 import { fetchRelayQuoteV2, parseRelayQuote } from '../utils/relayLinkQuote';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance } from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
@@ -71,11 +72,18 @@ async function main(): Promise<void> {
   console.log(`Deposit target:  ${depositTarget}`);
 
   await ensureRouterErc20Balance(signer, inputToken, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, inputToken, relaySpender);
 
   const input: InputData = { user: signerAddress, inputToken, inputAmount };
   const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
-  const bridgeData: BridgeData = { target: depositTarget, approvalSpender: relaySpender, value: 0n };
+  const bridgeApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_POLYGON,
+    inputToken,
+    relaySpender,
+    bridgeAmount,
+  );
+
+  const bridgeData: BridgeData = { target: depositTarget, approvalSpender: bridgeApprovalSpender, value: 0n };
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
   const execCalldata = routerIface.encodeFunctionData('bridge', bridgeArgs(ZERO_BYTES32, input, fee, bridgeData, depositData));

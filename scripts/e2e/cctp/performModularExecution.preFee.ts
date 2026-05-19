@@ -28,12 +28,13 @@ import {
   ALLOWANCE_HOLDER,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
-import { encodeApprove, encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from '../utils/erc20';
+import { encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import { ModularActionsBuilder } from '../utils/modularActionsBuilder/index';
 import { ZERO_BYTES32 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance } from '../utils/reproducibility';
+import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
@@ -71,6 +72,7 @@ async function main() {
   if (inputAmount === 0n) throw new Error('Balance too small');
 
   const feeAmount = bpsOf(inputAmount, FEE_BPS);
+  const bridgeAmount = inputAmount - feeAmount;
 
   console.log(`Signer:        ${signerAddress}`);
   console.log(`Router:        ${ROUTER_POLYGON}`);
@@ -85,7 +87,6 @@ async function main() {
   const depositForBurnData = buildDepositForBurnCalldata(signerAddress, polyCctp.usdcAddress, baseCctp.cctpDomain);
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, polyCctp.tokenMessenger);
 
   const ahIface = new ethers.Interface([
     'function transferFrom(address token, address owner, address recipient, uint256 amount)',
@@ -93,7 +94,15 @@ async function main() {
   const exec = new ModularActionsBuilder();
   exec.call(ALLOWANCE_HOLDER, ahIface.encodeFunctionData('transferFrom', [TOKENS.USDC_POLYGON_CIRCLE, signerAddress, ROUTER_POLYGON, inputAmount]));
   exec.call(TOKENS.USDC_POLYGON_CIRCLE, encodeTransfer(signerAddress, feeAmount));
-  exec.call(TOKENS.USDC_POLYGON_CIRCLE, encodeApprove(polyCctp.tokenMessenger, ethers.MaxUint256));
+  await modularApproveIfNeeded(
+    exec,
+    provider,
+    ROUTER_POLYGON,
+    TOKENS.USDC_POLYGON_CIRCLE,
+    polyCctp.tokenMessenger,
+    bridgeAmount,
+    ethers.MaxUint256,
+  );
   const usdcBalance = exec.staticCall(TOKENS.USDC_POLYGON_CIRCLE, encodeBalanceOf(ROUTER_POLYGON));
   exec.call(polyCctp.tokenMessenger, depositForBurnData).spliceArg(0, usdcBalance.returnWord());
 

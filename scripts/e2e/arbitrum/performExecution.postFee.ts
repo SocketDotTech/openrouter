@@ -36,7 +36,8 @@ import {
   swapAndBridgeArgs,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance, ensureRouterNativeBalance } from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 const FLAGS = POST_FEE_FLAG | BRIDGE_VALUE_FLAG;
 const ROUTER_ETH = routerAddressForChain(CHAIN_IDS.ETHEREUM);
@@ -108,7 +109,14 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.AAVE_ETH, ROUTER_ETH);
   await ensureRouterNativeBalance(signer, ROUTER_ETH);
-  await ensureRouterApproval(signer, ROUTER_ETH, TOKENS.AAVE_ETH, ooRouter);
+
+  const swapApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_ETH,
+    TOKENS.AAVE_ETH,
+    ooRouter,
+    inputAmount,
+  );
 
   const callData = routerIface.encodeFunctionData(
     'swapAndBridge',
@@ -119,7 +127,7 @@ async function main() {
       { receiver: signerAddress, amount: feeAmount },
       {
         target: ooRouter,
-        approvalSpender: ooRouter,
+        approvalSpender: swapApprovalSpender,
         outputToken: NATIVE_TOKEN_ADDRESS,
         value: 0n,
         minOutput: minAmountOut,

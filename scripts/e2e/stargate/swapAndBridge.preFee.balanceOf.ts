@@ -48,8 +48,8 @@ import { logTxnSummary } from "../utils/txnLogSummary";
 import {
   ensureRouterErc20Balance,
   ensureRouterNativeBalance,
-  ensureRouterApproval,
-} from "../utils/reproducibility";
+} from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 // pre-fee (0x00) | balance-of (0x02) | bridge-value (0x04) | bridge-amount-position (0x08 + offset)
 const FLAGS = 0x02n | BRIDGE_VALUE_FLAG | bridgeAmountPositionFlag(STARGATE_AMOUNT_LD_OFFSET);
@@ -202,7 +202,14 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_BASE, ROUTER_BASE);
   await ensureRouterNativeBalance(signer, ROUTER_BASE);
-  await ensureRouterApproval(signer, ROUTER_BASE, TOKENS.USDC_BASE, ooRouter);
+
+  const swapApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_BASE,
+    TOKENS.USDC_BASE,
+    ooRouter,
+    swapInput,
+  );
 
   const stargateData = buildStargateCalldata(
     nativeFeeWithBuffer,
@@ -221,7 +228,7 @@ async function main() {
     { receiver: signerAddress, amount: feeAmount },
     {
       target: ooRouter,
-      approvalSpender: ooRouter,
+      approvalSpender: swapApprovalSpender,
       outputToken: NATIVE_TOKEN_ADDRESS,
       value: 0n,
       minOutput: minAmountOut,
