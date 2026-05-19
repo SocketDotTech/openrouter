@@ -67,7 +67,7 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         uint256 spokePoolWethBefore = ERC20(ARBITRUM_WETH).balanceOf(ACROSS_ARBITRUM_SPOKE_POOL);
 
         uint256 gasBeforeExecute = gasleft();
-        bytes[] memory results = router.performModularExecution(actions);
+        bytes[] memory results = router.performModularExecution(keccak256("open-ocean-across-modular"), actions);
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
         emit log_named_uint("router.performModularExecution gas used", executeGasUsed);
 

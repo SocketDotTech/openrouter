@@ -84,7 +84,7 @@ contract OneInchCctpOpenRouterPoCTest is Test {
             POLYGON_AAVE,
             inputAmount,
             payable(address(router)),
-            abi.encodeCall(router.performModularExecution, (actions))
+            abi.encodeCall(router.performModularExecution, (keccak256("one-inch-cctp-modular"), actions))
         );
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
         emit log_named_uint("AllowanceHolder.exec -> router.performModularExecution gas used", executeGasUsed);
@@ -119,20 +119,15 @@ contract OneInchCctpOpenRouterPoCTest is Test {
         uint256 feeRecipientUsdcBefore = ERC20(POLYGON_USDC).balanceOf(FEE_RECIPIENT);
         uint256 usdcSupplyBefore = ERC20(POLYGON_USDC).totalSupply();
 
-        (Router.MonolithicExecution memory exec, bytes memory swapCallData, bytes memory bridgeCallData) =
-            _buildMonolithicExecution(inputAmount, vm.parseBytes(ONEINCH_SWAP_CALLDATA));
+        bytes memory routerCallData = _swapAndBridgeCallData(inputAmount, vm.parseBytes(ONEINCH_SWAP_CALLDATA));
 
         vm.prank(FIXTURE_RECIPIENT);
         uint256 gasBeforeExecute = gasleft();
         IAllowanceHolder(address(ALLOWANCE_HOLDER)).exec(
-            address(router),
-            POLYGON_AAVE,
-            inputAmount,
-            payable(address(router)),
-            abi.encodeCall(router.performExecution, (exec, swapCallData, bridgeCallData))
+            address(router), POLYGON_AAVE, inputAmount, payable(address(router)), routerCallData
         );
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
-        emit log_named_uint("AllowanceHolder.exec -> router.performExecution gas used", executeGasUsed);
+        emit log_named_uint("AllowanceHolder.exec -> router.swapAndBridge gas used", executeGasUsed);
 
         _assertMonolithicPocResult(router, feeRecipientUsdcBefore, usdcSupplyBefore);
     }
@@ -236,18 +231,18 @@ contract OneInchCctpOpenRouterPoCTest is Test {
         );
     }
 
-    function _buildMonolithicExecution(uint256 inputAmount, bytes memory swapCalldata)
+    function _swapAndBridgeCallData(uint256 inputAmount, bytes memory swapCalldata)
         internal
         pure
-        returns (Router.MonolithicExecution memory exec, bytes memory swapCallData, bytes memory bridgeCallData)
+        returns (bytes memory)
     {
-        swapCallData = swapCalldata;
-        bridgeCallData = _emptyDepositForBurnCalldata();
-
-        exec = Router.MonolithicExecution({
-            input: Router.InputData({user: FIXTURE_RECIPIENT, inputToken: POLYGON_AAVE, inputAmount: inputAmount}),
-            preFee: Router.FeeData({receiver: address(0), amount: 0}),
-            swap: Router.SwapData({
+        return abi.encodeWithSelector(
+            Router.swapAndBridge.selector,
+            keccak256("one-inch-cctp-swap-and-bridge"),
+            Router.InputData({user: FIXTURE_RECIPIENT, inputToken: POLYGON_AAVE, inputAmount: inputAmount}),
+            uint256(0x01 | 0x08 | (uint256(4) << 16)),
+            Router.FeeData({receiver: FEE_RECIPIENT, amount: ROUTE_FEE_USDC}),
+            Router.SwapData({
                 target: ONEINCH_SWAP_TARGET,
                 approvalSpender: ONEINCH_SWAP_TARGET,
                 outputToken: POLYGON_USDC,
@@ -255,10 +250,10 @@ contract OneInchCctpOpenRouterPoCTest is Test {
                 minOutput: EXPECTED_SWAP_OUTPUT_USDC,
                 returnDataWordOffset: 0
             }),
-            postFee: Router.FeeData({receiver: FEE_RECIPIENT, amount: ROUTE_FEE_USDC}),
-            bridge: Router.BridgeData({target: CCTP_TOKEN_MESSENGER_V2, approvalSpender: CCTP_TOKEN_MESSENGER_V2, value: 0}),
-            flags: 0x08 | (uint256(4) << 16)
-        });
+            swapCalldata,
+            Router.BridgeData({target: CCTP_TOKEN_MESSENGER_V2, approvalSpender: CCTP_TOKEN_MESSENGER_V2, value: 0}),
+            _emptyDepositForBurnCalldata()
+        );
     }
 
     function _assertPocResult(

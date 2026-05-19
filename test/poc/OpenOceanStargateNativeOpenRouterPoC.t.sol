@@ -101,7 +101,8 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
         );
 
         uint256 gasBeforeExecute = gasleft();
-        bytes[] memory results = router.performModularExecution(actions);
+        bytes[] memory results =
+            router.performModularExecution(keccak256("open-ocean-stargate-native-modular"), actions);
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
         emit log_named_uint("router.performModularExecution gas used", executeGasUsed);
 
