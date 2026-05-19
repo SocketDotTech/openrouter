@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
-import {BungeeOpenRouterV2Unchecked as Router} from "../../src/combined/BungeeOpenRouterV2Unchecked.sol";
+import {BungeeOpenRouter as Router} from "../../src/BungeeOpenRouter.sol";
 import {ALLOWANCE_HOLDER, IAllowanceHolder} from "../../src/common/interfaces/IAllowanceHolder.sol";
 
 abstract contract BungeeOpenRouterV2UncheckedTestBase is Test {
@@ -108,12 +108,12 @@ abstract contract BungeeOpenRouterV2UncheckedTestBase is Test {
                 router.swap,
                 (
                     keccak256("swap"),
-                    Router.InputData({user: USER, inputToken: params.input, inputAmount: params.inputAmount}),
-                    params.receiver,
                     params.flags,
+                    Router.InputData({user: USER, inputToken: params.input, inputAmount: params.inputAmount}),
                     params.fee,
                     params.swapData,
-                    params.swapCallData
+                    params.swapCallData,
+                    params.receiver
                 )
             )
         );
@@ -154,8 +154,8 @@ abstract contract BungeeOpenRouterV2UncheckedTestBase is Test {
                 router.swapAndBridge,
                 (
                     keccak256("swap-and-bridge"),
-                    Router.InputData({user: USER, inputToken: params.input, inputAmount: params.inputAmount}),
                     params.flags,
+                    Router.InputData({user: USER, inputToken: params.input, inputAmount: params.inputAmount}),
                     params.fee,
                     params.swapData,
                     params.swapCallData,

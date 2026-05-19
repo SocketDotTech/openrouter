@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
-import {BungeeOpenRouterV2Unchecked as Router} from "../../src/combined/BungeeOpenRouterV2Unchecked.sol";
+import {BungeeOpenRouter as Router} from "../../src/BungeeOpenRouter.sol";
 import {AcrossERC20AmountManipulator} from "../../src/manipulators/AcrossERC20AmountManipulator.sol";
 
 interface ISpokePool {
@@ -67,11 +67,11 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         uint256 spokePoolWethBefore = ERC20(ARBITRUM_WETH).balanceOf(ACROSS_ARBITRUM_SPOKE_POOL);
 
         uint256 gasBeforeExecute = gasleft();
-        bytes[] memory results = router.performModularExecution(keccak256("open-ocean-across-modular"), actions);
+        router.performActions(keccak256("open-ocean-across-modular"), actions);
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
-        emit log_named_uint("router.performModularExecution gas used", executeGasUsed);
+        emit log_named_uint("router.performActions gas used", executeGasUsed);
 
-        _assertPocResult(router, bridgeFee, spokePoolWethBefore, results[2]);
+        _assertPocResult(router, bridgeFee, spokePoolWethBefore);
     }
 
     function _buildActions(
@@ -121,19 +121,12 @@ contract OpenOceanAcrossOpenRouterPoCTest is Test {
         );
     }
 
-    function _assertPocResult(
-        Router router,
-        uint256 bridgeFee,
-        uint256 spokePoolWethBefore,
-        bytes memory manipulatorResult
-    ) internal view {
+    function _assertPocResult(Router router, uint256 bridgeFee, uint256 spokePoolWethBefore) internal view {
         uint256 actualInputAmount = ERC20(ARBITRUM_WETH).balanceOf(ACROSS_ARBITRUM_SPOKE_POOL) - spokePoolWethBefore;
-        uint256 actualOutputAmount = abi.decode(manipulatorResult, (uint256));
 
         assertEq(ERC20(ARBITRUM_USDC).balanceOf(address(router)), 0);
         assertEq(ERC20(ARBITRUM_WETH).balanceOf(address(router)), 0);
-        assertGt(actualInputAmount, 0);
-        assertEq(actualOutputAmount, actualInputAmount - bridgeFee);
+        assertGt(actualInputAmount, bridgeFee);
     }
 
     function _routerAtFixtureAddress() internal returns (Router router) {

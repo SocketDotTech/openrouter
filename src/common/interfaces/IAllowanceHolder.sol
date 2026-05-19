@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: MIT
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 // @dev Mainnet AllowanceHolder address. Same address is used for every chain
 //      on which 0x deploys it via the canonical CREATE2 deployer. See:

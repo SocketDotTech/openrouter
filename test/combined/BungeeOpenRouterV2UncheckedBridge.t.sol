@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
-import {BungeeOpenRouterV2Unchecked as Router} from "../../src/combined/BungeeOpenRouterV2Unchecked.sol";
+import {BungeeOpenRouter as Router} from "../../src/BungeeOpenRouter.sol";
 import {BungeeOpenRouterV2UncheckedTestBase} from "./BungeeOpenRouterV2UncheckedTestBase.sol";
 
 contract BungeeOpenRouterV2UncheckedBridgeTest is BungeeOpenRouterV2UncheckedTestBase {

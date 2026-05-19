@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
-import {BungeeOpenRouterV2Unchecked as Router} from "../../src/combined/BungeeOpenRouterV2Unchecked.sol";
+import {BungeeOpenRouter as Router} from "../../src/BungeeOpenRouter.sol";
 import {BungeeOpenRouterV2UncheckedTestBase} from "./BungeeOpenRouterV2UncheckedTestBase.sol";
 
 contract BungeeOpenRouterV2UncheckedSwapAndBridgeTest is BungeeOpenRouterV2UncheckedTestBase {
@@ -135,8 +135,8 @@ contract BungeeOpenRouterV2UncheckedSwapAndBridgeTest is BungeeOpenRouterV2Unche
             router.swapAndBridge,
             (
                 keccak256("swap-and-bridge"),
-                Router.InputData({user: USER, inputToken: scenario.input, inputAmount: INPUT_AMOUNT}),
                 _flags(scenario.output, scenario.feeMode, scenario.balanceDelta),
+                Router.InputData({user: USER, inputToken: scenario.input, inputAmount: INPUT_AMOUNT}),
                 _fee(scenario.feeMode),
                 _swapDataWithValue(
                     scenario.input,

@@ -1,5 +1,5 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 /// @notice Computes the Across output amount that must be spliced into SpokePool.deposit calldata.
 contract AcrossERC20AmountManipulator {
