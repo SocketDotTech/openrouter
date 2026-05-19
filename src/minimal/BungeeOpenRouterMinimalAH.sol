@@ -12,15 +12,16 @@ import {AllowanceHolderContext} from "../common/allowance/AllowanceHolderContext
 contract BungeeOpenRouterMinimalAH is BungeeOpenRouterMinimal, AllowanceHolderContext {
     error CallerNotSignedUser();
 
-    constructor(address _owner, address _openRouterSigner)
-        BungeeOpenRouterMinimal(_owner, _openRouterSigner)
-    {}
+    constructor(address _owner, address _openRouterSigner) BungeeOpenRouterMinimal(_owner, _openRouterSigner) {}
 
     /// @notice AllowanceHolder-aware entrypoint. Same role as
     ///         `BungeeOpenRouterModularAH.performExecutionAH` - prevents a
     ///         signed payload meant for user A from being submitted via user
     ///         B's AllowanceHolder.exec to grief user A's nonce.
-    function performExecutionAH(Execution calldata exec, address signedUser, bytes calldata signature) external payable {
+    function performExecutionAH(Execution calldata exec, address signedUser, bytes calldata signature)
+        external
+        payable
+    {
         if (_msgSender() != signedUser) {
             revert CallerNotSignedUser();
         }
