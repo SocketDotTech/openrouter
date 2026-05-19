@@ -33,10 +33,6 @@ import {RescueFundsLib} from "../common/lib/RescueFundsLib.sol";
 contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     using SafeTransferLib for address;
 
-    // =========================================================================
-    // Monolithic execution types
-    // =========================================================================
-
     struct InputData {
         address user;
         address inputToken;
@@ -63,18 +59,6 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
         uint256 value;
     }
 
-    struct MonolithicExecution {
-        InputData input;
-        FeeData preFee;
-        SwapData swap;
-        FeeData postFee;
-        BridgeData bridge;
-        /// Packed flags; monolithic pipeline tests `BALANCE_FLAG_BIT_MASK` in `_execSwap`,
-        /// `BRIDGE_VALUE_FLAG_BIT_MASK` and `BRIDGE_AMOUNT_POSITION_FLAG_BIT_MASK` in `_doBridge`.
-        /// Fee timing uses `preFee` / `postFee` structs — `FEE_FLAG_BIT_MASK` (bit 0) is ignored here.
-        uint256 flags;
-    }
-
     // =========================================================================
     // Modular execution types
     // =========================================================================
@@ -92,7 +76,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     }
 
     // =========================================================================
-    // Flags (swap / swapAndBridge / monolithic swap step)
+    // Flags (swap / swapAndBridge)
     // =========================================================================
     //
     // Instead of bool parameters, one uint256 packs independent switches without adding
@@ -133,7 +117,6 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     //   Cleared — no runtime amount splice.
     //   Set     — splice finalAmount at uint16(flags >> BRIDGE_AMOUNT_POSITION_SHIFT).
     //
-    // Monolithic `performExecution` ignores `FEE_FLAG_BIT_MASK`; fee timing is `preFee`/`postFee` structs.
 
     /// @dev Bit mask 0x01: post-swap fee path when `(flags & mask) != 0`; clear = pre-swap fee from input token.
     uint256 internal constant FEE_FLAG_BIT_MASK = 0x01;
@@ -181,32 +164,6 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     constructor(address _owner) Ownable(_owner) {}
 
     receive() external payable {}
-
-    // =========================================================================
-    // External: monolithic path
-    // =========================================================================
-
-    /**
-     * @notice Executes the monolithic pipeline without signature verification:
-     *         pull via AH, optional pre-swap fee, optional swap, optional
-     *         post-swap fee, bridge call with optional single-position amount splicing.
-     * @dev The caller MUST route through `AllowanceHolder.exec` so that
-     *      `_msgSender()` resolves to `exec.input.user`. There is no nonce or
-     *      deadline; replay protection is the caller's responsibility.
-     *      Bit 0 (`FEE_FLAG_BIT_MASK`) is unused in monolithic runs; fee placement is `preFee` / `postFee` structs.
-     *      `exec.flags` contributes `BALANCE_FLAG_BIT_MASK` to `_execSwap` and
-     *      `BRIDGE_VALUE_FLAG_BIT_MASK` to bridge msg.value selection.
-     * @param requestHash Caller-defined correlation id logged in `RequestExecuted`.
-     */
-    function performExecution(
-        bytes32 requestHash,
-        MonolithicExecution calldata exec,
-        bytes calldata swapCallData,
-        bytes calldata bridgeCallData
-    ) external payable {
-        _runMonolithic(exec, swapCallData, bridgeCallData);
-        emit RequestExecuted(requestHash);
-    }
 
     // =========================================================================
     // External: standalone swap
@@ -453,85 +410,6 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     }
 
     // =========================================================================
-    // Internal: monolithic pipeline
-    // =========================================================================
-
-    function _runMonolithic(
-        MonolithicExecution calldata exec,
-        bytes calldata swapCallData,
-        bytes calldata bridgeCallData
-    ) internal {
-        if (exec.bridge.target == address(0) || exec.input.user == address(0) || exec.input.inputToken == address(0)) {
-            revert InvalidExecution();
-        }
-
-        // 1. pull funds from user via AllowanceHolder
-        _pullFromUser(exec.input.inputToken, exec.input.user, exec.input.inputAmount);
-
-        // 2. optional pre-swap fee in input token
-        if (exec.preFee.amount != 0) {
-            CurrencyLib.transfer(exec.input.inputToken, exec.preFee.receiver, exec.preFee.amount);
-        }
-
-        // 3. optional swap, accounted via decoded returndata
-        address finalToken;
-        uint256 finalAmount;
-        if (exec.swap.target != address(0)) {
-            (finalToken, finalAmount) = _performSwap(exec, swapCallData);
-        } else {
-            if (exec.preFee.amount > exec.input.inputAmount) {
-                revert InsufficientFunds();
-            }
-            finalToken = exec.input.inputToken;
-            unchecked {
-                finalAmount = exec.input.inputAmount - exec.preFee.amount;
-            }
-        }
-
-        // 4. optional post-swap fee in final token
-        if (exec.postFee.amount != 0) {
-            if (exec.postFee.amount > finalAmount) {
-                revert InsufficientFunds();
-            }
-            CurrencyLib.transfer(finalToken, exec.postFee.receiver, exec.postFee.amount);
-            unchecked {
-                finalAmount -= exec.postFee.amount;
-            }
-        }
-
-        // 5. bridge: splice, approve, call
-        _finishMonolithicBridge(exec, finalToken, finalAmount, bridgeCallData);
-    }
-
-    function _finishMonolithicBridge(
-        MonolithicExecution calldata exec,
-        address finalToken,
-        uint256 finalAmount,
-        bytes calldata bridgeCallData
-    ) internal {
-        _doBridge(finalToken, finalAmount, exec.bridge, bridgeCallData, exec.flags);
-    }
-
-    function _performSwap(MonolithicExecution calldata exec, bytes calldata swapCallData)
-        internal
-        returns (address finalToken, uint256 finalAmount)
-    {
-        if (exec.swap.approvalSpender != address(0) && exec.input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-            uint256 swapInput;
-            unchecked {
-                swapInput = exec.input.inputAmount - exec.preFee.amount;
-            }
-            SafeTransferLib.safeApproveWithRetry(exec.input.inputToken, exec.swap.approvalSpender, swapInput);
-        }
-
-        // Monolithic path: only `BALANCE_FLAG_BIT_MASK` is read for `_execSwap`; fee uses `preFee` / `postFee`, not bit 0.
-        // Swap output always lands at this contract; it feeds directly into the bridge step.
-        finalAmount = _execSwap(exec.swap, swapCallData, exec.flags & BALANCE_FLAG_BIT_MASK != 0, address(this));
-        if (finalAmount < exec.swap.minOutput) revert SwapOutputInsufficient();
-        finalToken = exec.swap.outputToken;
-    }
-
-    // =========================================================================
     // Internal: swap / fee / bridge helpers
     // =========================================================================
 
@@ -705,7 +583,7 @@ contract BungeeOpenRouterV2Unchecked is Ownable, AllowanceHolderContext {
     }
 
     // =========================================================================
-    // Internal: simple call dispatcher (used by monolithic path)
+    // Internal: simple call dispatcher
     // =========================================================================
 
     function _doCall(address target, uint256 value, bytes memory data) internal {
