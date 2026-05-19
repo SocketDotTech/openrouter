@@ -1,11 +1,9 @@
 /**
  * Route:  Ethereum ETH → Arbitrum ETH (Arbitrum inbox depositEth, no swap)
- * Function: performExecution (monolithic)
+ * Function: bridge
  * Fee: preFee — FEE_BPS of inputAmount ETH deducted before bridge
  *
- * BRIDGE_VALUE_FLAG set: router forwards the remaining ETH after preFee as
- * msg.value to inbox.depositEth(). Input is native ETH so we call execDirect
- * (no AllowanceHolder needed — router checks msg.value >= inputAmount directly).
+ * Input is native ETH — call router.bridge directly (msg.value = inputAmount).
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/arbitrum/performExecution.preFee.ts
@@ -25,21 +23,12 @@ import {
 } from '../config';
 import { execDirect } from '../utils/allowanceHolder';
 import { ROUTER_ABI } from '../utils/routerAbi';
-import {
-  MonolithicExecutionCall,
-  BRIDGE_VALUE_FLAG,
-  NO_FEE,
-  NO_SWAP,
-  ZERO_ADDRESS,
-  ZERO_BYTES32,
-  monolithicArgs,
-} from '../utils/contractTypes';
+import { ZERO_ADDRESS, ZERO_BYTES32, bridgeArgs, type BridgeData, type FeeData, type InputData } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterNativeBalance } from '../utils/reproducibility';
 
 const ROUTER_ETH = routerAddressForChain(CHAIN_IDS.ETHEREUM);
 
-/** Gas reserve kept in the signer's wallet to cover the transaction itself. */
 const GAS_RESERVE = ethers.parseEther('0.005');
 
 function buildDepositEthCalldata(): string {
@@ -61,7 +50,9 @@ async function estimateArbitrumBridgeFee(provider: ethers.Provider): Promise<big
     return totalFee;
   } catch (err) {
     const fallback = ethers.parseEther('0.001');
-    console.warn(`  Arb fee estimation failed (${(err as Error).message}), using fallback: ${ethers.formatEther(fallback)} ETH`);
+    console.warn(
+      `  Arb fee estimation failed (${(err as Error).message}), using fallback: ${ethers.formatEther(fallback)} ETH`,
+    );
     return fallback;
   }
 }
@@ -94,32 +85,27 @@ async function main(): Promise<void> {
 
   const arbFee = await estimateArbitrumBridgeFee(provider);
   if (bridgeValue < arbFee) {
-    console.warn(`  Warning: bridgeValue (${ethers.formatEther(bridgeValue)}) may be below Arbitrum bridge cost (${ethers.formatEther(arbFee)})`);
+    console.warn(
+      `  Warning: bridgeValue (${ethers.formatEther(bridgeValue)}) may be below Arbitrum bridge cost (${ethers.formatEther(arbFee)})`,
+    );
   }
 
   await ensureRouterNativeBalance(signer, ROUTER_ETH);
 
-  const mono: MonolithicExecutionCall = {
-    exec: {
-      input: { user: signerAddress, inputToken: NATIVE_TOKEN_ADDRESS, inputAmount },
-      preFee: { receiver: signerAddress, amount: feeAmount },
-      swap: NO_SWAP,
-      postFee: NO_FEE,
-      bridge: { target: ARBITRUM_INBOX, approvalSpender: ZERO_ADDRESS, value: 0n },
-      flags: BRIDGE_VALUE_FLAG,
-    },
-    swapCallData: '0x',
-    bridgeCallData: buildDepositEthCalldata(),
-  };
+  const input: InputData = { user: signerAddress, inputToken: NATIVE_TOKEN_ADDRESS, inputAmount };
+  const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
+  const bridgeData: BridgeData = { target: ARBITRUM_INBOX, approvalSpender: ZERO_ADDRESS, value: bridgeValue };
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
-  const callData = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
+  const callData = routerIface.encodeFunctionData(
+    'bridge',
+    bridgeArgs(ZERO_BYTES32, input, fee, bridgeData, buildDepositEthCalldata()),
+  );
 
-  // Native ETH input — send directly to the router; no AllowanceHolder needed.
-  console.log('Sending direct router tx → router.performExecution...');
+  console.log('Sending direct router tx → router.bridge...');
   const receipt = await execDirect(signer, ROUTER_ETH, callData, inputAmount);
 
-  logTxnSummary('Ethereum ETH → Arbitrum ETH (depositEth direct) — performExecution preFee', CHAIN_IDS.ETHEREUM, receipt);
+  logTxnSummary('Ethereum ETH → Arbitrum ETH (depositEth direct) — bridge preFee', CHAIN_IDS.ETHEREUM, receipt);
 
   console.log('\nETH arrives on Arbitrum once the retryable ticket is processed.');
 

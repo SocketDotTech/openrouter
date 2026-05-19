@@ -6,23 +6,20 @@
  *
  * Before each test leg these ensure:
  *   1. The router holds ≥ 20 wei of every token whose balance slot will be written.
- *   2. The router has a non-zero ERC-20 allowance for every external spender it will call.
  *
- * Seeding slots to non-zero means subsequent SSTORE writes cost ~2 900 gas
+ * Router→spender ERC-20 approvals are NOT pre-seeded here. `BungeeOpenRouter`
+ * sets max allowance inside `swap`, `bridge`, and `swapAndBridge` when needed.
+ * Modular `performActions` legs may still include inline `approve` actions in the
+ * same transaction when testing raw modular flows.
+ *
+ * Seeding balance slots to non-zero means subsequent SSTORE writes cost ~2 900 gas
  * (non-zero → non-zero) rather than ~20 000 gas (zero → non-zero), giving
  * consistent gas readings across repeated runs.
  */
 import { ethers } from 'ethers';
-import { getErc20Contract, encodeApprove } from './erc20';
-import { execViaAH } from './allowanceHolder';
-import { ROUTER_ABI } from './routerAbi';
-import { ZERO_BYTES32 } from './contractTypes';
+import { getErc20Contract } from './erc20';
 
 const SEED_WEI = 20n;
-
-function packCallAction(target: string): bigint {
-  return BigInt(target) << 16n; // CallType.CALL=0, storeResult=false
-}
 
 /**
  * Transfers {@link SEED_WEI} of `token` from `signer` to the deployed open router only
@@ -70,43 +67,16 @@ export async function ensureRouterNativeBalance(
 }
 
 /**
- * Issues `token.approve(spender, MaxUint256)` FROM the router (via
- * `performModularExecution`) when the current router→spender allowance is zero.
+ * No-op: router→spender approvals are handled by the contract on `swap` /
+ * `bridge` / `swapAndBridge`. Kept so existing e2e scripts do not need rewrites.
  *
- * Guarantees the allowance slot is non-zero before the test txn so that the
- * approval write inside the test costs ~2 900 gas (non-zero → non-zero).
+ * @deprecated Pre-approval via a separate `performActions` tx is intentionally disabled.
  */
 export async function ensureRouterApproval(
-  signer: ethers.Wallet,
-  openRouterAddress: string,
-  token: string,
-  spender: string,
+  _signer: ethers.Wallet,
+  _openRouterAddress: string,
+  _token: string,
+  _spender: string,
 ): Promise<void> {
-  const openRouter = ethers.getAddress(openRouterAddress);
-  const tokenResolved = ethers.getAddress(token);
-  const spenderResolved = ethers.getAddress(spender);
-  const tokenRo = getErc20Contract(tokenResolved, signer.provider!);
-  const allowance = BigInt(await tokenRo.allowance(openRouter, spenderResolved));
-  if (allowance > 0n) {
-    return;
-  }
-
-  console.log(
-    `  [state-prep] open router ${openRouter} token ${tokenResolved} allowance for ${spenderResolved}=0 — pre-approving MaxUint256 via open router`,
-  );
-  const routerIface = new ethers.Interface(ROUTER_ABI);
-  const actions = [
-    {
-      actionInfo: packCallAction(tokenResolved),
-      data: encodeApprove(spenderResolved, ethers.MaxUint256),
-      splices: [],
-    },
-  ];
-  const calldata = routerIface.encodeFunctionData('performModularExecution', [
-    ZERO_BYTES32,
-    actions,
-  ]);
-  // Route through AllowanceHolder so _msgSender() resolves correctly inside the router.
-  // amount=0 because we are not pulling user tokens — we only need AH to forward the call.
-  await execViaAH(signer, openRouter, tokenResolved, 0n, openRouter, calldata);
+  // Intentionally empty — see module header.
 }

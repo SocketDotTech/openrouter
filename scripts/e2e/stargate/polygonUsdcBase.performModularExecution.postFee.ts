@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon USDC → Base USDC (Stargate USDC Pool, no swap)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: postFee — FEE_BPS of inputAmount USDC transferred to signer; staticCall balance spliced
  *      into Stargate amountLD at STARGATE_AMOUNT_LD_OFFSET (byte 196).
  *
@@ -12,7 +12,7 @@
  *   [4] nativeCall(Stargate, sendData, nativeFeeWithBuffer) — splicePayloadWord(196) from [3]
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/polygonUsdcBase.performModularExecution.postFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/stargate/polygonUsdcBase.performActions.postFee.ts
  */
 import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
@@ -116,13 +116,13 @@ async function main() {
   exec.nativeCall(STARGATE_USDC_POLYGON, stargateData, nativeFeeWithBuffer)
     .splicePayloadWord(BigInt(STARGATE_AMOUNT_LD_OFFSET), usdcBalance.returnWord());
 
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_POLYGON_CIRCLE, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, inputAmount, ROUTER_POLYGON, callData, nativeFeeWithBuffer);
 
   logTxnSummary(
-    'Polygon USDC → Base USDC (Stargate USDC pool) — performModularExecution postFee',
+    'Polygon USDC → Base USDC (Stargate USDC pool) — performActions postFee',
     CHAIN_IDS.POLYGON,
     receipt,
   );

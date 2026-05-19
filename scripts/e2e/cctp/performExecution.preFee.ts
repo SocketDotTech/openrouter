@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon USDC → Base USDC (CCTP depositForBurn, no swap)
- * Function: performExecution (monolithic)
+ * Function: bridge
  * Fee: preFee — FEE_BPS of inputAmount USDC deducted before bridge
  *
  * Usage:
@@ -23,12 +23,11 @@ import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowance
 import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import {
-  MonolithicExecutionCall,
-  NO_FEE,
-  NO_SWAP,
   ZERO_BYTES32,
-  bridgeAmountPositionFlag,
-  monolithicArgs,
+  bridgeArgs,
+  type BridgeData,
+  type FeeData,
+  type InputData,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
@@ -39,12 +38,13 @@ function buildDepositForBurnCalldata(
   recipientAddress: string,
   burnToken: string,
   destinationCctpDomain: number,
+  amount: bigint,
 ): string {
   const iface = new ethers.Interface([
     'function depositForBurn(uint256 amount, uint32 destinationDomain, bytes32 mintRecipient, address burnToken, bytes32 destinationCaller, uint256 maxFee, uint32 minFinalityThreshold) external',
   ]);
   return iface.encodeFunctionData('depositForBurn', [
-    0n,
+    amount,
     destinationCctpDomain,
     ethers.zeroPadValue(recipientAddress, 32),
     burnToken,
@@ -69,47 +69,46 @@ async function main() {
   if (inputAmount === 0n) throw new Error('Balance too small');
 
   const feeAmount = bpsOf(inputAmount, FEE_BPS);
+  const bridgeAmount = inputAmount - feeAmount;
 
   console.log(`Signer:        ${signerAddress}`);
   console.log(`Router:        ${ROUTER_POLYGON}`);
   console.log(`USDC balance:  ${ethers.formatUnits(walletBalance, 6)}`);
   console.log(`Pre-fee:       ${ethers.formatUnits(feeAmount, 6)} USDC (${FEE_BPS} bps)`);
-  console.log(`Net to bridge: ${ethers.formatUnits(inputAmount - feeAmount, 6)}`);
+  console.log(`Net to bridge: ${ethers.formatUnits(bridgeAmount, 6)}`);
 
-  const routerIface = new ethers.Interface(ROUTER_ABI);
   const polyCctp = CCTP_CONFIG[CHAIN_IDS.POLYGON];
   const baseCctp = CCTP_CONFIG[CHAIN_IDS.BASE];
+  const depositForBurnData = buildDepositForBurnCalldata(
+    signerAddress,
+    polyCctp.usdcAddress,
+    baseCctp.cctpDomain,
+    bridgeAmount,
+  );
 
-  const depositForBurnData = buildDepositForBurnCalldata(signerAddress, polyCctp.usdcAddress, baseCctp.cctpDomain);
+  const input: InputData = { user: signerAddress, inputToken: TOKENS.USDC_POLYGON_CIRCLE, inputAmount };
+  const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
+  const bridgeData: BridgeData = {
+    target: polyCctp.tokenMessenger,
+    approvalSpender: polyCctp.tokenMessenger,
+    value: 0n,
+  };
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
   await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, polyCctp.tokenMessenger);
 
-  const mono: MonolithicExecutionCall = {
-    exec: {
-      input: { user: signerAddress, inputToken: TOKENS.USDC_POLYGON_CIRCLE, inputAmount },
-      preFee: { receiver: signerAddress, amount: feeAmount },
-      swap: NO_SWAP,
-      postFee: NO_FEE,
-      bridge: { target: polyCctp.tokenMessenger, approvalSpender: polyCctp.tokenMessenger, value: 0n },
-      flags: bridgeAmountPositionFlag(4),
-    },
-    swapCallData: '0x',
-    bridgeCallData: depositForBurnData,
-  };
-
-  const callData = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
+  const routerIface = new ethers.Interface(ROUTER_ABI);
+  const callData = routerIface.encodeFunctionData('bridge', bridgeArgs(ZERO_BYTES32, input, fee, bridgeData, depositForBurnData));
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.USDC_POLYGON_CIRCLE, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, inputAmount, ROUTER_POLYGON, callData);
 
-  logTxnSummary(
-    'Polygon USDC → Base USDC (CCTP) — performExecution preFee',
-    CHAIN_IDS.POLYGON,
-    receipt,
-  );
+  logTxnSummary('Polygon USDC → Base USDC (CCTP) — bridge preFee', CHAIN_IDS.POLYGON, receipt);
 
   console.log(`\nUSDC mints on Base at ${signerAddress} once CCTP attestation completes.`);
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

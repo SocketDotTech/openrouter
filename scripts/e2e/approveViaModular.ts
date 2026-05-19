@@ -1,10 +1,11 @@
 /**
  * Script — Call ERC-20 approve(spender, amount) through the router using
- *          `performModularExecution(Action[])`.
+ *          `performActions(Action[])`.
  *
- * This routes a single CALL action targeting the token contract so the router
- * itself issues the approval — useful when the router holds tokens and needs
- * to authorise a downstream spender (e.g. a bridge contract) before calling it.
+ * DISABLED by default: `BungeeOpenRouter` now sets max allowance inside
+ * `swap`, `bridge`, and `swapAndBridge`. Use those entrypoints instead of a
+ * standalone approval tx. Set `E2E_ENABLE_MODULAR_PRE_APPROVE=1` only if you
+ * need this legacy helper for manual modular debugging.
  *
  * Usage:
  *   TOKEN=0x... SPENDER=0x... AMOUNT=1000000 PRIVATE_KEY=0x... \
@@ -43,6 +44,14 @@ function packActionInfo(
 // ─── build + send ─────────────────────────────────────────────────────────────
 
 async function run(): Promise<void> {
+  if (process.env.E2E_ENABLE_MODULAR_PRE_APPROVE !== '1') {
+    console.log(
+      'approveViaModular is disabled (router pre-approves in swap/bridge/swapAndBridge).',
+    );
+    console.log('Set E2E_ENABLE_MODULAR_PRE_APPROVE=1 to run this script.');
+    return;
+  }
+
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) throw new Error('PRIVATE_KEY env var required');
 
@@ -96,7 +105,7 @@ async function run(): Promise<void> {
     },
   ];
 
-  const calldata = routerIface.encodeFunctionData('performModularExecution', [
+  const calldata = routerIface.encodeFunctionData('performActions', [
     ZERO_BYTES32,
     actions,
   ]);
@@ -111,7 +120,7 @@ async function run(): Promise<void> {
       amount === ethers.MaxUint256 ? 'MaxUint256' : amount.toString()
     }`,
   );
-  console.log('Sending performModularExecution → token.approve...');
+  console.log('Sending performActions → token.approve...');
 
   const tx = await signer.sendTransaction({
     to: routerAddress,

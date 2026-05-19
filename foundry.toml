@@ -7,10 +7,15 @@ evm_version = "cancun"
 optimizer = true
 optimizer_runs = 2_000
 via_ir = false
+no_match_path = "test/poc/**"
 
 remappings = [
     "solady/=lib/solady/",
     "forge-std/=lib/forge-std/src/",
 ]
+
+[profile.poc]
+match_path = "test/poc/*.t.sol"
+no_match_path = "NO_MATCHING_TEST_PATH"
 
 # See more config options https://github.com/foundry-rs/foundry/blob/master/crates/config/README.md#all-options

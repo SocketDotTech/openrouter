@@ -1,10 +1,9 @@
 /**
  * Route:  Ethereum AAVE → ETH (OpenOcean) → Arbitrum ETH (inbox depositEth)
- * Function: performExecution (monolithic)
+ * Function: swapAndBridge
  * Fee: postFee — FEE_BPS of estimatedOut ETH deducted after swap
  *
- * BRIDGE_VALUE_FLAG set: router forwards actualFinalETH as msg.value to inbox.depositEth().
- * Input is AAVE (ERC-20) so AllowanceHolder.exec is required.
+ * BRIDGE_VALUE_FLAG: router forwards swap output as msg.value to inbox.depositEth().
  *
  * Usage:
  *   PRIVATE_KEY=0x... ts-node scripts/e2e/arbitrum/performExecution.postFee.ts
@@ -30,16 +29,16 @@ import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowance
 import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import {
-  MonolithicExecutionCall,
   BRIDGE_VALUE_FLAG,
-  NO_FEE,
+  POST_FEE_FLAG,
   ZERO_ADDRESS,
   ZERO_BYTES32,
-  monolithicArgs,
+  swapAndBridgeArgs,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterErc20Balance, ensureRouterNativeBalance, ensureRouterApproval } from '../utils/reproducibility';
 
+const FLAGS = POST_FEE_FLAG | BRIDGE_VALUE_FLAG;
 const ROUTER_ETH = routerAddressForChain(CHAIN_IDS.ETHEREUM);
 
 interface OoQuoteResponse {
@@ -79,24 +78,6 @@ function buildDepositEthCalldata(): string {
   ]).encodeFunctionData('depositEth', []);
 }
 
-async function estimateArbitrumBridgeFee(provider: ethers.Provider): Promise<bigint> {
-  try {
-    // eslint-disable-next-line @typescript-eslint/no-var-requires
-    const { ParentToChildMessageGasEstimator } = require('@arbitrum/sdk');
-    const estimator = new ParentToChildMessageGasEstimator(provider);
-    const l2GasPrice = (await new ethers.JsonRpcProvider(RPC.ARBITRUM).getFeeData()).gasPrice ?? 0n;
-    const submissionFee = await estimator.estimateSubmissionFee(provider, 0n, 0n);
-    const executionCost = 250000n * (l2GasPrice + (l2GasPrice * 20n) / 100n);
-    const totalFee = BigInt(submissionFee.toString()) + executionCost;
-    console.log(`  Estimated Arbitrum bridge fee: ${ethers.formatEther(totalFee)} ETH`);
-    return totalFee;
-  } catch (err) {
-    const fallback = ethers.parseEther('0.001');
-    console.warn(`  Arb fee estimation failed (${(err as Error).message}), using fallback: ${ethers.formatEther(fallback)} ETH`);
-    return fallback;
-  }
-}
-
 async function main() {
   const privateKey = process.env.PRIVATE_KEY;
   if (!privateKey) throw new Error('PRIVATE_KEY env var required');
@@ -125,20 +106,18 @@ async function main() {
   console.log(`  Post-fee:    ${ethers.formatEther(feeAmount)} ETH (${FEE_BPS} bps)`);
   console.log(`  Min ETH:     ${ethers.formatEther(minAmountOut)}`);
 
-  const arbFee = await estimateArbitrumBridgeFee(provider);
-  if (estimatedOut < feeAmount + arbFee) {
-    console.warn(`  Warning: estimated ETH may be insufficient to cover fee + bridge cost`);
-  }
-
   await ensureRouterErc20Balance(signer, TOKENS.AAVE_ETH, ROUTER_ETH);
   await ensureRouterNativeBalance(signer, ROUTER_ETH);
   await ensureRouterApproval(signer, ROUTER_ETH, TOKENS.AAVE_ETH, ooRouter);
 
-  const mono: MonolithicExecutionCall = {
-    exec: {
-      input: { user: signerAddress, inputToken: TOKENS.AAVE_ETH, inputAmount },
-      preFee: NO_FEE,
-      swap: {
+  const callData = routerIface.encodeFunctionData(
+    'swapAndBridge',
+    swapAndBridgeArgs(
+      ZERO_BYTES32,
+      FLAGS,
+      { user: signerAddress, inputToken: TOKENS.AAVE_ETH, inputAmount },
+      { receiver: signerAddress, amount: feeAmount },
+      {
         target: ooRouter,
         approvalSpender: ooRouter,
         outputToken: NATIVE_TOKEN_ADDRESS,
@@ -146,26 +125,21 @@ async function main() {
         minOutput: minAmountOut,
         returnDataWordOffset: 0n,
       },
-      postFee: { receiver: signerAddress, amount: feeAmount },
-      bridge: { target: ARBITRUM_INBOX, approvalSpender: ZERO_ADDRESS, value: 0n },
-      flags: BRIDGE_VALUE_FLAG,
-    },
-    swapCallData: swapData,
-    bridgeCallData: buildDepositEthCalldata(),
-  };
-
-  const callData = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
+      swapData,
+      { target: ARBITRUM_INBOX, approvalSpender: ZERO_ADDRESS, value: 0n },
+      buildDepositEthCalldata(),
+    ),
+  );
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.AAVE_ETH, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_ETH, TOKENS.AAVE_ETH, inputAmount, ROUTER_ETH, callData, 0n);
 
-  logTxnSummary(
-    'Ethereum AAVE → Arbitrum ETH (depositEth) — performExecution postFee',
-    CHAIN_IDS.ETHEREUM,
-    receipt,
-  );
+  logTxnSummary('Ethereum AAVE → Arbitrum ETH (depositEth) — swapAndBridge postFee', CHAIN_IDS.ETHEREUM, receipt);
 
   console.log('\nETH arrives on Arbitrum once the retryable ticket is processed.');
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

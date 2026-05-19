@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon AAVE → USDT0 (OpenOcean) → Arbitrum USDT0 (USDT0 OFT Adapter, LayerZero v2)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: postFee — FEE_BPS of estimatedOut USDT0 transferred to signer after swap
  *
  * Modular action sequence:
@@ -13,7 +13,7 @@
  *   [6] nativeCall adapter.send(...) — spliceWord patches amountLD at offset 196 from [5]
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/oft/performModularExecution.postFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/oft/performActions.postFee.ts
  */
 import axios from 'axios';
 import { ethers } from 'ethers';
@@ -161,13 +161,13 @@ async function main() {
   exec.nativeCall(USDT0_OFT_ADAPTER_POLYGON, oftSendData, nativeFeeWithBuffer)
     .spliceWord(BigInt(OFT_AMOUNT_LD_OFFSET), usdt0Balance.returnWord());
 
-  const callData = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const callData = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.AAVE_POLYGON, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, inputAmount, ROUTER_POLYGON, callData, nativeFeeWithBuffer);
 
   logTxnSummary(
-    'Polygon AAVE → Arbitrum USDT0 (OFT) — performModularExecution postFee',
+    'Polygon AAVE → Arbitrum USDT0 (OFT) — performActions postFee',
     CHAIN_IDS.POLYGON,
     receipt,
   );

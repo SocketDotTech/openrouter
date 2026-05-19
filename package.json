@@ -4,6 +4,7 @@
   "private": true,
   "scripts": {
     "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy/deployBungeeOpenRouter.ts --network",
     "deploy:v2": "hardhat run scripts/deploy/deployBungeeOpenRouterV2.ts --network",
     "typechain": "hardhat typechain",
     "slither": "bash scripts/docker-slither.sh"

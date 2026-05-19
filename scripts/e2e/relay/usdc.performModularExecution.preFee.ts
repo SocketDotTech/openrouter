@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon USDC → Base USDC via Relay.link (no swap)
- * Function: performModularExecution (modular)
+ * Function: performActions (modular)
  * Fee: preFee — FEE_BPS of inputAmount USDC deducted before bridge
  *
  * Modular action sequence:
@@ -10,7 +10,7 @@
  *   [3] call(depositTarget, depositData)       — Relay bridge
  *
  * Usage:
- *   PRIVATE_KEY=0x... ts-node scripts/e2e/relay/usdc.performModularExecution.preFee.ts
+ *   PRIVATE_KEY=0x... ts-node scripts/e2e/relay/usdc.performActions.preFee.ts
  */
 import { ethers } from 'ethers';
 import * as dotenv from 'dotenv';
@@ -91,14 +91,14 @@ async function main(): Promise<void> {
   exec.call(depositTarget, depositData);
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
-  const execCalldata = routerIface.encodeFunctionData('performModularExecution', [ZERO_BYTES32, exec.toActions()]);
+  const execCalldata = routerIface.encodeFunctionData('performActions', [ZERO_BYTES32, exec.toActions()]);
 
   await ensureAllowanceForAllowanceHolder(signer, inputToken, inputAmount);
 
-  console.log('Sending AllowanceHolder.exec → router.performModularExecution...');
+  console.log('Sending AllowanceHolder.exec → router.performActions...');
   const receipt = await execViaAH(signer, ROUTER_POLYGON, inputToken, inputAmount, ROUTER_POLYGON, execCalldata);
 
-  logTxnSummary('Polygon USDC → Base USDC — Relay — performModularExecution preFee', CHAIN_IDS.POLYGON, receipt);
+  logTxnSummary('Polygon USDC → Base USDC — Relay — performActions preFee', CHAIN_IDS.POLYGON, receipt);
 }
 
 main().catch((err) => {

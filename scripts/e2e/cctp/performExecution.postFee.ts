@@ -1,6 +1,6 @@
 /**
  * Route:  Polygon AAVE → USDC (OpenOcean) → Base USDC (CCTP depositForBurn)
- * Function: performExecution (monolithic)
+ * Function: swapAndBridge
  * Fee: postFee — FEE_BPS of estimatedOut USDC deducted after swap
  *
  * Usage:
@@ -26,15 +26,15 @@ import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowance
 import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import {
-  MonolithicExecutionCall,
-  NO_FEE,
+  POST_FEE_FLAG,
   ZERO_BYTES32,
   bridgeAmountPositionFlag,
-  monolithicArgs,
+  swapAndBridgeArgs,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
 import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
 
+const FLAGS = POST_FEE_FLAG | bridgeAmountPositionFlag(4);
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
 interface OoQuoteResponse {
@@ -124,11 +124,14 @@ async function main() {
   await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, ooRouter);
   await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, polyCctp.tokenMessenger);
 
-  const mono: MonolithicExecutionCall = {
-    exec: {
-      input: { user: signerAddress, inputToken: TOKENS.AAVE_POLYGON, inputAmount },
-      preFee: NO_FEE,
-      swap: {
+  const callData = routerIface.encodeFunctionData(
+    'swapAndBridge',
+    swapAndBridgeArgs(
+      ZERO_BYTES32,
+      FLAGS,
+      { user: signerAddress, inputToken: TOKENS.AAVE_POLYGON, inputAmount },
+      { receiver: signerAddress, amount: feeAmount },
+      {
         target: ooRouter,
         approvalSpender: ooRouter,
         outputToken: TOKENS.USDC_POLYGON_CIRCLE,
@@ -136,26 +139,21 @@ async function main() {
         minOutput: minAmountOut,
         returnDataWordOffset: 0n,
       },
-      postFee: { receiver: signerAddress, amount: feeAmount },
-      bridge: { target: polyCctp.tokenMessenger, approvalSpender: polyCctp.tokenMessenger, value: 0n },
-      flags: bridgeAmountPositionFlag(4),
-    },
-    swapCallData: swapData,
-    bridgeCallData: depositForBurnData,
-  };
-
-  const callData = routerIface.encodeFunctionData('performExecution', monolithicArgs(mono, ZERO_BYTES32));
+      swapData,
+      { target: polyCctp.tokenMessenger, approvalSpender: polyCctp.tokenMessenger, value: 0n },
+      depositForBurnData,
+    ),
+  );
 
   await ensureAllowanceForAllowanceHolder(signer, TOKENS.AAVE_POLYGON, inputAmount);
   const receipt = await execViaAH(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, inputAmount, ROUTER_POLYGON, callData);
 
-  logTxnSummary(
-    'Polygon AAVE → Base USDC (CCTP) — performExecution postFee',
-    CHAIN_IDS.POLYGON,
-    receipt,
-  );
+  logTxnSummary('Polygon AAVE → Base USDC (CCTP) — swapAndBridge postFee', CHAIN_IDS.POLYGON, receipt);
 
   console.log(`\nUSDC mints on Base at ${signerAddress} once CCTP attestation completes.`);
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

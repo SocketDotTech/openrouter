@@ -34,7 +34,7 @@ import {
 } from "../utils/allowanceHolder";
 import { getWalletErc20Balance } from "../utils/erc20";
 import { ROUTER_ABI } from "../utils/routerAbi";
-import { ZERO_BYTES32 } from "../utils/contractTypes";
+import { ZERO_BYTES32, swapArgs } from "../utils/contractTypes";
 import { logTxnSummary } from "../utils/txnLogSummary";
 import {
   ensureRouterErc20Balance,
@@ -178,15 +178,14 @@ async function main() {
     ksRouter,
   );
 
-  const callData = routerIface.encodeFunctionData("swap", [
+  const callData = routerIface.encodeFunctionData("swap", swapArgs(
     ZERO_BYTES32,
+    FLAGS,
     {
       user: signerAddress,
       inputToken: TOKENS.AAVE_POLYGON,
       inputAmount: inputAmount,
     },
-    signerAddress,
-    FLAGS,
     { receiver: signerAddress, amount: feeAmount },
     {
       target: ksRouter,
@@ -197,7 +196,8 @@ async function main() {
       returnDataWordOffset: 0n,
     },
     swapData,
-  ]);
+    signerAddress,
+  ));
 
   await ensureAllowanceForAllowanceHolder(
     signer,
