@@ -330,14 +330,9 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
      * @notice Runs a sequence of generic actions with optional returndata splicing between steps.
      * @param quoteId Caller-defined correlation id logged in `RequestExecuted`.
      * @param actions Ordered actions; each may splice bytes from a prior action's returndata into its calldata.
-     * @return results Per-action returndata when the action's `actionInfo` store-result bit is set.
      */
-    function performActions(bytes32 quoteId, Action[] calldata actions)
-        external
-        payable
-        returns (bytes[] memory results)
-    {
-        results = _performActions(actions);
+    function performActions(bytes32 quoteId, Action[] calldata actions) external payable {
+        _performActions(actions);
 
         emit RequestExecuted(quoteId);
     }
@@ -452,11 +447,10 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
      *       - bits 16+: target address
      *      splices[j` packs source index, src/dst byte offsets, and length.
      * @param actions Ordered list of actions to run.
-     * @return results Stored returndata per action when the store-result bit is set.
      */
-    function _performActions(Action[] calldata actions) internal returns (bytes[] memory results) {
+    function _performActions(Action[] calldata actions) internal {
         uint256 actionsLength = actions.length;
-        results = new bytes[](actionsLength);
+        bytes[] memory results = new bytes[](actionsLength);
 
         for (uint256 i; i < actionsLength;) {
             Action calldata action = actions[i];
