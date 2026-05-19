@@ -3,13 +3,13 @@ pragma solidity 0.8.34;
 
 import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
-import {AccessControl} from "../common/utils/AccessControl.sol";
-import {AllowanceHolderContext} from "../common/allowance/AllowanceHolderContext.sol";
-import {ALLOWANCE_HOLDER} from "../common/interfaces/IAllowanceHolder.sol";
-import {BytesSpliceLib} from "../common/lib/BytesSpliceLib.sol";
-import {CurrencyLib} from "../common/lib/CurrencyLib.sol";
-import {RescueFundsLib} from "../common/lib/RescueFundsLib.sol";
-import {RESCUE_ROLE} from "../common/AccessRoles.sol";
+import {AccessControl} from "./common/utils/AccessControl.sol";
+import {AllowanceHolderContext} from "./common/allowance/AllowanceHolderContext.sol";
+import {ALLOWANCE_HOLDER} from "./common/interfaces/IAllowanceHolder.sol";
+import {BytesSpliceLib} from "./common/lib/BytesSpliceLib.sol";
+import {CurrencyLib} from "./common/lib/CurrencyLib.sol";
+import {RescueFundsLib} from "./common/lib/RescueFundsLib.sol";
+import {RESCUE_ROLE} from "./common/AccessRoles.sol";
 
 /// @title BungeeOpenRouter
 /// @notice Pull → optional fee → swap/bridge execution without backend signature verification.
