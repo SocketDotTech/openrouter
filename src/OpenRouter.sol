@@ -3,6 +3,7 @@ pragma solidity 0.8.34;
 
 import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
+import {IERC20} from "./common/interfaces/IERC20.sol";
 import {AccessControl} from "./common/utils/AccessControl.sol";
 import {AllowanceHolderContext} from "./common/allowance/AllowanceHolderContext.sol";
 import {ALLOWANCE_HOLDER} from "./common/interfaces/IAllowanceHolder.sol";
@@ -11,12 +12,12 @@ import {CurrencyLib} from "./common/lib/CurrencyLib.sol";
 import {RescueFundsLib} from "./common/lib/RescueFundsLib.sol";
 import {RESCUE_ROLE} from "./common/AccessRoles.sol";
 
-/// @title BungeeOpenRouter
+/// @title OpenRouter
 /// @notice Pull → optional fee → swap/bridge execution without backend signature verification.
 ///         Fund safety rests on AllowanceHolder's transient allowance scoping (operator + owner + token):
 ///         only the user whose address was passed to `AllowanceHolder.exec` can authorise a pull of
 ///         their own funds. The `_msgSender() == user` check in `_pullFromUser` enforces this.
-contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
+contract OpenRouter is AccessControl, AllowanceHolderContext {
     using SafeTransferLib for address;
 
     // =========================================================================
@@ -211,9 +212,15 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
                 }
             }
 
-            // Approve swap spender
-            if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-                SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
+            // Approve spender
+            if (
+                // check spender & token
+                swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS && 
+                    // check current allowance
+                    swapInput > IERC20(input.inputToken).allowance(address(this), swapData.approvalSpender)
+            ) {
+                // approve max allowance
+                SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, type(uint256).max);
             }
         }
 
@@ -311,13 +318,20 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
             CurrencyLib.transfer(input.inputToken, fee.receiver, feeAmount);
         }
 
+        uint256 netAmount;
+        unchecked {
+            netAmount = input.inputAmount - feeAmount;
+        }
+
         // Approve bridge spender
-        if (bridgeData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-            uint256 netAmount;
-            unchecked {
-                netAmount = input.inputAmount - feeAmount;
-            }
-            SafeTransferLib.safeApproveWithRetry(input.inputToken, bridgeData.approvalSpender, netAmount);
+        if (
+            // check spender && token
+            bridgeData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS && 
+                // check current allowance
+                netAmount > IERC20(input.inputToken).allowance(address(this), bridgeData.approvalSpender)
+        ) {
+            // approve max allowance
+            SafeTransferLib.safeApproveWithRetry(input.inputToken, bridgeData.approvalSpender, type(uint256).max);
         }
 
         // Execute bridge
@@ -379,8 +393,14 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
             }
 
             // Approve swap spender
-            if (swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-                SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, swapInput);
+            if (
+                // check spender & token
+                swapData.approvalSpender != address(0) && input.inputToken != CurrencyLib.NATIVE_TOKEN_ADDRESS && 
+                    // check current allowance
+                    swapInput > IERC20(input.inputToken).allowance(address(this), swapData.approvalSpender)
+            ) {
+                // approve max allowance
+                SafeTransferLib.safeApproveWithRetry(input.inputToken, swapData.approvalSpender, type(uint256).max);
             }
         }
 
@@ -424,8 +444,14 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
         }
 
         // Approve bridge spender
-        if (bridgeData.approvalSpender != address(0) && token != CurrencyLib.NATIVE_TOKEN_ADDRESS) {
-            SafeTransferLib.safeApproveWithRetry(token, bridgeData.approvalSpender, amount);
+        if (
+            // check spender & token
+            bridgeData.approvalSpender != address(0) && token != CurrencyLib.NATIVE_TOKEN_ADDRESS && 
+                // check current allowance
+                amount > IERC20(token).allowance(address(this), bridgeData.approvalSpender)
+        ) {
+            // approve max allowance
+            SafeTransferLib.safeApproveWithRetry(token, bridgeData.approvalSpender, type(uint256).max);
         }
 
         // Parse and set bridge value flag
@@ -568,10 +594,10 @@ contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
     }
 
     /**
-     * @dev Executes the swap call and returns the output amount. 
-     *      `useBalanceOf=true`: measure output as (balance after − balance before) at `outputReceiver`. 
-     *      `useBalanceOf=false`: decode output from returndata at `swapData.returnDataWordOffset`. 
-     *      `outputReceiver` must be `address(this)` when tokens are expected at the contract (post-swap fee path, bridge path) 
+     * @dev Executes the swap call and returns the output amount.
+     *      `useBalanceOf=true`: measure output as (balance after − balance before) at `outputReceiver`.
+     *      `useBalanceOf=false`: decode output from returndata at `swapData.returnDataWordOffset`.
+     *      `outputReceiver` must be `address(this)` when tokens are expected at the contract (post-swap fee path, bridge path)
      *      or the end user when the router sends directly to them.
      * @param swapData Swap target, value, output token, and returndata layout.
      * @param swapCallData Calldata forwarded to `swapData.target`.

@@ -40,8 +40,8 @@ import { ZERO_BYTES32, swapArgs } from "../utils/contractTypes";
 import { logTxnSummary } from "../utils/txnLogSummary";
 import {
   ensureRouterErc20Balance,
-  ensureRouterApproval,
-} from "../utils/reproducibility";
+} from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 // pre-fee (0x00) | returndata (bit1=0 ⇒ no 0x02)
 const FLAGS = 0x00n;
@@ -178,11 +178,13 @@ async function main() {
   console.log(`  Min USDC:    ${ethers.formatUnits(minAmountOut, 6)}`);
 
   await ensureRouterErc20Balance(signer, TOKENS.AAVE_POLYGON, ROUTER_POLYGON);
-  await ensureRouterApproval(
-    signer,
+
+  const swapApprovalSpender = await resolveApprovalSpender(
+    provider,
     ROUTER_POLYGON,
     TOKENS.AAVE_POLYGON,
     ksRouter,
+    swapInput,
   );
 
   const callData = routerIface.encodeFunctionData("swap", swapArgs(
@@ -196,7 +198,7 @@ async function main() {
     { receiver: signerAddress, amount: feeAmount },
     {
       target: ksRouter,
-      approvalSpender: ksRouter,
+      approvalSpender: swapApprovalSpender,
       outputToken: TOKENS.USDC_POLYGON_CIRCLE,
       value,
       minOutput: minAmountOut,

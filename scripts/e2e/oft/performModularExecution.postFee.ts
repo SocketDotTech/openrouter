@@ -35,12 +35,13 @@ import {
   USDT0_OFT_ADAPTER_POLYGON,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
-import { encodeApprove, encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from '../utils/erc20';
+import { encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import { ModularActionsBuilder } from '../utils/modularActionsBuilder/index';
 import { ZERO_BYTES32 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance } from '../utils/reproducibility';
+import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 const LZ_EXTRA_OPTIONS = Options.newOptions().addExecutorLzReceiveOption(65000, 0).toHex();
@@ -143,8 +144,6 @@ async function main() {
 
   await ensureRouterErc20Balance(signer, TOKENS.AAVE_POLYGON, ROUTER_POLYGON);
   await ensureRouterErc20Balance(signer, TOKENS.USDT0_POLYGON, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, ooRouter);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDT0_POLYGON, USDT0_OFT_ADAPTER_POLYGON);
 
   const oftSendData = buildOftSendCalldata(nativeFeeWithBuffer, signerAddress);
 
@@ -153,10 +152,18 @@ async function main() {
   ]);
   const exec = new ModularActionsBuilder();
   exec.call(ALLOWANCE_HOLDER, ahIface.encodeFunctionData('transferFrom', [TOKENS.AAVE_POLYGON, signerAddress, ROUTER_POLYGON, inputAmount]));
-  exec.call(TOKENS.AAVE_POLYGON, encodeApprove(ooRouter, inputAmount));
+  await modularApproveIfNeeded(exec, provider, ROUTER_POLYGON, TOKENS.AAVE_POLYGON, ooRouter, inputAmount, inputAmount);
   exec.call(ooRouter, swapData);
   exec.call(TOKENS.USDT0_POLYGON, encodeTransfer(signerAddress, feeAmount));
-  exec.call(TOKENS.USDT0_POLYGON, encodeApprove(USDT0_OFT_ADAPTER_POLYGON, ethers.MaxUint256));
+  await modularApproveIfNeeded(
+    exec,
+    provider,
+    ROUTER_POLYGON,
+    TOKENS.USDT0_POLYGON,
+    USDT0_OFT_ADAPTER_POLYGON,
+    bridgeAmount,
+    ethers.MaxUint256,
+  );
   const usdt0Balance = exec.staticCall(TOKENS.USDT0_POLYGON, encodeBalanceOf(ROUTER_POLYGON));
   exec.nativeCall(USDT0_OFT_ADAPTER_POLYGON, oftSendData, nativeFeeWithBuffer)
     .spliceWord(BigInt(OFT_AMOUNT_LD_OFFSET), usdt0Balance.returnWord());

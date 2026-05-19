@@ -31,12 +31,13 @@ import {
   STARGATE_AMOUNT_LD_OFFSET,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
-import { encodeApprove, encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from '../utils/erc20';
+import { encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import { ModularActionsBuilder } from '../utils/modularActionsBuilder/index';
 import { ZERO_BYTES32 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance } from '../utils/reproducibility';
+import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
@@ -101,7 +102,6 @@ async function main() {
   console.log(`  Est. received: ${ethers.formatUnits(amountReceivedLD, 6)} USDC`);
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, STARGATE_USDC_POLYGON);
 
   const stargateData = buildStargateCalldata(nativeFeeWithBuffer, signerAddress);
 
@@ -111,7 +111,15 @@ async function main() {
   const exec = new ModularActionsBuilder();
   exec.call(ALLOWANCE_HOLDER, ahIface.encodeFunctionData('transferFrom', [TOKENS.USDC_POLYGON_CIRCLE, signerAddress, ROUTER_POLYGON, inputAmount]));
   exec.call(TOKENS.USDC_POLYGON_CIRCLE, encodeTransfer(signerAddress, feeAmount));
-  exec.call(TOKENS.USDC_POLYGON_CIRCLE, encodeApprove(STARGATE_USDC_POLYGON, ethers.MaxUint256));
+  await modularApproveIfNeeded(
+    exec,
+    provider,
+    ROUTER_POLYGON,
+    TOKENS.USDC_POLYGON_CIRCLE,
+    STARGATE_USDC_POLYGON,
+    estimatedBridgeAmount,
+    ethers.MaxUint256,
+  );
   const usdcBalance = exec.staticCall(TOKENS.USDC_POLYGON_CIRCLE, encodeBalanceOf(ROUTER_POLYGON));
   exec.nativeCall(STARGATE_USDC_POLYGON, stargateData, nativeFeeWithBuffer)
     .splicePayloadWord(BigInt(STARGATE_AMOUNT_LD_OFFSET), usdcBalance.returnWord());

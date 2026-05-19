@@ -2,20 +2,20 @@
 
 Last reviewed: 2026-05-19.
 
-Scope: `src/combined/BungeeOpenRouterV2Unchecked.sol`.
+Scope: `src/combined/OpenRouterV2Unchecked.sol`.
 
 This document captures the assumptions that make the unchecked OpenRouter safe to operate. Many of these are business and integration assumptions, not guarantees enforced by the contract.
 
 ## Source Of Truth
 
-`BungeeOpenRouterV2Unchecked` intentionally removes backend signature verification, nonces, and deadlines. Public entrypoints can be called by anyone.
+`OpenRouterV2Unchecked` intentionally removes backend signature verification, nonces, and deadlines. Public entrypoints can be called by anyone.
 
 Current checked-in public surface:
 
 - `swap(...)`
 - `swapAndBridge(...)`
 - `bridge(...)`
-- `performModularExecution(...)`
+- `performActions()(...)`
 - `rescueFunds(...)`
 
 `OPENROUTER_CONTEXT.md` and `scripts/e2e/utils/routerAbi.ts` may mention `performExecution(...)`; verify against the Solidity file before relying on that ABI.
@@ -34,7 +34,7 @@ Use this distinction when reviewing any route or integration:
 
 The router may temporarily hold funds during one transaction, but it should not end routes with meaningful token or native balances.
 
-Failure mode: `performModularExecution` lets any caller make the router call arbitrary contracts. If the router holds ERC20s, native ETH, bridged refunds, swap dust, rebates, or protocol refunds, a public caller can move or approve those assets through modular actions before owner rescue.
+Failure mode: `performActions()` lets any caller make the router call arbitrary contracts. If the router holds ERC20s, native ETH, bridged refunds, swap dust, rebates, or protocol refunds, a public caller can move or approve those assets through modular actions before owner rescue.
 
 Operational requirements:
 
@@ -47,7 +47,7 @@ Operational requirements:
 
 Users must not give persistent ERC20, Permit2, ERC721, ERC1155, or protocol-specific approvals directly to the router.
 
-Failure mode: if a user directly approves the router, any caller can use `performModularExecution` to make the router call `transferFrom`, `approve`, or equivalent privileged token functions against that user allowance.
+Failure mode: if a user directly approves the router, any caller can use `performActions()` to make the router call `transferFrom`, `approve`, or equivalent privileged token functions against that user allowance.
 
 Operational requirements:
 
@@ -194,7 +194,7 @@ Failure modes:
 
 ## Modular Execution Assumptions
 
-`performModularExecution` is the broadest surface. It makes the router a public generic call executor.
+`performActions()` is the broadest surface. It makes the router a public generic call executor.
 
 Assumptions:
 
@@ -245,4 +245,4 @@ Before enabling a route or integration, confirm:
 - Excess native value and bridge refunds do not end up on the router.
 - Monitoring exists for router balances, direct allowances to router, and unexpected downstream roles.
 
-If any critical business assumption is false, do not rely on `BungeeOpenRouterV2Unchecked` as-is. Add access control, use a signed variant, or remove the downstream privilege/funds/allowance that makes the public call surface dangerous.
+If any critical business assumption is false, do not rely on `OpenRouterV2Unchecked` as-is. Add access control, use a signed variant, or remove the downstream privilege/funds/allowance that makes the public call surface dangerous.

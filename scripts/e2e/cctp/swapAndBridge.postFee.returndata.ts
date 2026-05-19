@@ -35,8 +35,8 @@ import { ZERO_BYTES32, bridgeAmountPositionFlag, swapAndBridgeArgs } from "../ut
 import { logTxnSummary } from "../utils/txnLogSummary";
 import {
   ensureRouterErc20Balance,
-  ensureRouterApproval,
-} from "../utils/reproducibility";
+} from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 // post-fee (0x01) | bridge amount at byte offset 4 (depositForBurn amount param)
 const FLAGS = 0x01n | bridgeAmountPositionFlag(4);
@@ -149,17 +149,20 @@ async function main() {
     TOKENS.USDC_POLYGON_CIRCLE,
     ROUTER_POLYGON
   );
-  await ensureRouterApproval(
-    signer,
+
+  const swapApprovalSpender = await resolveApprovalSpender(
+    provider,
     ROUTER_POLYGON,
     TOKENS.AAVE_POLYGON,
-    ooRouter
+    ooRouter,
+    inputAmount,
   );
-  await ensureRouterApproval(
-    signer,
+  const bridgeApprovalSpender = await resolveApprovalSpender(
+    provider,
     ROUTER_POLYGON,
     TOKENS.USDC_POLYGON_CIRCLE,
-    polyCctp.tokenMessenger
+    polyCctp.tokenMessenger,
+    estimatedOut - feeAmount,
   );
 
   const callData = routerIface.encodeFunctionData("swapAndBridge", swapAndBridgeArgs(
@@ -173,7 +176,7 @@ async function main() {
     { receiver: signerAddress, amount: feeAmount },
     {
       target: ooRouter,
-      approvalSpender: ooRouter,
+      approvalSpender: swapApprovalSpender,
       outputToken: TOKENS.USDC_POLYGON_CIRCLE,
       value: 0n,
       minOutput: minAmountOut,
@@ -182,7 +185,7 @@ async function main() {
     swapData,
     {
       target: polyCctp.tokenMessenger,
-      approvalSpender: polyCctp.tokenMessenger,
+      approvalSpender: bridgeApprovalSpender,
       value: 0n,
     },
     depositForBurnData,

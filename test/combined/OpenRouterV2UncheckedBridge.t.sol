@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
 pragma solidity 0.8.34;
 
-import {BungeeOpenRouter as Router} from "../../src/BungeeOpenRouter.sol";
-import {BungeeOpenRouterV2UncheckedTestBase} from "./BungeeOpenRouterV2UncheckedTestBase.sol";
+import {OpenRouter as Router} from "../../src/OpenRouter.sol";
+import {OpenRouterV2UncheckedTestBase} from "./OpenRouterV2UncheckedTestBase.sol";
 
-contract BungeeOpenRouterV2UncheckedBridgeTest is BungeeOpenRouterV2UncheckedTestBase {
+contract OpenRouterV2UncheckedBridgeTest is OpenRouterV2UncheckedTestBase {
     function test_bridge_erc20() public {
         _deal(address(inputToken), USER, INPUT_AMOUNT);
         _approveInputToken(INPUT_AMOUNT);

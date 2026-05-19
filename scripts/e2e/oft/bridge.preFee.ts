@@ -30,7 +30,8 @@ import { getWalletErc20Balance } from '../utils/erc20';
 import { ROUTER_ABI } from '../utils/routerAbi';
 import { ZERO_BYTES32, type BridgeData, type FeeData, type InputData } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance } from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 const LZ_EXTRA_OPTIONS = Options.newOptions().addExecutorLzReceiveOption(65000, 0).toHex();
@@ -125,9 +126,17 @@ async function main(): Promise<void> {
 
   const input: InputData = { user: signerAddress, inputToken, inputAmount };
   const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
+  const bridgeApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_POLYGON,
+    inputToken,
+    USDT0_OFT_ADAPTER_POLYGON,
+    bridgeAmount,
+  );
+
   const bridgeData: BridgeData = {
     target: USDT0_OFT_ADAPTER_POLYGON,
-    approvalSpender: USDT0_OFT_ADAPTER_POLYGON,
+    approvalSpender: bridgeApprovalSpender,
     value: nativeFeeWithBuffer,
   };
 
@@ -135,7 +144,6 @@ async function main(): Promise<void> {
   const execCalldata = routerIface.encodeFunctionData('bridge', [ZERO_BYTES32, input, fee, bridgeData, sendData]);
 
   await ensureRouterErc20Balance(signer, inputToken, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, inputToken, USDT0_OFT_ADAPTER_POLYGON);
   await ensureAllowanceForAllowanceHolder(signer, inputToken, inputAmount);
 
   console.log('Sending AllowanceHolder.exec → router.bridge...');

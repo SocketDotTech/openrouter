@@ -30,7 +30,8 @@ import {
   type InputData,
 } from '../utils/contractTypes';
 import { logTxnSummary } from '../utils/txnLogSummary';
-import { ensureRouterErc20Balance, ensureRouterApproval } from '../utils/reproducibility';
+import { ensureRouterErc20Balance } from '../utils/reproducibility';
+import { resolveApprovalSpender } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
 
@@ -88,14 +89,21 @@ async function main() {
 
   const input: InputData = { user: signerAddress, inputToken: TOKENS.USDC_POLYGON_CIRCLE, inputAmount };
   const fee: FeeData = { receiver: signerAddress, amount: feeAmount };
+  const bridgeApprovalSpender = await resolveApprovalSpender(
+    provider,
+    ROUTER_POLYGON,
+    TOKENS.USDC_POLYGON_CIRCLE,
+    polyCctp.tokenMessenger,
+    bridgeAmount,
+  );
+
   const bridgeData: BridgeData = {
     target: polyCctp.tokenMessenger,
-    approvalSpender: polyCctp.tokenMessenger,
+    approvalSpender: bridgeApprovalSpender,
     value: 0n,
   };
 
   await ensureRouterErc20Balance(signer, TOKENS.USDC_POLYGON_CIRCLE, ROUTER_POLYGON);
-  await ensureRouterApproval(signer, ROUTER_POLYGON, TOKENS.USDC_POLYGON_CIRCLE, polyCctp.tokenMessenger);
 
   const routerIface = new ethers.Interface(ROUTER_ABI);
   const callData = routerIface.encodeFunctionData('bridge', bridgeArgs(ZERO_BYTES32, input, fee, bridgeData, depositForBurnData));

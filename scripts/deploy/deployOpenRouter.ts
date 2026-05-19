@@ -1,8 +1,8 @@
 /**
- * Deployment script for BungeeOpenRouter.
+ * Deployment script for OpenRouter.
  *
  * Usage:
- *   npx hardhat run scripts/deploy/deployBungeeOpenRouter.ts --network <network>
+ *   npx hardhat run scripts/deploy/deployOpenRouter.ts --network <network>
  *
  * Required env vars:
  *   DEPLOYER_PRIVATE_KEY — deployer wallet private key
@@ -23,15 +23,15 @@ async function main() {
   console.log('Network:   ', networkName);
   console.log('');
 
-  console.log('Deploying BungeeOpenRouter...');
-  const factory = await ethers.getContractFactory('BungeeOpenRouter');
+  console.log('Deploying OpenRouter...');
+  const factory = await ethers.getContractFactory('OpenRouter');
   const router = await factory.deploy(owner);
   await router.waitForDeployment();
   const routerAddress = await router.getAddress();
-  console.log('BungeeOpenRouter deployed to:', routerAddress);
+  console.log('OpenRouter deployed to:', routerAddress);
 
   console.log('\n=== Deployment Summary ===');
-  console.log(`BungeeOpenRouter:  ${routerAddress}`);
+  console.log(`OpenRouter:  ${routerAddress}`);
 
   const chainId = (await ethers.provider.getNetwork()).chainId;
   if (chainId !== 31337n) {

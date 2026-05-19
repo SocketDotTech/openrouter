@@ -1,5 +1,5 @@
 /**
- * Polygon: sweep USDC from `BungeeOpenRouter` to the tx sender using
+ * Polygon: sweep USDC from `OpenRouter` to the tx sender using
  * `performActions` only — no AllowanceHolder, no pull step.
  *
  * Actions:

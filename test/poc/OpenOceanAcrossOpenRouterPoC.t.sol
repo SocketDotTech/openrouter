@@ -4,7 +4,7 @@ pragma solidity 0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
-import {BungeeOpenRouter as Router} from "../../src/BungeeOpenRouter.sol";
+import {OpenRouter as Router} from "../../src/OpenRouter.sol";
 import {AcrossERC20AmountManipulator} from "../../src/manipulators/AcrossERC20AmountManipulator.sol";
 
 interface ISpokePool {
