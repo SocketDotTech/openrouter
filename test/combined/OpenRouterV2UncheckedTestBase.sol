@@ -4,10 +4,10 @@ pragma solidity 0.8.34;
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
-import {BungeeOpenRouter as Router} from "../../src/BungeeOpenRouter.sol";
+import {OpenRouter as Router} from "../../src/OpenRouter.sol";
 import {ALLOWANCE_HOLDER, IAllowanceHolder} from "../../src/common/interfaces/IAllowanceHolder.sol";
 
-abstract contract BungeeOpenRouterV2UncheckedTestBase is Test {
+abstract contract OpenRouterV2UncheckedTestBase is Test {
     uint256 internal constant FEE_FLAG_BIT_MASK = 0x01;
     uint256 internal constant BALANCE_FLAG_BIT_MASK = 0x02;
     uint256 internal constant BRIDGE_VALUE_FLAG_BIT_MASK = 0x04;

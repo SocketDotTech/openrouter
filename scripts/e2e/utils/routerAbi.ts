@@ -1,5 +1,5 @@
 /**
- * ABI fragments for BungeeOpenRouter entrypoints used by e2e scripts.
+ * ABI fragments for OpenRouter entrypoints used by e2e scripts.
  * Struct field order must match the Solidity definitions.
  */
 export const ROUTER_ABI = [

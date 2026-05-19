@@ -4,13 +4,13 @@ Last researched: 2026-05-18.
 
 Main ship target:
 
-- `src/combined/BungeeOpenRouterV2Unchecked.sol`
+- `src/combined/OpenRouterV2Unchecked.sol`
 
-Use `src/combined/BungeeOpenRouterV2.sol` as the signed sibling/reference, but the backend branch researched here targets the unchecked ABI.
+Use `src/combined/OpenRouterV2.sol` as the signed sibling/reference, but the backend branch researched here targets the unchecked ABI.
 
 ## V2Unchecked Surface
 
-`BungeeOpenRouterV2Unchecked` removes backend signature verification, nonce, and deadline fields. Fund safety for ERC20 inputs depends on 0x AllowanceHolder transient approvals plus `_msgSender() == input.user` in `_pullFromUser`.
+`OpenRouterV2Unchecked` removes backend signature verification, nonce, and deadline fields. Fund safety for ERC20 inputs depends on 0x AllowanceHolder transient approvals plus `_msgSender() == input.user` in `_pullFromUser`.
 
 External entrypoints:
 
@@ -29,12 +29,12 @@ External entrypoints:
 - `bridge(bytes32 requestHash, InputData input, FeeData fee, BridgeData bridgeData, bytes bridgeCallData)`
   - Direct bridge, no swap.
   - No runtime splice; bridge amount must already be encoded in `bridgeCallData`.
-- `performModularExecution(bytes32 requestHash, Action[] actions)`
+- `performActions()(bytes32 requestHash, Action[] actions)`
   - Generic action loop with packed action metadata and packed splices.
 
 ## Flags
 
-Flag constants in `BungeeOpenRouterV2Unchecked.sol`:
+Flag constants in `OpenRouterV2Unchecked.sol`:
 
 - `0x01` - post-swap fee for `swap` and `swapAndBridge`; clear means pre-fee from input. Ignored by `performExecution`.
 - `0x02` - measure swap output by `balanceOf` delta; clear means decode return word at `SwapData.returnDataWordOffset`.
@@ -105,4 +105,4 @@ If the Solidity ABI changes, update those hard-coded ABI strings first. Direct D
 - `bridge()` cannot splice runtime amounts. Use `swapAndBridge()` when bridge calldata needs the live swap output.
 - `swapAndBridge()` uses balance-delta output measurement in backend builders today.
 - `performExecution` and `swapAndBridge` share helpers but have different fee semantics.
-- Production use of `BungeeOpenRouterV2Unchecked` needs an operational access-control decision; the contract itself has no signature or nonce checks.
+- Production use of `OpenRouterV2Unchecked` needs an operational access-control decision; the contract itself has no signature or nonce checks.

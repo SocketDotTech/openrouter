@@ -2,7 +2,7 @@
  * Script — Call ERC-20 approve(spender, amount) through the router using
  *          `performActions(Action[])`.
  *
- * DISABLED by default: `BungeeOpenRouter` now sets max allowance inside
+ * DISABLED by default: `OpenRouter` now sets max allowance inside
  * `swap`, `bridge`, and `swapAndBridge`. Use those entrypoints instead of a
  * standalone approval tx. Set `E2E_ENABLE_MODULAR_PRE_APPROVE=1` only if you
  * need this legacy helper for manual modular debugging.

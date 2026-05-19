@@ -12,12 +12,12 @@ import {CurrencyLib} from "./common/lib/CurrencyLib.sol";
 import {RescueFundsLib} from "./common/lib/RescueFundsLib.sol";
 import {RESCUE_ROLE} from "./common/AccessRoles.sol";
 
-/// @title BungeeOpenRouter
+/// @title OpenRouter
 /// @notice Pull → optional fee → swap/bridge execution without backend signature verification.
 ///         Fund safety rests on AllowanceHolder's transient allowance scoping (operator + owner + token):
 ///         only the user whose address was passed to `AllowanceHolder.exec` can authorise a pull of
 ///         their own funds. The `_msgSender() == user` check in `_pullFromUser` enforces this.
-contract BungeeOpenRouter is AccessControl, AllowanceHolderContext {
+contract OpenRouter is AccessControl, AllowanceHolderContext {
     using SafeTransferLib for address;
 
     // =========================================================================

@@ -1,5 +1,5 @@
 /**
- * TypeScript interfaces mirroring BungeeOpenRouter Solidity structs.
+ * TypeScript interfaces mirroring OpenRouter Solidity structs.
  * Field names and order must match the compiler ABI encoding.
  */
 

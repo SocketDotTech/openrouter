@@ -1,7 +1,7 @@
 /**
  * Router ERC-20 allowance helpers for e2e scripts.
  *
- * `BungeeOpenRouter` only calls `approve` when `approvalSpender != 0` and
+ * `OpenRouter` only calls `approve` when `approvalSpender != 0` and
  * `requiredAmount > allowance(router, spender)`. Scripts mirror that: check on-chain
  * allowance first, omit modular approve actions when sufficient, and pass
  * `ZERO_ADDRESS` as `approvalSpender` on `swap` / `bridge` / `swapAndBridge` when not needed.

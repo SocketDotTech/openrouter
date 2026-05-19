@@ -29,7 +29,7 @@ export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
 export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
 
 /**
- * Deployed `BungeeOpenRouterV2Unchecked` — one address per chain used by e2e scripts.
+ * Deployed `OpenRouterV2Unchecked` — one address per chain used by e2e scripts.
  * Override per chain with env `ROUTER_CHAIN_<chainId>` (e.g. ROUTER_CHAIN_1 for Ethereum).
  * Chains without an entry fall back to legacy `ROUTER_ADDRESS` when set.
  */

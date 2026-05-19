@@ -1,4 +1,4 @@
-# BungeeOpenRouter — Contract Variants
+# OpenRouter — Contract Variants
 
 > **Monolithic** — non-generic; purpose-built with fees, swap, bridge functionality
 
@@ -24,14 +24,14 @@ src/
     interfaces/IAllowanceHolder.sol
     allowance/AllowanceHolderContext.sol
   monolithic/
-    BungeeOpenRouter.sol
-    BungeeOpenRouterAH.sol
+    OpenRouter.sol
+    OpenRouterAH.sol
   modular/
-    BungeeOpenRouterModular.sol
-    BungeeOpenRouterModularAH.sol
+    OpenRouterModular.sol
+    OpenRouterModularAH.sol
   minimal/
-    BungeeOpenRouterMinimal.sol
-    BungeeOpenRouterMinimalAH.sol
+    OpenRouterMinimal.sol
+    OpenRouterMinimalAH.sol
 ```
 
 Each variant subdirectory holds the ERC20-facing contract and its AllowanceHolder sibling; imports reach into `../common/`.
@@ -74,9 +74,9 @@ The contract has no reentrancy guard, matching `Solver` and `StakedRouterReceive
 
 ---
 
-## v1 — BungeeOpenRouter (monolithic)
+## v1 — OpenRouter (monolithic)
 
-**File:** [`src/monolithic/BungeeOpenRouter.sol`](src/monolithic/BungeeOpenRouter.sol). AllowanceHolder variant: [`src/monolithic/BungeeOpenRouterAH.sol`](src/monolithic/BungeeOpenRouterAH.sol).
+**File:** [`src/monolithic/OpenRouter.sol`](src/monolithic/OpenRouter.sol). AllowanceHolder variant: [`src/monolithic/OpenRouterAH.sol`](src/monolithic/OpenRouterAH.sol).
 
 This version encodes the full execution pipeline directly in the contract. The steps are explicit, ordered, and named. The signed payload is a single `Execution` struct:
 
@@ -130,13 +130,13 @@ assembly ("memory-safe") {
 
 **When to use this.** Routes where the shape of the flow is always the same: pull → optional pre-fee → optional swap → optional post-fee → bridge. The contract knows the meaning of every field and enforces sensible preconditions (e.g. `finalAmount` cannot underflow below a fee). Adding a step that does not fit this shape — like a second bridge call, a pre-swap approval to a different address, or an intermediate hop — is not possible without deploying a new version of the contract.
 
-**AllowanceHolder variant (`BungeeOpenRouterAH`).** Instead of pulling with ERC20 `transferFrom` from the user to the router, the pull step calls 0x `AllowanceHolder.transferFrom` so funds move under that contract’s transient allowance (user approves AllowanceHolder, user calls `AllowanceHolder.exec` with `target = this router` and calldata invoking `performExecution`). The AH entry decodes `_msgSender()` as the original user appended by AllowanceHolder; `_pullFromUser` requires `_msgSender() == user`, so only the signer-named user matches the ephemeral allowance binding. Like Settler + AH patterns, `AllowanceHolderContext` exposes a harmless `balanceOf` on the router so AllowanceHolder’s confused-deputy probe succeeds; the rest of the pipeline is unchanged.
+**AllowanceHolder variant (`OpenRouterAH`).** Instead of pulling with ERC20 `transferFrom` from the user to the router, the pull step calls 0x `AllowanceHolder.transferFrom` so funds move under that contract’s transient allowance (user approves AllowanceHolder, user calls `AllowanceHolder.exec` with `target = this router` and calldata invoking `performExecution`). The AH entry decodes `_msgSender()` as the original user appended by AllowanceHolder; `_pullFromUser` requires `_msgSender() == user`, so only the signer-named user matches the ephemeral allowance binding. Like Settler + AH patterns, `AllowanceHolderContext` exposes a harmless `balanceOf` on the router so AllowanceHolder’s confused-deputy probe succeeds; the rest of the pipeline is unchanged.
 
 ---
 
-## v2 — BungeeOpenRouterModular (generic actions + returndata splicing)
+## v2 — OpenRouterModular (generic actions + returndata splicing)
 
-**File:** [`src/modular/BungeeOpenRouterModular.sol`](src/modular/BungeeOpenRouterModular.sol). AllowanceHolder variant: [`src/modular/BungeeOpenRouterModularAH.sol`](src/modular/BungeeOpenRouterModularAH.sol).
+**File:** [`src/modular/OpenRouterModular.sol`](src/modular/OpenRouterModular.sol). AllowanceHolder variant: [`src/modular/OpenRouterModularAH.sol`](src/modular/OpenRouterModularAH.sol).
 
 This version removes all domain-specific knowledge from the contract. The only signed payload is a list of `Action`s:
 
@@ -191,13 +191,13 @@ Both source and destination offsets are bounds-checked before the copy; zero-len
 
 **When to use this.** Any route where the exact amount flowing between steps is not known until runtime and must be piped into the next step's calldata. The canonical motivating case is an integration like Across, where two separate fields in the bridge calldata both need to reflect the swap output amount. With `GenericStakedRoute` you can only patch one offset; with this contract you declare as many splices as needed, each targeting a different offset.
 
-**AllowanceHolder variant (`BungeeOpenRouterModularAH`).** The action loop is identical after verification: no built-in pull. You choose how to compose an AllowanceHolder `transferFrom` (or delegatecall shim) as one or more ordinary `CALL` actions signed with everything else; `performExecutionAH` wraps that by binding the signature to `(chainId, this, signedUser, exec)` instead of omitting `signedUser`. It asserts `_msgSender() == signedUser` so nobody can burn another user’s nonce by submitting their payload inside a stranger’s `AH.exec`; real fund safety still comes from AllowanceHolder’s operator/owner/token scoping; `AllowanceHolderContext` only supplies the dummy `balanceOf` for AH’s probing.
+**AllowanceHolder variant (`OpenRouterModularAH`).** The action loop is identical after verification: no built-in pull. You choose how to compose an AllowanceHolder `transferFrom` (or delegatecall shim) as one or more ordinary `CALL` actions signed with everything else; `performExecutionAH` wraps that by binding the signature to `(chainId, this, signedUser, exec)` instead of omitting `signedUser`. It asserts `_msgSender() == signedUser` so nobody can burn another user’s nonce by submitting their payload inside a stranger’s `AH.exec`; real fund safety still comes from AllowanceHolder’s operator/owner/token scoping; `AllowanceHolderContext` only supplies the dummy `balanceOf` for AH’s probing.
 
 ---
 
-## v3 — BungeeOpenRouterMinimal (generic actions, no splicing)
+## v3 — OpenRouterMinimal (generic actions, no splicing)
 
-**File:** [`src/minimal/BungeeOpenRouterMinimal.sol`](src/minimal/BungeeOpenRouterMinimal.sol). AllowanceHolder variant: [`src/minimal/BungeeOpenRouterMinimalAH.sol`](src/minimal/BungeeOpenRouterMinimalAH.sol).
+**File:** [`src/minimal/OpenRouterMinimal.sol`](src/minimal/OpenRouterMinimal.sol). AllowanceHolder variant: [`src/minimal/OpenRouterMinimalAH.sol`](src/minimal/OpenRouterMinimalAH.sol).
 
 This version is the stripped-down sibling of v2. The `Action` struct has no `splices` field:
 
@@ -224,7 +224,7 @@ This is exactly how `BaseRouterSingleOutput` works: it measures the swap output 
 
 **When to use this.** Routes where every action is self-contained — the called contracts know what token to look at, query their own balance, and use that as their amount. This covers most `GenericStakedRoute` flows today, since those contracts already contain the offset-patching and balance-reading logic. v3 is the right choice when you do not need cross-action data passing at the router layer, and you want the smallest possible trusted surface in the router contract itself.
 
-**AllowanceHolder variant (`BungeeOpenRouterMinimalAH`).** Same idea as the modular AH: use `performExecutionAH` plus `AllowanceHolderContext`’s `balanceOf`; sign over `signedUser` and require `_msgSender() == signedUser` for nonce-binding; compose the AH pull as ordinary actions in `exec.actions`.
+**AllowanceHolder variant (`OpenRouterMinimalAH`).** Same idea as the modular AH: use `performExecutionAH` plus `AllowanceHolderContext`’s `balanceOf`; sign over `signedUser` and require `_msgSender() == signedUser` for nonce-binding; compose the AH pull as ordinary actions in `exec.actions`.
 
 ---
 
