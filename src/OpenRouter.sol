@@ -57,8 +57,41 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
     }
 
     struct Action {
+        /// @dev Packed call metadata. Decode with masks/shifts below; encode with
+        ///      `callType | (storeResult ? 1 << 8 : 0) | (uint160(target) << 16)`.
+        ///
+        /// Bit layout (least significant bits first):
+        ///   bits 255..160 : reserved (0)
+        ///   bits 159..16  : target address (uint160, left-aligned in this field)
+        ///   bit 8         : storeResult — when set, returndata is saved to `results[i]`
+        ///                   even on success so later actions can splice from it
+        ///   bits 7..3     : reserved (0)
+        ///   bits 2..0     : CallType — CALL (0), STATICCALL (1), CALL_WITH_NATIVE (2)
+        ///
+        /// CALL_WITH_NATIVE: first 32 bytes of `data` are forwarded as `msg.value`;
+        /// the remaining bytes are the call payload.
         uint256 actionInfo;
+        /// @dev Calldata passed to the target. Splices from `splices[]` overwrite byte
+        /// ranges in a mutable memory copy before the external call runs.
         bytes data;
+        /// @dev Packed splice descriptors applied to `data` before the call.
+        /// Each entry is one `uint256` with four uint64 fields (see layout below).
+        /// Encode with `packSpliceInfo` in `scripts/e2e/utils/modularActionsBuilder/index.js`.
+        ///
+        /// Per-entry bit layout (least significant bits first):
+        ///   bits 255..192 : length — number of bytes to copy (must be > 0)
+        ///   bits 191..128 : dstOffset — byte offset into this action's `data` payload
+        ///                   (skips the bytes-array length word; for CALL_WITH_NATIVE,
+        ///                   offset 0 is the value word, offset 32 is payload start)
+        ///   bits 127..64  : srcOffset — byte offset into `results[sourceActionIndex]`
+        ///                   payload (same length-prefix convention)
+        ///   bits 63..0    : sourceActionIndex — index of a prior action (< current index)
+        ///
+        /// Packing formula:
+        ///   sourceActionIndex | (srcOffset << 64) | (dstOffset << 128) | (length << 192)
+        ///
+        /// The source action must have bit 8 set in `actionInfo` (storeResult); the JS
+        /// builder sets this automatically when a splice references that action.
         uint256[] splices;
     }
 
@@ -467,11 +500,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
 
     /**
      * @dev Executes `actions` in order, applying returndata splices before each call.
-     * @dev actionInfo layout:
-     *       - bits 0–7: call type (`CallType`)
-     *       - bit 8: store returndata
-     *       - bits 16+: target address
-     *      splices[j` packs source index, src/dst byte offsets, and length.
+     * @dev See `Action` for `actionInfo` and `splices[]` bit layouts.
      * @param actions Ordered list of actions to run.
      */
     function _performActions(Action[] calldata actions) internal {
@@ -482,21 +511,25 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
             Action calldata action = actions[i];
             bytes memory callData = action.data;
 
+            // Patch callData with slices of prior action returndata.
             uint256 splicesLength = action.splices.length;
             for (uint256 j; j < splicesLength;) {
                 uint256 spliceInfo = action.splices[j];
-                uint256 sourceActionIndex = uint64(spliceInfo);
+                uint256 sourceActionIndex = uint64(spliceInfo); // first 64 bits: index of the prior action to read returndata from.
                 if (sourceActionIndex >= i) revert FutureSplice(i, sourceActionIndex);
 
-                uint256 srcOffset = uint64(spliceInfo >> 64);
-                uint256 dstOffset = uint64(spliceInfo >> 128);
-                uint256 length = spliceInfo >> 192;
+                uint256 srcOffset = uint64(spliceInfo >> 64); // Next 64 bits: byte offset into source returndata
+                uint256 dstOffset = uint64(spliceInfo >> 128); // Next 64 bits: byte offset into next action's data
+                uint256 length = spliceInfo >> 192; // Top 64 bits: number of bytes to copy
+
+                // Fetch source action returndata
                 bytes memory source = results[sourceActionIndex];
                 if (srcOffset + length > source.length || dstOffset + length > callData.length) {
                     revert SpliceOutOfBounds(i, j);
                 }
 
                 assembly ("memory-safe") {
+                    // copy `length` bytes from `source returndata starting from `srcOffset` to `callData` starting from `dstOffset`
                     mcopy(add(add(callData, 0x20), dstOffset), add(add(source, 0x20), srcOffset), length)
                 }
 
@@ -505,14 +538,16 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
                 }
             }
 
+            // Parse actionInfo
             bool success;
             uint256 actionInfo = action.actionInfo;
-            bool storeResult = (actionInfo & 0xff00) != 0;
-            uint256 callType = actionInfo & 0xff;
-            address target = address(uint160(actionInfo >> 16));
+            bool storeResult = (actionInfo & 0xff00) != 0; // Bit 8: persist returndata if set
+            uint256 callType = actionInfo & 0xff; // Bits 0–7: specify CallType
+            address target = address(uint160(actionInfo >> 16)); // Bits 16+: target address
 
             if (callType == uint256(CallType.STATICCALL)) {
                 assembly ("memory-safe") {
+                    // staticcall without copying return data by default
                     success := staticcall(gas(), target, add(callData, 0x20), mload(callData), 0, 0)
                 }
             } else if (callType == uint256(CallType.CALL_WITH_NATIVE)) {
@@ -520,25 +555,32 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
                 uint256 callValue;
                 uint256 payloadLength = callData.length - 32;
                 assembly ("memory-safe") {
-                    callValue := mload(add(callData, 0x20))
-                    success := call(gas(), target, callValue, add(callData, 0x40), payloadLength, 0, 0)
+                    // regular call with value forwarded without copying return data by default
+                    callValue := mload(add(callData, 0x20)) // CALL_WITH_NATIVE prepends a 32-byte wei amount before the actual calldata payload.
+                    success := call(gas(), target, callValue, add(callData, 0x40), payloadLength, 0, 0) // skips first two bytes to reach actuall calldata
                 }
             } else {
                 assembly ("memory-safe") {
+                    // regular call with zero value forwarded without copying return data by default
                     success := call(gas(), target, 0, add(callData, 0x20), mload(callData), 0, 0)
                 }
             }
 
+            // Capture returndata on failure (for revert reason) or when explicitly requested.
             if (!success || storeResult) {
                 bytes memory ret;
                 assembly ("memory-safe") {
+                    // prep return / revert data
                     let returnDataSize := returndatasize()
                     ret := mload(0x40)
-                    mstore(ret, returnDataSize)
-                    returndatacopy(add(ret, 0x20), 0, returnDataSize)
-                    mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f)))
+                    mstore(ret, returnDataSize) // write length prefix on free-mem pointer
+                    returndatacopy(add(ret, 0x20), 0, returnDataSize) // copy returndata after length
+                    mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f))) // Advance free pointer to next 32-byte boundary: (ret + 0x20 + size + 31) and clear last 5 bits with not(0x1f)
                 }
+                // if any call was failed, revert with the returndata
                 if (!success) revert CallFailed(i, ret);
+                
+                // else, save returndata to results array
                 results[i] = ret;
             }
             unchecked {
@@ -575,17 +617,32 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         // Call AllowanceHolder.transferFrom()
         address allowanceHolder = address(ALLOWANCE_HOLDER);
         assembly ("memory-safe") {
+            // Manually ABI-encode AllowanceHolder.transferFrom(address token, address owner, address recipient, uint256 amount)
+            // selector 0x15dacbea. Calldata is 0x84 (132) bytes and starts at ptr+0x1c (see last mstore below).
+            //
+            // The `shl(0x60, addr)` trick left-aligns a 20-byte address in a 32-byte word: the high 20 bytes
+            // hold the address and the trailing 12 bytes are zero, which simultaneously encodes the address AND
+            // provides the ABI zero-padding for the *next* field — so each shifted mstore clears the following
+            // field's padding without a separate write.
+            //
+            // Calldata layout relative to ptr+0x1c:
+            //   [0..3]    selector   (0x15dacbea)
+            //   [4..35]   token      (12-byte pad + 20-byte address)
+            //   [36..67]  owner/user (12-byte pad + 20-byte address)
+            //   [68..99]  recipient  (12-byte pad + 20-byte address = address(this))
+            //   [100..131] amount    (uint256)
             let ptr := mload(0x40)
-            mstore(add(0x80, ptr), amount)
-            mstore(add(0x60, ptr), address())
-            mstore(add(0x4c, ptr), shl(0x60, user)) // clears `recipient`'s padding
+            mstore(add(0x80, ptr), amount) // calldata[100..131]: amount (uint256, right-aligned)
+            mstore(add(0x60, ptr), address()) // calldata[68..99]: recipient = this contract (right-aligned, high 12 bytes are zero padding)
+            mstore(add(0x4c, ptr), shl(0x60, user)) // calldata[48..67]: user address; trailing 12 zero bytes fill calldata[68..79] (recipient padding)
             // `shl(0x60)` (96-bit), NOT `shl(0xa0)` (160-bit): 0xa0 here is literal 160, which
             // shifts the 20-byte address out of place and corrupts the calldata token. Same as
             // 0x-settler `Permit2Payment._allowanceHolderTransferFrom`.
-            mstore(add(0x2c, ptr), shl(0x60, token)) // clears `owner`'s padding (settler wording)
-            mstore(add(0x0c, ptr), 0x15dacbea000000000000000000000000) // selector + token padding
+            mstore(add(0x2c, ptr), shl(0x60, token)) // calldata[16..35]: token address; trailing 12 zero bytes fill calldata[36..47] (user padding)
+            mstore(add(0x0c, ptr), 0x15dacbea000000000000000000000000) // selector at calldata[0..3]; 12 zero bytes fill calldata[4..15] (token padding); calldata begins at ptr+0x1c
 
             if iszero(call(gas(), allowanceHolder, 0x00, add(0x1c, ptr), 0x84, 0x00, 0x00)) {
+                // if call did not succeed, revert with the revert returndata
                 let p := mload(0x40)
                 returndatacopy(p, 0x00, returndatasize())
                 revert(p, returndatasize())
@@ -638,12 +695,13 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         if (!success) {
             bytes memory ret;
             assembly ("memory-safe") {
+                // prep and return revert data
                 let returnDataSize := returndatasize()
                 ret := mload(0x40)
-                mstore(ret, returnDataSize)
-                returndatacopy(add(ret, 0x20), 0, returnDataSize)
-                mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f)))
-                revert(add(ret, 0x20), mload(ret))
+                mstore(ret, returnDataSize) // write length prefix on free-mem pointer
+                returndatacopy(add(ret, 0x20), 0, returnDataSize) // copy returndata after length
+                mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f))) // bump free pointer
+                revert(add(ret, 0x20), mload(ret)) // bubbles up the original revert payload
             }
         }
     }
@@ -664,22 +722,23 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         bool success;
         assembly ("memory-safe") {
             let ptr := mload(0x40)
-            calldatacopy(ptr, data.offset, data.length)
-            mstore(0x40, and(add(add(ptr, data.length), 0x1f), not(0x1f)))
+            calldatacopy(ptr, data.offset, data.length) // copy calldata slice to fresh memory (avoids redundant memory alloc)
+            mstore(0x40, and(add(add(ptr, data.length), 0x1f), not(0x1f))) // advance free pointer to next 32-byte boundary
             success := call(gas(), target, value, ptr, data.length, 0, 0)
         }
 
         if (!success || storeResult) {
             assembly ("memory-safe") {
+                // prep and return revert data
                 let returnDataSize := returndatasize()
                 ret := mload(0x40)
-                mstore(ret, returnDataSize)
-                returndatacopy(add(ret, 0x20), 0, returnDataSize)
-                mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f)))
+                mstore(ret, returnDataSize) // write length prefix on free-mem pointer
+                returndatacopy(add(ret, 0x20), 0, returnDataSize) // copy returndata after length
+                mstore(0x40, and(add(add(add(ret, 0x20), returnDataSize), 0x1f), not(0x1f))) // bump free pointer
             }
             if (!success) {
                 assembly ("memory-safe") {
-                    revert(add(ret, 0x20), mload(ret))
+                    revert(add(ret, 0x20), mload(ret)) // bubble up the raw revert payload
                 }
             }
         }
@@ -696,6 +755,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         if (offset + 32 > ret.length) revert ReturnDataOutOfBounds();
 
         assembly ("memory-safe") {
+            // read the word at the offset from return data
             word := mload(add(add(ret, 0x20), offset))
         }
     }

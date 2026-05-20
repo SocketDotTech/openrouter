@@ -141,9 +141,9 @@ For flows that need extra hops, manipulator contracts, or multiple splices into 
 
 ```solidity
 struct Action {
-    uint256 actionInfo;   // packed call metadata
-    bytes data;
-    uint256[] splices;    // packed splice descriptors
+    uint256 actionInfo;   // packed call metadata (see below)
+    bytes data;           // calldata; patched by splices before the call
+    uint256[] splices;    // packed splice descriptors (see below)
 }
 
 enum CallType { CALL, STATICCALL, CALL_WITH_NATIVE }
@@ -151,23 +151,70 @@ enum CallType { CALL, STATICCALL, CALL_WITH_NATIVE }
 
 ### `actionInfo` layout
 
+One `uint256` per action. All fields are uint64-safe except `target` (uint160).
+
+| Bits | Field | Type | Meaning |
+|------|-------|------|---------|
+| 0–2 | `callType` | `uint8` | `CallType`: `CALL` (0), `STATICCALL` (1), `CALL_WITH_NATIVE` (2) |
+| 3–7 | — | — | reserved (0) |
+| 8 | `storeResult` | `bool` | When set, returndata is saved to `results[i]` even on success so later actions can splice from it |
+| 9–15 | — | — | reserved (0) |
+| 16–175 | `target` | `address` | Callee address (`uint160`, shifted left 16) |
+| 176–255 | — | — | reserved (0) |
+
+Packing (matches `packActionInfo` in [`scripts/e2e/utils/modularActionsBuilder/index.js`](scripts/e2e/utils/modularActionsBuilder/index.js)):
+
 ```text
-bits 0–7   : CallType (CALL = 0, STATICCALL = 1, CALL_WITH_NATIVE = 2)
-bit 8      : store returndata for later splices
-bits 16+   : target address (uint160, shifted left 16)
+callType | (storeResult ? 1 << 8 : 0) | (uint160(target) << 16)
 ```
+
+`CALL_WITH_NATIVE`: first 32 bytes of `data` are `msg.value`; remaining bytes are calldata.
 
 ### `splices[]` entry layout
 
-Each `splices[j]` is one `uint256`:
+Each `splices[j]` is one `uint256` describing a byte-range copy from a prior action’s returndata into this action’s `data`. Offsets are into the **payload** bytes (the bytes-array contents), not including Solidity’s 32-byte length prefix.
+
+| Bits | Field | Type | Meaning |
+|------|-------|------|---------|
+| 0–63 | `sourceActionIndex` | `uint64` | Index of the prior action whose returndata is the copy source |
+| 64–127 | `srcOffset` | `uint64` | Byte offset into `results[sourceActionIndex]` payload |
+| 128–191 | `dstOffset` | `uint64` | Byte offset into this action’s `data` payload |
+| 192–255 | `length` | `uint64` | Number of bytes to copy (must be > 0) |
+
+Packing (matches `packSpliceInfo` in the modular actions builder):
 
 ```text
 sourceActionIndex | (srcOffset << 64) | (dstOffset << 128) | (length << 192)
 ```
 
-Before action `i` runs, each splice copies `length` bytes from `results[sourceActionIndex]` at `srcOffset` into this action’s `data` at `dstOffset` (via `mcopy`). `sourceActionIndex` must be **strictly less than** `i` or the call reverts with `FutureSplice`.
+Before action `i` runs, each splice copies `length` bytes from `results[sourceActionIndex]` at `srcOffset` into this action’s `data` at `dstOffset` (via `mcopy`). Constraints enforced on-chain:
 
-`CALL_WITH_NATIVE`: first 32 bytes of `data` are `msg.value`; remaining bytes are calldata.
+- `sourceActionIndex < i` — otherwise `FutureSplice`
+- `srcOffset + length <= source.length` and `dstOffset + length <= data.length` — otherwise `SpliceOutOfBounds`
+- The source action must have `storeResult` set (bit 8 of its `actionInfo`); the JS builder sets this automatically when a splice references that action
+
+**Destination offset conventions** (builder helpers in `modularActionsBuilder/index.js`):
+
+| Helper | `dstOffset` for… |
+|--------|------------------|
+| `spliceArg(n, source)` | ABI arg `n` in a normal call: `4 + n * 32` (past the 4-byte selector) |
+| `valueFrom(source)` / `spliceNativeValue` | Leading value word of `CALL_WITH_NATIVE`: `0` |
+| `splicePayloadWord(off, source)` | Payload of `CALL_WITH_NATIVE`: `32 + off` |
+| `patchWord(off, source)` | Absolute payload offset `off` |
+
+Example: splice the first 32 bytes of action 0’s returndata into byte offset 132 of action 2’s calldata:
+
+```js
+const { packSpliceInfo } = require("./scripts/e2e/utils/modularActionsBuilder/index");
+
+packSpliceInfo({
+  sourceActionIndex: 0,
+  srcOffset: 0,
+  dstOffset: 132,
+  length: 32,
+});
+// => 0n | (0n << 64n) | (132n << 128n) | (32n << 192n)
+```
 
 There is **no built-in pull** in `performActions`. Compose AllowanceHolder `transferFrom` (or other setup) as ordinary actions in the signed/off-chain-built sequence.
 
