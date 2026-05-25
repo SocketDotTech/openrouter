@@ -5,7 +5,7 @@ import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
 error TransferFailed();
 
-// @audit Audited before by Hexens: // @audit Audited before by Zellic: https://github.com/SocketDotTech/audits/blob/main/Socket-DL/07-2023%20-%20Data%20Layer%20-%20Zellic.pdf
+// @audit Audited before by Hexens: https://github.com/SocketDotTech/audits/blob/main/Bungee/12-2024%20-%20Bungee%20Protocol%20-%20Hexens.pdf
 /// @title CurrencyLib
 /// @notice Token transfer + balance helpers that treat the canonical native
 ///         pseudo-token (`0xEee...EEe`) the same way as the marketplace's
