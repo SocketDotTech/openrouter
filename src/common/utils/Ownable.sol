@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
+// @audit Audited before by Zellic: https://github.com/SocketDotTech/audits/blob/main/Socket-DL/07-2023%20-%20Data%20Layer%20-%20Zellic.pdf
 /// @title Ownable
 /// @notice Two-step ownership transfer, ported from
 ///         marketplace/src/utils/Ownable.sol. Simpler than OpenZeppelin's

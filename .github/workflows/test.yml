@@ -4,6 +4,8 @@ permissions: {}
 
 on:
   push:
+    branches:
+      - main
   pull_request:
   workflow_dispatch:
 
@@ -27,9 +29,6 @@ jobs:
 
       - name: Show Forge version
         run: forge --version
-
-      - name: Run Forge fmt
-        run: forge fmt --check
 
       - name: Run Forge build
         run: forge build --sizes

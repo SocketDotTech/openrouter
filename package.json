@@ -1,0 +1,26 @@
+{
+  "name": "poc-openrouter",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "compile": "hardhat compile",
+    "deploy": "hardhat run scripts/deploy/deployOpenRouter.ts --network",
+    "deploy:v2": "hardhat run scripts/deploy/deployOpenRouterV2.ts --network",
+    "typechain": "hardhat typechain",
+    "slither": "bash scripts/docker-slither.sh"
+  },
+  "devDependencies": {
+    "@arbitrum/sdk": "^4.0.5",
+    "@nomicfoundation/hardhat-foundry": "^1.1.2",
+    "@nomicfoundation/hardhat-toolbox": "^5.0.0",
+    "axios": "^1.16.0",
+    "dotenv": "^16.0.0",
+    "ethers": "^6.16.0",
+    "hardhat": "^2.22.7",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  },
+  "dependencies": {
+    "@layerzerolabs/lz-v2-utilities": "^3.0.168"
+  }
+}
