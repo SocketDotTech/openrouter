@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "compile": "hardhat compile",
-    "deploy:v2": "hardhat run scripts/deploy/deployBungeeOpenRouterV2.ts --network",
-    "typechain": "hardhat typechain"
+    "deploy": "hardhat run scripts/deploy/deployOpenRouter.ts --network",
+    "deploy:v2": "hardhat run scripts/deploy/deployOpenRouterV2.ts --network",
+    "typechain": "hardhat typechain",
+    "slither": "bash scripts/docker-slither.sh"
   },
   "devDependencies": {
     "@arbitrum/sdk": "^4.0.5",

@@ -29,14 +29,14 @@ export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
 export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
 
 /**
- * Deployed `BungeeOpenRouterV2Unchecked` — one address per chain used by e2e scripts.
+ * Deployed `OpenRouterV2Unchecked` — one address per chain used by e2e scripts.
  * Override per chain with env `ROUTER_CHAIN_<chainId>` (e.g. ROUTER_CHAIN_1 for Ethereum).
  * Chains without an entry fall back to legacy `ROUTER_ADDRESS` when set.
  */
 export const ROUTER_BY_CHAIN_ID: Record<number, string> = {
-  [CHAIN_IDS.POLYGON]: '0x23D5aFEF7cE44257366D9ef6de80Ea334FAa9d25',
+  [CHAIN_IDS.POLYGON]: '0x33654252CEA9c95220Aa1d434a3631d5c0843AA4',
   [CHAIN_IDS.ARBITRUM]: '0xe1788A0374EF5D4C35e62478FdB35F37CeE5B951',
-  [CHAIN_IDS.BASE]: '0x96E8c261fCCDFca2CCffe8b4A33dC8a65f153785',
+  [CHAIN_IDS.BASE]: '0x91b536E79cd3607b593f3011937862609D608253',
   [CHAIN_IDS.ETHEREUM]: '0xeB5ae85Fe7e3E272Ac77fd316079589C0Ed91648',
 };
 
@@ -206,6 +206,17 @@ export const STARGATE_AMOUNT_LD_OFFSET = 196;
 /** Fee applied in scripts that take pre-/post-route fees (basis points). */
 export const FEE_BPS = Number(process.env.FEE_AMOUNT_BPS ?? '10');
 
+/**
+ * OpenOcean slippage tolerance used when fetching swap quotes.
+ * The value is passed directly to OO's `slippage` API parameter (percentage string, e.g. '3' = 3%).
+ * OO embeds this as `minReturn` in the swap calldata — if the actual on-chain output falls below
+ * `estimatedOut * (1 - slippage/100)`, OO reverts with "Return amount is not enough".
+ * AAVE's multi-hop route (AAVE→WMATIC→DAI→USDC) can move 2–3% between quote and execution,
+ * so 1% is too tight; 3% provides a safe margin while still protecting against severe slippage.
+ * Override via env: OO_SLIPPAGE_PERCENT=5
+ */
+export const OO_SLIPPAGE_PERCENT = process.env.OO_SLIPPAGE_PERCENT ?? '3';
+
 export function bpsOf(amount: bigint, bps: number): bigint {
   return (amount * BigInt(bps)) / 10000n;
 }
@@ -225,3 +236,12 @@ export const RPC = {
 export const RELAY_API_KEY: string | undefined = process.env.RELAY_API_KEY;
 export const OPEN_OCEAN_API_KEY: string | undefined =
   process.env.OPEN_OCEAN_API_KEY;
+export const KYBERSWAP_API_KEY: string | undefined =
+  process.env.KYBERSWAP_API_KEY;
+export const ZEROX_API_KEY: string | undefined = process.env.ZEROX_API_KEY;
+
+/**
+ * Swap slippage in basis points for KyberSwap and 0x (300 = 3%).
+ * Matches the default OO_SLIPPAGE_PERCENT of 3%.
+ */
+export const SWAP_SLIPPAGE_BPS = 300;

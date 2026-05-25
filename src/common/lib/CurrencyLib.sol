@@ -1,10 +1,11 @@
 // SPDX-License-Identifier: GPL-3.0-only
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
 error TransferFailed();
 
+// @audit Audited before by Hexens: https://github.com/SocketDotTech/audits/blob/main/Bungee/12-2024%20-%20Bungee%20Protocol%20-%20Hexens.pdf
 /// @title CurrencyLib
 /// @notice Token transfer + balance helpers that treat the canonical native
 ///         pseudo-token (`0xEee...EEe`) the same way as the marketplace's

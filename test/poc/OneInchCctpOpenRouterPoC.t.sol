@@ -1,10 +1,10 @@
 // SPDX-License-Identifier: UNLICENSED
-pragma solidity =0.8.25;
+pragma solidity 0.8.34;
 
 import {Test} from "forge-std/Test.sol";
 import {ERC20} from "solady/src/tokens/ERC20.sol";
 
-import {BungeeOpenRouterV2Unchecked as Router} from "../../src/combined/BungeeOpenRouterV2Unchecked.sol";
+import {OpenRouter as Router} from "../../src/OpenRouter.sol";
 import {ALLOWANCE_HOLDER, IAllowanceHolder} from "../../src/common/interfaces/IAllowanceHolder.sol";
 
 interface ITokenMessengerV2 {
@@ -41,6 +41,7 @@ contract OneInchCctpOpenRouterPoCTest is Test {
     uint32 internal constant BASE_CCTP_DOMAIN = 6;
     uint256 internal constant CCTP_MAX_FEE = 0x2710;
     uint32 internal constant CCTP_MIN_FINALITY_THRESHOLD = 1000;
+
     string internal constant SOCKET_GATEWAY_REFERENCE_CALLDATA_PREFIX =
         "0x000001ad4db9cf6a00000000000000000000000000000000000000000000000000000000000001a60000000000000000000000000000000000000000000000000000000000000120000000000000000000000000b0bbff6311b7f245761A7846d3Ce7B1b100C1836000000000000000000000000000000000000000000000000000000000000000600000000000000000000000000000000000000000000000000000000000021050000000000000000000000000000000000000000000000000000000000007530000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000003e8000000000000000000000000000000000000000000000000000000000000271000000000000000000000000000000000000000000000000000000000000013e4ee8f0b86000000000000000000000000d6df932a45c0f255f85145f286ea0b292b21c90b0000000000000000000000003c499c542cef5e3811e1192ce70d8cc03d5c335900000000000000000000000000000000000000000000000002d169fe80174000000000000000000000000000000000000000000000000000000000000000271000000000000000000000000000000000000000000000000000000000000000a00000000000000000000000000000000000000000000000000000000000001304";
     string internal constant SOCKET_GATEWAY_REFERENCE_CALLDATA_SUFFIX =
@@ -76,24 +77,22 @@ contract OneInchCctpOpenRouterPoCTest is Test {
 
         Router.Action[] memory actions = _buildActions(inputAmount, vm.parseBytes(ONEINCH_SWAP_CALLDATA));
 
-        bytes memory ahResult;
         vm.prank(FIXTURE_RECIPIENT);
         uint256 gasBeforeExecute = gasleft();
-        ahResult = IAllowanceHolder(address(ALLOWANCE_HOLDER)).exec(
+        IAllowanceHolder(address(ALLOWANCE_HOLDER)).exec(
             address(router),
             POLYGON_AAVE,
             inputAmount,
             payable(address(router)),
-            abi.encodeCall(router.performModularExecution, (actions))
+            abi.encodeCall(router.performActions, (keccak256("one-inch-cctp-modular"), actions))
         );
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
-        emit log_named_uint("AllowanceHolder.exec -> router.performModularExecution gas used", executeGasUsed);
+        emit log_named_uint("AllowanceHolder.exec -> router.performActions gas used", executeGasUsed);
 
-        bytes[] memory results = abi.decode(ahResult, (bytes[]));
-        _assertPocResult(router, feeRecipientUsdcBefore, usdcSupplyBefore, results[2], results[5]);
+        _assertPocResult(router, feeRecipientUsdcBefore, usdcSupplyBefore);
     }
 
-    function test_oneInchSwapCctpBridgeMonolithic_polygonFork() public {
+    function test_oneInchSwapCctpBridgeSwapAndBridge_polygonFork() public {
         string memory rpcUrl = vm.envOr("POLYGON_RPC", string(""));
         if (bytes(rpcUrl).length != 0) {
             uint256 forkBlock = vm.envOr("POLYGON_FORK_BLOCK", FORK_BLOCK_NUMBER);
@@ -119,22 +118,17 @@ contract OneInchCctpOpenRouterPoCTest is Test {
         uint256 feeRecipientUsdcBefore = ERC20(POLYGON_USDC).balanceOf(FEE_RECIPIENT);
         uint256 usdcSupplyBefore = ERC20(POLYGON_USDC).totalSupply();
 
-        Router.MonolithicExecution memory exec =
-            _buildMonolithicExecution(inputAmount, vm.parseBytes(ONEINCH_SWAP_CALLDATA));
+        bytes memory routerCallData = _swapAndBridgeCallData(inputAmount, vm.parseBytes(ONEINCH_SWAP_CALLDATA));
 
         vm.prank(FIXTURE_RECIPIENT);
         uint256 gasBeforeExecute = gasleft();
         IAllowanceHolder(address(ALLOWANCE_HOLDER)).exec(
-            address(router),
-            POLYGON_AAVE,
-            inputAmount,
-            payable(address(router)),
-            abi.encodeCall(router.performExecution, (exec))
+            address(router), POLYGON_AAVE, inputAmount, payable(address(router)), routerCallData
         );
         uint256 executeGasUsed = gasBeforeExecute - gasleft();
-        emit log_named_uint("AllowanceHolder.exec -> router.performExecution gas used", executeGasUsed);
+        emit log_named_uint("AllowanceHolder.exec -> router.swapAndBridge gas used", executeGasUsed);
 
-        _assertMonolithicPocResult(router, feeRecipientUsdcBefore, usdcSupplyBefore);
+        _assertPocResult(router, feeRecipientUsdcBefore, usdcSupplyBefore);
     }
 
     function test_oneInchSwapCctpBridgeSocketGatewayReference_polygonFork() public {
@@ -236,61 +230,32 @@ contract OneInchCctpOpenRouterPoCTest is Test {
         );
     }
 
-    function _buildMonolithicExecution(uint256 inputAmount, bytes memory swapCalldata)
+    function _swapAndBridgeCallData(uint256 inputAmount, bytes memory swapCalldata)
         internal
         pure
-        returns (Router.MonolithicExecution memory exec)
+        returns (bytes memory)
     {
-        uint256[] memory amountPositions = new uint256[](1);
-        amountPositions[0] = 4;
-
-        exec = Router.MonolithicExecution({
-            input: Router.InputData({user: FIXTURE_RECIPIENT, inputToken: POLYGON_AAVE, inputAmount: inputAmount}),
-            preFee: Router.FeeData({receiver: address(0), amount: 0}),
-            swap: Router.SwapData({
+        return abi.encodeWithSelector(
+            Router.swapAndBridge.selector,
+            keccak256("one-inch-cctp-swap-and-bridge"),
+            uint256(0x01 | 0x08 | (uint256(4) << 16)),
+            Router.InputData({user: FIXTURE_RECIPIENT, inputToken: POLYGON_AAVE, inputAmount: inputAmount}),
+            Router.FeeData({receiver: FEE_RECIPIENT, amount: ROUTE_FEE_USDC}),
+            Router.SwapData({
                 target: ONEINCH_SWAP_TARGET,
                 approvalSpender: ONEINCH_SWAP_TARGET,
                 outputToken: POLYGON_USDC,
                 value: 0,
                 minOutput: EXPECTED_SWAP_OUTPUT_USDC,
-                data: swapCalldata,
                 returnDataWordOffset: 0
             }),
-            postFee: Router.FeeData({receiver: FEE_RECIPIENT, amount: ROUTE_FEE_USDC}),
-            bridge: Router.BridgeData({
-                target: CCTP_TOKEN_MESSENGER_V2,
-                approvalSpender: CCTP_TOKEN_MESSENGER_V2,
-                value: 0,
-                data: _emptyDepositForBurnCalldata(),
-                amountPositions: amountPositions,
-                useFinalAmountAsValue: false
-            })
-        });
+            swapCalldata,
+            Router.BridgeData({target: CCTP_TOKEN_MESSENGER_V2, approvalSpender: CCTP_TOKEN_MESSENGER_V2, value: 0}),
+            _emptyDepositForBurnCalldata()
+        );
     }
 
-    function _assertPocResult(
-        Router router,
-        uint256 feeRecipientUsdcBefore,
-        uint256 usdcSupplyBefore,
-        bytes memory oneInchResult,
-        bytes memory balanceResult
-    ) internal view {
-        uint256 swapOutput = abi.decode(oneInchResult, (uint256));
-        uint256 bridgeAmount = abi.decode(balanceResult, (uint256));
-
-        assertEq(swapOutput, EXPECTED_SWAP_OUTPUT_USDC);
-        assertEq(bridgeAmount, EXPECTED_CCTP_BURN_AMOUNT);
-        assertEq(bridgeAmount, swapOutput - ROUTE_FEE_USDC);
-        assertEq(ERC20(POLYGON_USDC).balanceOf(FEE_RECIPIENT) - feeRecipientUsdcBefore, ROUTE_FEE_USDC);
-        assertEq(ERC20(POLYGON_USDC).totalSupply(), usdcSupplyBefore - bridgeAmount);
-        assertEq(ERC20(POLYGON_AAVE).balanceOf(address(router)), 0);
-        assertEq(ERC20(POLYGON_USDC).balanceOf(address(router)), 0);
-    }
-
-    function _assertMonolithicPocResult(Router router, uint256 feeRecipientUsdcBefore, uint256 usdcSupplyBefore)
-        internal
-        view
-    {
+    function _assertPocResult(Router router, uint256 feeRecipientUsdcBefore, uint256 usdcSupplyBefore) internal view {
         assertEq(ERC20(POLYGON_USDC).balanceOf(FEE_RECIPIENT) - feeRecipientUsdcBefore, ROUTE_FEE_USDC);
         assertEq(ERC20(POLYGON_USDC).totalSupply(), usdcSupplyBefore - EXPECTED_CCTP_BURN_AMOUNT);
         assertEq(ERC20(POLYGON_AAVE).balanceOf(FIXTURE_RECIPIENT), 0);

@@ -1,272 +1,285 @@
-# BungeeOpenRouter — Contract Variants
+# OpenRouter
 
-> **Monolithic** — non-generic; purpose-built with fees, swap, bridge functionality
+**Contract:** [`src/OpenRouter.sol`](src/OpenRouter.sol)
 
-> **Modular** — generic; supports arbitrary actions; uses returndata from previous calls and modifies parts of next calldata
+OpenRouter is a single on-chain executor that combines two earlier designs:
 
-> **Minimal** — generic; supports arbitrary actions; but no calldata modification; each subsequent action destination contract can read state eg. balanceOf() and uses them as needed; 
+1. **Structured (monolithic) routes** — fixed pull → fee → swap → bridge semantics, exposed as separate entrypoints (`swap`, `swapAndBridge`, `bridge`) instead of one giant `Execution` struct and `performExecution`.
+2. **Generic (modular) routes** — an ordered `performActions` loop with returndata splicing between steps, for flows that do not fit the structured pipeline.
 
-All versions uses signature verification.
+There is **no backend signature verification**, **no nonce**, and **no deadline** on this contract. ERC-20 fund safety for structured pulls relies on [0x AllowanceHolder](https://github.com/0xProject/0x-settler) transient allowances plus `_msgSender() == input.user` in `_pullFromUser`. Native input uses `msg.value` on the outer call.
 
-Three versions of the OpenRouter contract exist, each making a different trade-off between rigidity and generality. All three share the same authentication model; they differ only in how the execution steps are expressed and how outputs flow between steps.
+---
 
-**Source layout** (under `src/`):
+## Source layout
 
 ```text
 src/
-  Counter.sol                         # scaffold only
-  common/                             # shared by every variant + AH offshoots
-    OpenRouterAuthBase.sol
-    lib/AuthenticationLib.sol
+  OpenRouter.sol                    # ship target
+  common/
+    allowance/AllowanceHolderContext.sol
+    interfaces/IAllowanceHolder.sol
     lib/BytesSpliceLib.sol
     lib/CurrencyLib.sol
-    utils/Ownable.sol
-    interfaces/IAllowanceHolder.sol
-    allowance/AllowanceHolderContext.sol
-  monolithic/
-    BungeeOpenRouter.sol
-    BungeeOpenRouterAH.sol
-  modular/
-    BungeeOpenRouterModular.sol
-    BungeeOpenRouterModularAH.sol
-  minimal/
-    BungeeOpenRouterMinimal.sol
-    BungeeOpenRouterMinimalAH.sol
+    lib/RescueFundsLib.sol
+    utils/AccessControl.sol
+  manipulators/                     # optional off-router helpers for PoCs (Across, math)
 ```
-
-Each variant subdirectory holds the ERC20-facing contract and its AllowanceHolder sibling; imports reach into `../common/`.
 
 ---
 
-## What is shared across all three
+## How users call the router
 
-Every version inherits `OpenRouterAuthBase` from [`src/common/OpenRouterAuthBase.sol`](src/common/OpenRouterAuthBase.sol). The only things hard-wired in the contract are:
+ERC-20 inputs must be submitted through **AllowanceHolder**, not by calling OpenRouter directly:
 
-- **A single trusted signer** (`OPEN_ROUTER_SIGNER`), rotatable by the owner via two-step `Ownable`. This is the backend solver/orchestration service address.
-- **Per-nonce replay protection.** A `nonceUsed` mapping is written with an assembly `sstore` the moment a valid signature is verified. Any attempt to resubmit the same nonce reverts with `InvalidNonce()` before touching any funds.
-- **A deadline field.** The signature carries a `deadline` (unix timestamp). Expired payloads revert with `DeadlineExpired()`.
-- **Chain + deployment binding.** The signed digest always includes `block.chainid` and `address(this)`. A payload signed for one deployment cannot be replayed on a different chain or a different deployment of the same contract.
+1. User approves AllowanceHolder (not OpenRouter).
+2. User calls `AllowanceHolder.exec(operator, token, amount, target, data)` with `target = OpenRouter` and `data` encoding one of the router entrypoints.
+3. AllowanceHolder forwards the call and appends the user address to calldata (ERC-2771 style). OpenRouter’s `_msgSender()` resolves to that user.
+4. `_pullFromUser` calls `AllowanceHolder.transferFrom` and reverts with `CallerNotSignedUser()` unless `_msgSender() == input.user`.
 
-The signature itself is a plain personal_sign (`\x19Ethereum Signed Message:\n32` prefix, 65-byte `r,s,v`) over `keccak256(abi.encode(chainid, address(this), executionPayload))`. This matches the scheme used in the marketplace `Solver` and `StakedRouterReceiver` contracts.
+Native token input skips AllowanceHolder pull: the caller must forward sufficient `msg.value` on the outer transaction.
 
-```solidity
-// src/common/OpenRouterAuthBase.sol — `_verifyAndConsume`
-if (AuthenticationLib.authenticate(digest, signature) != OPEN_ROUTER_SIGNER) {
-    assembly {
-        mstore(0x00, 0x815e1d64) // InvalidSigner()
-        revert(0x1c, 0x04)
-    }
-}
-
-assembly {
-    mstore(0, nonce)
-    mstore(0x20, nonceUsed.slot)
-    let dataSlot := keccak256(0, 0x40)
-    if and(sload(dataSlot), 0xff) {
-        mstore(0x00, 0x756688fe) // InvalidNonce()
-        revert(0x1c, 0x04)
-    }
-    sstore(dataSlot, 0x01)
-}
-```
-
-The contract has no reentrancy guard, matching `Solver` and `StakedRouterReceiver`. The combination of a fresh nonce per call and a signature that covers the entire payload is the security boundary.
+`AllowanceHolderContext` also implements a harmless `balanceOf` so AllowanceHolder’s confused-deputy probe succeeds (same pattern as 0x Settler + AH).
 
 ---
 
-## v1 — BungeeOpenRouter (monolithic)
+## External entrypoints
 
-**File:** [`src/monolithic/BungeeOpenRouter.sol`](src/monolithic/BungeeOpenRouter.sol). AllowanceHolder variant: [`src/monolithic/BungeeOpenRouterAH.sol`](src/monolithic/BungeeOpenRouterAH.sol).
+| Function | Purpose |
+|----------|---------|
+| `swap` | Same-chain: pull → optional pre/post fee → swap → deliver output to `receiver` |
+| `swapAndBridge` | Cross-chain: pull → optional pre/post swap fee → swap (output stays on router) → bridge |
+| `bridge` | Direct bridge: pull → optional pre-bridge fee → bridge (amount baked into calldata) |
+| `performActions` | Generic action loop with optional returndata splices |
+| `rescueFunds` | Owner `RESCUE_ROLE` recovery of stuck tokens (operational, not a security boundary) |
 
-This version encodes the full execution pipeline directly in the contract. The steps are explicit, ordered, and named. The signed payload is a single `Execution` struct:
+Each structured entrypoint emits `RequestExecuted(bytes32 quoteId)` for off-chain correlation. `quoteId` is caller-defined; the contract does not validate it.
+
+---
+
+## Structured routes — structs
 
 ```solidity
-struct Execution {
+struct InputData {
     address user;
     address inputToken;
     uint256 inputAmount;
+}
 
-    address preFeeReceiver;   // address(0) to skip
-    uint256 preFeeAmount;     // taken in inputToken, before swap
+struct FeeData {
+    address receiver;
+    uint256 amount;   // 0 skips fee collection
+}
 
-    address swapTarget;       // address(0) to skip swap entirely
-    address swapApprovalSpender;
-    address swapOutputToken;
-    uint256 swapValue;
-    uint256 swapMinOutput;
-    bytes   swapData;
+struct SwapData {
+    address target;
+    address approvalSpender;
+    address outputToken;
+    uint256 value;
+    uint256 minOutput;
+    uint256 returnDataWordOffset;  // word index when using returndata output mode
+}
 
-    address postFeeReceiver;  // address(0) to skip
-    uint256 postFeeAmount;    // taken in finalToken, after swap
-
-    address bridgeTarget;
-    address bridgeApprovalSpender;
-    uint256 bridgeValue;
-    bytes   bridgeData;
-    uint256[] bridgeAmountPositions;  // byte offsets where finalAmount is written
-
-    uint256 nonce;
-    uint256 deadline;
+struct BridgeData {
+    address target;
+    address approvalSpender;
+    uint256 value;    // static msg.value addend (see BRIDGE_VALUE flag)
 }
 ```
 
-The contract `performExecution` function walks through this struct in a fixed order:
+### `swap`
 
-1. Pull `inputAmount` of `inputToken` from `user` (ERC20 `transferFrom` into the contract).
-2. If `preFeeAmount > 0`, send that amount to `preFeeReceiver` immediately.
-3. If `swapTarget != address(0)`, take a pre-swap balance snapshot of `swapOutputToken`, call the swap target, measure the balance delta, enforce `delta >= swapMinOutput`. The delta becomes `finalAmount` and `swapOutputToken` becomes `finalToken`. If there is no swap, `finalToken = inputToken` and `finalAmount = inputAmount - preFeeAmount`.
-4. If `postFeeAmount > 0`, send that amount from `finalToken` to `postFeeReceiver`.
-5. Write `finalAmount` into `bridgeData` at every byte offset in `bridgeAmountPositions` using an in-place `mstore`. This is the same pattern as `GenericStakedRoute.executeData`:
+1. Pull `inputAmount` of `inputToken` from `user`.
+2. If `fee.amount > 0` and **pre-fee** (`flags & 0x01 == 0`): transfer fee in input token, swap the remainder.
+3. Approve `swapData.approvalSpender` when needed (max allowance, only if current allowance is insufficient).
+4. Execute swap via `_execSwap` (see flags below).
+5. Enforce `finalAmount >= swapData.minOutput` on **gross** swap output.
+6. If **post-fee** (`flags & 0x01 != 0`): swap output lands on the router; fee is taken from output token; net is sent to `receiver`.
+7. If **pre-fee / no fee**: swap calldata must send tokens **directly to `receiver`**; the router never holds swap output.
 
-```solidity
-// src/common/lib/BytesSpliceLib.sol — `spliceWord`, called for each position
-assembly ("memory-safe") {
-    mstore(add(add(data, 0x20), position), word)
-}
-```
+### `swapAndBridge`
 
-6. If `bridgeApprovalSpender != address(0)`, approve it for `finalAmount`.
-7. Call `bridgeTarget` with the patched `bridgeData`, forwarding `bridgeValue` ETH. Any revert bubbles up with its original error data.
+Same pull / pre-fee / swap / post-fee logic as above, but swap output **always** remains on `address(this)` for bridging. Then `_doBridge` splices the post-fee amount into bridge calldata (when flagged), approves the bridge spender, and calls the bridge target.
 
-**When to use this.** Routes where the shape of the flow is always the same: pull → optional pre-fee → optional swap → optional post-fee → bridge. The contract knows the meaning of every field and enforces sensible preconditions (e.g. `finalAmount` cannot underflow below a fee). Adding a step that does not fit this shape — like a second bridge call, a pre-swap approval to a different address, or an intermediate hop — is not possible without deploying a new version of the contract.
+### `bridge`
 
-**AllowanceHolder variant (`BungeeOpenRouterAH`).** Instead of pulling with ERC20 `transferFrom` from the user to the router, the pull step calls 0x `AllowanceHolder.transferFrom` so funds move under that contract’s transient allowance (user approves AllowanceHolder, user calls `AllowanceHolder.exec` with `target = this router` and calldata invoking `performExecution`). The AH entry decodes `_msgSender()` as the original user appended by AllowanceHolder; `_pullFromUser` requires `_msgSender() == user`, so only the signer-named user matches the ephemeral allowance binding. Like Settler + AH patterns, `AllowanceHolderContext` exposes a harmless `balanceOf` on the router so AllowanceHolder’s confused-deputy probe succeeds; the rest of the pipeline is unchanged.
+No swap. Pull → optional pre-bridge fee in input token → approve bridge spender → call bridge with `bridgeCallData` **unchanged**.
+
+Because `finalAmount = inputAmount - fee` is known up front, the caller must **bake the bridge amount into `bridgeCallData`** before submission. There is no runtime calldata splice on this path.
 
 ---
 
-## v2 — BungeeOpenRouterModular (generic actions + returndata splicing)
+## Packed `flags` (structured routes)
 
-**File:** [`src/modular/BungeeOpenRouterModular.sol`](src/modular/BungeeOpenRouterModular.sol). AllowanceHolder variant: [`src/modular/BungeeOpenRouterModularAH.sol`](src/modular/BungeeOpenRouterModularAH.sol).
+One `uint256` packs switches for `swap` and `swapAndBridge` (not used by `bridge` or `performActions`):
 
-This version removes all domain-specific knowledge from the contract. The only signed payload is a list of `Action`s:
+| Bits | Mask | Meaning |
+|------|------|---------|
+| 0 | `0x01` | Post-swap fee: fee taken from output token after swap. Clear = pre-swap fee from input. |
+| 1 | `0x02` | Swap output via `balanceOf` delta on `outputToken`. Clear = decode return word at `swapData.returnDataWordOffset`. |
+| 2 | `0x04` | Bridge `msg.value = finalAmount + bridgeData.value` (e.g. LayerZero `nativeFee` addend in `bridgeData.value`). Clear = `bridgeData.value` only. |
+| 3 | `0x08` | Splice `finalAmount` into bridge calldata at byte offset `(flags >> 16) & 0xffff`. |
+| 16–31 | — | Byte offset for bridge amount splice when bit 3 is set. |
 
-```solidity
-struct Action {
-    CallType callType;   // CALL, DELEGATECALL, or STATICCALL
-    address  target;
-    uint256  value;      // ETH forwarded; must be zero for non-CALL
-    bytes    data;       // base calldata, may be partially overwritten by splices
-    Splice[] splices;    // applied to data before this action runs
-}
+Common combinations:
 
-struct Splice {
-    uint256 srcOffset;  // byte offset within the *previous* action's returndata
-    uint256 dstOffset;  // byte offset within this action's data
-    uint256 length;     // how many bytes to copy
-}
-```
+| `flags` | Fee | Swap output | Bridge `msg.value` |
+|---------|-----|-------------|-------------------|
+| `0x00` | pre | returndata | `bridgeData.value` |
+| `0x01` | post | returndata | `bridgeData.value` |
+| `0x02` | pre | balance delta | `bridgeData.value` |
+| `0x03` | post | balance delta | `bridgeData.value` |
+| `0x04` | pre | returndata | `finalAmount + bridgeData.value` |
 
-The loop is:
-
-```
-prevReturn = empty bytes
-for each action:
-    apply all splices (copy ranges from prevReturn into action.data)
-    dispatch the call
-    prevReturn = returndata from this call
-```
-
-**How splicing works.** The problem it solves: after a swap, the exact output amount is not known until runtime. The signed `data` for the subsequent bridge call contains a placeholder value at some byte offset. A splice says "before you make this call, copy bytes `[srcOffset, srcOffset+length)` from what the previous call returned into `data[dstOffset, dstOffset+length)`". After the copy, the call is made with the updated data.
-
-A concrete example: suppose action 0 is a STATICCALL to `balanceOf(address(this))` on the output token. Its returndata is 32 bytes encoding the current balance. Action 1 is the bridge call. Its `splices` list contains one entry: `{ srcOffset: 0, dstOffset: 68, length: 32 }`, which says "take the 32-byte balance from action 0's returndata and write it at byte 68 of the bridge calldata". When action 1 runs, its calldata already has the live balance written in.
-
-Under the hood, the copy uses `mcopy` (Cancun, EIP-5656):
-
-```solidity
-// BytesSpliceLib.spliceBytes
-assembly ("memory-safe") {
-    mcopy(
-        add(add(dst, 0x20), dstOffset),
-        add(add(src, 0x20), srcOffset),
-        length
-    )
-}
-```
-
-Both source and destination offsets are bounds-checked before the copy; zero-length splices are rejected.
-
-**Security note on splices.** The base `data` for every action is part of the signed payload. A splice can only overwrite bytes within that signed data — it cannot change the call target, add extra function arguments, or replace the entire calldata. An adversarial return value can only influence the specific byte ranges the signer chose to splice. The signer controls which offsets are writable by choosing which splices to include.
-
-**DELEGATECALL support.** When `callType == DELEGATECALL`, the call runs with this contract's storage and `address(this)`. This is how you plug in a separate implementation contract (analogous to how `BungeeGateway` delegates to its impl) without giving it the whitelist status required by the gateway. Caution applies: a delegatecall target can modify the contract's storage, so only trusted, audited implementation contracts should be used in this slot.
-
-**When to use this.** Any route where the exact amount flowing between steps is not known until runtime and must be piped into the next step's calldata. The canonical motivating case is an integration like Across, where two separate fields in the bridge calldata both need to reflect the swap output amount. With `GenericStakedRoute` you can only patch one offset; with this contract you declare as many splices as needed, each targeting a different offset.
-
-**AllowanceHolder variant (`BungeeOpenRouterModularAH`).** The action loop is identical after verification: no built-in pull. You choose how to compose an AllowanceHolder `transferFrom` (or delegatecall shim) as one or more ordinary `CALL` actions signed with everything else; `performExecutionAH` wraps that by binding the signature to `(chainId, this, signedUser, exec)` instead of omitting `signedUser`. It asserts `_msgSender() == signedUser` so nobody can burn another user’s nonce by submitting their payload inside a stranger’s `AH.exec`; real fund safety still comes from AllowanceHolder’s operator/owner/token scoping; `AllowanceHolderContext` only supplies the dummy `balanceOf` for AH’s probing.
+Add `0x08` and set bits 16–31 when bridge calldata needs the live swap output at a fixed offset (same idea as `GenericStakedRoute` / `BytesSpliceLib.spliceWord`).
 
 ---
 
-## v3 — BungeeOpenRouterMinimal (generic actions, no splicing)
+## Generic routes — `performActions`
 
-**File:** [`src/minimal/BungeeOpenRouterMinimal.sol`](src/minimal/BungeeOpenRouterMinimal.sol). AllowanceHolder variant: [`src/minimal/BungeeOpenRouterMinimalAH.sol`](src/minimal/BungeeOpenRouterMinimalAH.sol).
-
-This version is the stripped-down sibling of v2. The `Action` struct has no `splices` field:
+For flows that need extra hops, manipulator contracts, or multiple splices into one calldata blob, use the modular path:
 
 ```solidity
 struct Action {
-    CallType callType;
-    address  target;
-    uint256  value;
-    bytes    data;   // used exactly as signed; never mutated
+    uint256 actionInfo;   // packed call metadata (see below)
+    bytes data;           // calldata; patched by splices before the call
+    uint256[] splices;    // packed splice descriptors (see below)
 }
+
+enum CallType { CALL, STATICCALL, CALL_WITH_NATIVE }
 ```
 
-The loop dispatches each action with its signed data verbatim and discards the return value. There is no mechanism to move output from one call into the input of the next.
+### `actionInfo` layout
 
+One `uint256` per action. All fields are uint64-safe except `target` (uint160).
+
+| Bits | Field | Type | Meaning |
+|------|-------|------|---------|
+| 0–2 | `callType` | `uint8` | `CallType`: `CALL` (0), `STATICCALL` (1), `CALL_WITH_NATIVE` (2) |
+| 3–7 | — | — | reserved (0) |
+| 8 | `storeResult` | `bool` | When set, returndata is saved to `results[i]` even on success so later actions can splice from it |
+| 9–15 | — | — | reserved (0) |
+| 16–175 | `target` | `address` | Callee address (`uint160`, shifted left 16) |
+| 176–255 | — | — | reserved (0) |
+
+Packing (matches `packActionInfo` in [`scripts/e2e/utils/modularActionsBuilder/index.js`](scripts/e2e/utils/modularActionsBuilder/index.js)):
+
+```text
+callType | (storeResult ? 1 << 8 : 0) | (uint160(target) << 16)
 ```
-for each action:
-    dispatch the call (no splice step)
-    discard returndata
+
+`CALL_WITH_NATIVE`: first 32 bytes of `data` are `msg.value`; remaining bytes are calldata.
+
+### `splices[]` entry layout
+
+Each `splices[j]` is one `uint256` describing a byte-range copy from a prior action’s returndata into this action’s `data`. Offsets are into the **payload** bytes (the bytes-array contents), not including Solidity’s 32-byte length prefix.
+
+| Bits | Field | Type | Meaning |
+|------|-------|------|---------|
+| 0–63 | `sourceActionIndex` | `uint64` | Index of the prior action whose returndata is the copy source |
+| 64–127 | `srcOffset` | `uint64` | Byte offset into `results[sourceActionIndex]` payload |
+| 128–191 | `dstOffset` | `uint64` | Byte offset into this action’s `data` payload |
+| 192–255 | `length` | `uint64` | Number of bytes to copy (must be > 0) |
+
+Packing (matches `packSpliceInfo` in the modular actions builder):
+
+```text
+sourceActionIndex | (srcOffset << 64) | (dstOffset << 128) | (length << 192)
 ```
 
-**How steps communicate without splicing.** They don't — at least not through the router. Instead, the called contracts are responsible for reading whatever state they need at runtime. The most common pattern is pre/post balance accounting: the bridge target (e.g. a `GenericStakedRoute`-style contract or `BungeeApproveAndBridge`) calls `balanceOf(address(this))` itself to discover how much of the token it holds after the previous step deposited it, rather than receiving the amount as an argument.
+Before action `i` runs, each splice copies `length` bytes from `results[sourceActionIndex]` at `srcOffset` into this action’s `data` at `dstOffset` (via `mcopy`). Constraints enforced on-chain:
 
-This is exactly how `BaseRouterSingleOutput` works: it measures the swap output by comparing balances before and after the swap call, then passes the delta to `_execute`. With v3, that accounting logic lives inside the called contracts, not in the router.
+- `sourceActionIndex < i` — otherwise `FutureSplice`
+- `srcOffset + length <= source.length` and `dstOffset + length <= data.length` — otherwise `SpliceOutOfBounds`
+- The source action must have `storeResult` set (bit 8 of its `actionInfo`); the JS builder sets this automatically when a splice references that action
 
-**When to use this.** Routes where every action is self-contained — the called contracts know what token to look at, query their own balance, and use that as their amount. This covers most `GenericStakedRoute` flows today, since those contracts already contain the offset-patching and balance-reading logic. v3 is the right choice when you do not need cross-action data passing at the router layer, and you want the smallest possible trusted surface in the router contract itself.
+**Destination offset conventions** (builder helpers in `modularActionsBuilder/index.js`):
 
-**AllowanceHolder variant (`BungeeOpenRouterMinimalAH`).** Same idea as the modular AH: use `performExecutionAH` plus `AllowanceHolderContext`’s `balanceOf`; sign over `signedUser` and require `_msgSender() == signedUser` for nonce-binding; compose the AH pull as ordinary actions in `exec.actions`.
+| Helper | `dstOffset` for… |
+|--------|------------------|
+| `spliceArg(n, source)` | ABI arg `n` in a normal call: `4 + n * 32` (past the 4-byte selector) |
+| `valueFrom(source)` / `spliceNativeValue` | Leading value word of `CALL_WITH_NATIVE`: `0` |
+| `splicePayloadWord(off, source)` | Payload of `CALL_WITH_NATIVE`: `32 + off` |
+| `patchWord(off, source)` | Absolute payload offset `off` |
+
+Example: splice the first 32 bytes of action 0’s returndata into byte offset 132 of action 2’s calldata:
+
+```js
+const { packSpliceInfo } = require("./scripts/e2e/utils/modularActionsBuilder/index");
+
+packSpliceInfo({
+  sourceActionIndex: 0,
+  srcOffset: 0,
+  dstOffset: 132,
+  length: 32,
+});
+// => 0n | (0n << 64n) | (132n << 128n) | (32n << 192n)
+```
+
+There is **no built-in pull** in `performActions`. Compose AllowanceHolder `transferFrom` (or other setup) as ordinary actions in the signed/off-chain-built sequence.
 
 ---
 
-## Choosing between them
+## Internal helpers (shared behavior)
 
-The three versions exist on a spectrum from "the contract knows everything" to "the contract knows nothing except who signed".
+- **`_pullFromUser`** — AllowanceHolder ERC-20 pull or native `msg.value` check.
+- **`_execSwap`** — balance-delta or returndata word decode; enforces `minOutput` at the entrypoint.
+- **`_doBridge`** — optional `BytesSpliceLib.spliceWord` on bridge calldata, approval, then `_doCall`.
+- **`_performActions`** — splice loop + low-level `call` / `staticcall` with bubbled revert data.
 
-**v1** is the right choice when you want the router to be the authoritative record of what the flow does — you can read one struct and understand the entire execution. The cost is that every variant of the flow (different fee timing, multi-hop bridge, etc.) needs a new contract or a new version. It is also the easiest to audit because the control flow is linear and every named step has an explicit precondition check.
-
-**v2** is the right choice when you need to pipe outputs between steps in ways the called contracts cannot handle themselves. The key example is when a bridge call has two separate amount fields that both need to reflect the swap output — one splice entry per field, both handled in one atomic execution. The contract becomes a thin orchestrator and the "business logic" of each step lives in the action targets.
-
-**v3** is the right choice when the called contracts already handle their own amount discovery (balance-check style) and you just need a trusted sequencer that ensures the actions run in the signed order. It is the most gas-efficient version at the router layer because there is no splice computation overhead, and it is the easiest to build new action targets for because those targets do not need to conform to any returndata shape.
+Approvals use Solady `safeApproveWithRetry` to `type(uint256).max` only when current allowance is below the needed amount.
 
 ---
 
-## Shared libraries
+## Choosing structured vs generic
 
-All live under `src/common/`.
+| Use | When |
+|-----|------|
+| `swap` | Same-chain DEX with optional fee; output to a known `receiver`. |
+| `swapAndBridge` | Swap then bridge; runtime bridge amount and/or native bridge value from swap output. |
+| `bridge` | No swap; amount and calldata fixed before the tx. |
+| `performActions` | Multi-step or integration-specific flows (e.g. swap → manipulator → splice into `SpokePool.deposit`). |
 
-**`OpenRouterAuthBase.sol`** — abstract base all three inherit. Owns the signer address, the nonce mapping, and `_verifyAndConsume`.
+Structured entrypoints keep audit surface small: linear control flow and explicit preconditions. `performActions` is the escape hatch when the pipeline is not pull → fee → swap → bridge.
 
-**`lib/AuthenticationLib.sol`** — personal_sign recovery (`\x19Ethereum Signed Message:\n32` + ecrecover). Matches `marketplace/src/lib/AuthenticationLib.sol` exactly.
+---
 
-**`lib/CurrencyLib.sol`** — wraps Solady `SafeTransferLib` with a native token shortcut (address `0xEee...EEe`), identical in spirit to the marketplace `CurrencyLib`.
+## Security model (summary)
 
-**`lib/BytesSpliceLib.sol`** — used by v1 (writing `finalAmount` to multiple positions in bridge calldata) and v2 (the per-splice `mcopy`). Exposes `spliceWord` (32-byte in-place overwrite, same assembly as `GenericStakedRoute`), `spliceWords` (repeat for multiple positions), and `spliceBytes` (arbitrary-length copy via `mcopy`, bounds-checked).
+| Enforced on-chain | Not enforced |
+|-------------------|--------------|
+| `_msgSender() == user` on ERC-20 pull | Backend signature / nonce / deadline |
+| `minOutput` after swap | That calldata matches user intent |
+| Splice bounds and `FutureSplice` | That `performActions` targets are benign |
+| AllowanceHolder scoping for pulls | Router must not accumulate balances or receive direct user approvals |
 
-**`allowance/AllowanceHolderContext.sol`**, **`interfaces/IAllowanceHolder.sol`** — imported only by the `*AH` contracts in each variant folder.
+`performActions` is **public**. Any caller can execute arbitrary action lists. Operational safety depends on users only approving AllowanceHolder, never OpenRouter directly, and on backend/frontend validating routes before `AllowanceHolder.exec`. See [`OPENROUTER_ASSUMPTIONS.md`](OPENROUTER_ASSUMPTIONS.md) for the full assumption set.
 
+---
 
+## Shared libraries (`src/common/`)
 
+| Module | Role |
+|--------|------|
+| `CurrencyLib` | Native sentinel + transfers / `balanceOf` |
+| `BytesSpliceLib` | `spliceWord` for bridge calldata; `mcopy`-based `spliceBytes` in modular path |
+| `RescueFundsLib` | `rescueFunds` implementation |
+| `AllowanceHolderContext` | `_msgSender()` / dummy `balanceOf` for AH |
 
-0. AllowanceHolder
-1. OpenRouter -> Fee Transfer -> 
-2. OpenRouter (modify input) -> Swap execution -> OpenRouter (modify input) ->
-3. AcrossManipulator -> OpenRouter (modify input) -> 
-4. SpokePool
+`OpenRouterAuthBase` and signed-router variants are **not** used by this contract.
 
-0. AllowanceHolder
-1. OpenRouter -> Fee Transfer -> 
-2. OpenRouter (modify input) -> Swap execution -> OpenRouter (modify input) ->
-3. AcrossRouter(amount, AcrossBridgeData) -> (modify SpokePool input with output ) -> SpokePool
+---
 
-0. AllowanceHolder
-1. AcrossRouter - should have all the fee, swap, bridge code in this
+## Backend and tests
+
+ABI encoders (update if the Solidity ABI changes):
+
+- `bungee-backend/src/modules/dex/utils.ts` — `swap`, AllowanceHolder `exec`
+- `bungee-backend/src/modules/router/utils/directQuotesOpenRouter.ts` — `bridge`, `swapAndBridge`
+
+Tests:
+
+- `test/combined/OpenRouterV2Unchecked*.t.sol` — unit tests against `src/OpenRouter.sol`
+- `test/poc/*OpenRouterPoC.t.sol` — fork PoCs using `performActions` + manipulators
+
+Deploy: `scripts/deploy/deployOpenRouter.ts` (`constructor(address _owner)` grants `RESCUE_ROLE`).

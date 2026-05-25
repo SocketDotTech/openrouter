@@ -35,7 +35,9 @@ export interface ModularAction {
 
 export type Action = LogicalAction;
 
-export declare const PERFORM_MODULAR_EXECUTION_SELECTOR: "0x4f85c3a5";
+export declare const PERFORM_ACTIONS_SELECTOR: "0x197aa51e";
+/** @deprecated Use PERFORM_ACTIONS_SELECTOR */
+export declare const PERFORM_MODULAR_EXECUTION_SELECTOR: "0x197aa51e";
 
 export declare const CallType: Readonly<{
   CALL: 0;
@@ -97,6 +99,8 @@ export declare class ActionRef {
 }
 
 export declare function concatHex(values: Hex[]): Hex;
+export declare function encodePerformActionsArgs(actions: Array<LogicalAction | ModularAction>): Hex;
+/** @deprecated Use encodePerformActionsArgs */
 export declare function encodePerformModularExecutionArgs(actions: Array<LogicalAction | ModularAction>): Hex;
 export declare function encodeWord(value: BigNumberish): Hex;
 export declare function packActionInfo(action: Pick<LogicalAction, "callType" | "target" | "storeResult">): bigint;
