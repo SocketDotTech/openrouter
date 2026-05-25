@@ -13,6 +13,7 @@ export const CHAIN_IDS = {
   BASE: 8453,
   /** Polygon PoS mainnet — used by e2e scripts as the source chain. */
   POLYGON: 137,
+  OPTIMISM: 10,
 } as const;
 
 /** Base URL for explorer transaction pages: `${prefix}${txHash}`. */
@@ -34,10 +35,11 @@ export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
  * Chains without an entry fall back to legacy `ROUTER_ADDRESS` when set.
  */
 export const ROUTER_BY_CHAIN_ID: Record<number, string> = {
-  [CHAIN_IDS.POLYGON]: '0x33654252CEA9c95220Aa1d434a3631d5c0843AA4',
-  [CHAIN_IDS.ARBITRUM]: '0xe1788A0374EF5D4C35e62478FdB35F37CeE5B951',
-  [CHAIN_IDS.BASE]: '0x91b536E79cd3607b593f3011937862609D608253',
-  [CHAIN_IDS.ETHEREUM]: '0xeB5ae85Fe7e3E272Ac77fd316079589C0Ed91648',
+  [CHAIN_IDS.POLYGON]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.ARBITRUM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.BASE]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.ETHEREUM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.OPTIMISM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
 };
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -108,7 +110,8 @@ export const TOKENS = {
  * USDT0 OFT Adapter on Polygon PoS (legacy / alternate route; Polygon→Base may hit LZ NoPeer).
  * Type: OFT_ADAPTER — requires ERC-20 approval of TOKENS.USDT0_POLYGON before calling send().
  */
-export const USDT0_OFT_ADAPTER_POLYGON = '0x6ba10300f0dc58b7a1e4c0e41f5dabb7d7829e13';
+export const USDT0_OFT_ADAPTER_POLYGON =
+  '0x6ba10300f0dc58b7a1e4c0e41f5dabb7d7829e13';
 
 /**
  * USDT0 OFT Adapter on Arbitrum — quote `send()` here; approve adapter to spend {@link TOKENS.USDT0_ARB}.
@@ -172,7 +175,8 @@ export const STARGATE_NATIVE_ARB = '0xA45B5130f36CDcA45667738e2a258AB09f4A5f7F';
  * Stargate v2 native ETH OFT pool on Base.
  * send() requires msg.value = amountLD + nativeFee; bridges ETH to Arbitrum/other chains.
  */
-export const STARGATE_NATIVE_BASE = '0xdc181Bd607330aeeBEF6ea62e03e5e1Fb4B6F7C7';
+export const STARGATE_NATIVE_BASE =
+  '0xdc181Bd607330aeeBEF6ea62e03e5e1Fb4B6F7C7';
 
 /**
  * Stargate v2 USDC pool on Arbitrum.
@@ -186,7 +190,8 @@ export const STARGATE_USDC_ARB = '0xe8CDF27AcD73a434D661C84887215F7598e7d0d3';
  * NOTE: Polygon has no StargatePoolNative for POL/MATIC — only USDC and USDT
  * pools are deployed. Bridge token is Circle USDC, not the chain native token.
  */
-export const STARGATE_USDC_POLYGON = '0x9Aa02D4Fae7F58b8E8f34c66E756cC734DAc7fe4';
+export const STARGATE_USDC_POLYGON =
+  '0x9Aa02D4Fae7F58b8E8f34c66E756cC734DAc7fe4';
 
 /** LayerZero v2 endpoint ID for Base (EID 30184). */
 export const BASE_LZ_EID = 30184;
@@ -225,8 +230,7 @@ export function bpsOf(amount: bigint, bps: number): bigint {
 
 export const RPC = {
   ARBITRUM: process.env.ARBITRUM_RPC ?? 'https://arb1.arbitrum.io/rpc',
-  POLYGON:
-    process.env.POLYGON_RPC ?? 'https://polygon-bor.publicnode.com',
+  POLYGON: process.env.POLYGON_RPC ?? 'https://polygon-bor.publicnode.com',
   ETHEREUM: process.env.ETHEREUM_RPC ?? 'https://eth.llamarpc.com',
   BASE: process.env.BASE_RPC ?? 'https://mainnet.base.org',
 } as const;

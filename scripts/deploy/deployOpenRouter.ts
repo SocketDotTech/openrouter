@@ -39,7 +39,7 @@ async function main() {
   const factory = await ethers.getContractFactory('OpenRouter');
   const deployTransaction = await factory.getDeployTransaction(owner);
 
-  const saltText = 'OpenRouter' + 1;
+  const saltText = 'OpenRouter' + '000';
   const salt = keccak256(toUtf8Bytes(saltText));
 
   const deployAddress = await create3Factory.deployCreate3.staticCall(
