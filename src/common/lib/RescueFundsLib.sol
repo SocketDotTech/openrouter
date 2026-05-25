@@ -1,6 +1,7 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.34;
 
+// @audit Audited before by Zellic: https://github.com/SocketDotTech/audits/blob/main/Socket-DL/07-2023%20-%20Data%20Layer%20-%20Zellic.pdf
 import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
 error ZeroAddress();

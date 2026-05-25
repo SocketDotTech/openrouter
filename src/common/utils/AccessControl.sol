@@ -3,6 +3,7 @@ pragma solidity 0.8.34;
 
 import {Ownable} from "./Ownable.sol";
 
+// @audit Audited before by Zellic: https://github.com/SocketDotTech/audits/blob/main/Socket-DL/07-2023%20-%20Data%20Layer%20-%20Zellic.pdf
 abstract contract AccessControl is Ownable {
     mapping(bytes32 => mapping(address => bool)) private _permits;
 
