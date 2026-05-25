@@ -315,7 +315,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         uint256 finalAmount = _swapBeforeBridge(flags, input, fee, swapData, swapCallData);
 
         // Execute bridge
-        _doBridge(swapData.outputToken, finalAmount, flags, bridgeData, bridgeCallData);
+        _execBridge(swapData.outputToken, finalAmount, flags, bridgeData, bridgeCallData);
 
         emit RequestExecuted(quoteId);
     }
@@ -368,7 +368,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         }
 
         // Execute bridge
-        _doCallCalldata(bridgeData.target, bridgeData.value, bridgeCallData, false);
+        _execCallCalldata(bridgeData.target, bridgeData.value, bridgeCallData, false);
 
         emit RequestExecuted(quoteId);
     }
@@ -399,7 +399,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
      * @param fee Fee receiver and amount; `amount == 0` skips fee collection.
      * @param swapData Swap target, spender, output token, value, `minOutput`, and returndata offset.
      * @param swapCallData Calldata forwarded to `swapData.target`.
-     * @return finalAmount Swap output net of any post-swap fee, ready for `_doBridge`.
+     * @return finalAmount Swap output net of any post-swap fee, ready for `_execBridge`.
      */
     function _swapBeforeBridge(
         uint256 flags,
@@ -461,7 +461,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
      * @param bridgeData Bridge target, approval spender, and static `msg.value` addend.
      * @param bridgeCallData Base bridge calldata; copied to memory when splicing is required.
      */
-    function _doBridge(
+    function _execBridge(
         address token,
         uint256 amount,
         uint256 flags,
@@ -491,7 +491,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         uint256 bridgeValue = ((flags & BRIDGE_VALUE_FLAG_BIT_MASK) != 0) ? amount + bridgeData.value : bridgeData.value;
 
         // Execute bridge call
-        _doCall(bridgeData.target, bridgeValue, _bridgeCallData);
+        _execCall(bridgeData.target, bridgeValue, _bridgeCallData);
     }
 
     // --------------------------------------
@@ -636,8 +636,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
             mstore(add(0x60, ptr), address()) // calldata[68..99]: recipient = this contract (right-aligned, high 12 bytes are zero padding)
             mstore(add(0x4c, ptr), shl(0x60, user)) // calldata[48..67]: user address; trailing 12 zero bytes fill calldata[68..79] (recipient padding)
             // `shl(0x60)` (96-bit), NOT `shl(0xa0)` (160-bit): 0xa0 here is literal 160, which
-            // shifts the 20-byte address out of place and corrupts the calldata token. Same as
-            // 0x-settler `Permit2Payment._allowanceHolderTransferFrom`.
+            // shifts the 20-byte address out of place and corrupts the calldata token. Same as 0x-settler `Permit2Payment._allowanceHolderTransferFrom`.
             mstore(add(0x2c, ptr), shl(0x60, token)) // calldata[16..35]: token address; trailing 12 zero bytes fill calldata[36..47] (user padding)
             mstore(add(0x0c, ptr), 0x15dacbea000000000000000000000000) // selector at calldata[0..3]; 12 zero bytes fill calldata[4..15] (token padding); calldata begins at ptr+0x1c
 
@@ -671,11 +670,11 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         if (useBalanceOf) {
             // Measure output as (balance after − balance before) at `outputReceiver`
             uint256 before = CurrencyLib.balanceOf(swapData.outputToken, outputReceiver);
-            _doCallCalldata(swapData.target, swapData.value, swapCallData, false);
+            _execCallCalldata(swapData.target, swapData.value, swapCallData, false);
             finalAmount = CurrencyLib.balanceOf(swapData.outputToken, outputReceiver) - before;
         } else {
             // Decode output from returndata
-            bytes memory ret = _doCallCalldata(swapData.target, swapData.value, swapCallData, true);
+            bytes memory ret = _execCallCalldata(swapData.target, swapData.value, swapCallData, true);
             finalAmount = _decodeReturnWord(ret, swapData.returnDataWordOffset);
         }
     }
@@ -686,7 +685,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
      * @param value Wei forwarded with the call.
      * @param data ABI-encoded calldata in memory.
      */
-    function _doCall(address target, uint256 value, bytes memory data) internal {
+    function _execCall(address target, uint256 value, bytes memory data) internal {
         bool success;
         assembly ("memory-safe") {
             success := call(gas(), target, value, add(data, 0x20), mload(data), 0, 0)
@@ -715,7 +714,7 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
      * @param storeResult When true, copy returndata into memory even on success.
      * @return ret Returndata when `storeResult` is true or the call reverts (revert bubbles).
      */
-    function _doCallCalldata(address target, uint256 value, bytes calldata data, bool storeResult)
+    function _execCallCalldata(address target, uint256 value, bytes calldata data, bool storeResult)
         internal
         returns (bytes memory ret)
     {

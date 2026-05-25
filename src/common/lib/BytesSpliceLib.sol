@@ -2,8 +2,7 @@
 pragma solidity 0.8.34;
 
 /// @title BytesSpliceLib
-/// @notice Generalisation of the in-place calldata patching used in
-///         GenericStakedRoute and BungeeApproveAndBridge. Supports patching
+/// @notice Generalisation of the in-place calldata patching. Supports patching
 ///         either a single 32-byte word (for `uint256` amount fields) or an
 ///         arbitrary length copy from one bytes blob to another.
 library BytesSpliceLib {
@@ -13,7 +12,6 @@ library BytesSpliceLib {
     error SplicePositionOutOfBounds();
 
     /// @notice Overwrites a 32-byte word at `position` in `data` with `word`.
-    /// @dev Mirrors the GenericStakedRoute amount patching pattern.
     function spliceWord(bytes memory data, uint256 position, uint256 word) internal pure {
         // Bounds check: position + 32 must fit in data
         if (position + 32 > data.length) {
