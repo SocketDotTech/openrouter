@@ -11,8 +11,16 @@
  * The router's _pullFromUser uses the same AH.transferFrom to move tokens in.
  */
 import { ethers, MaxUint256, Signer } from 'ethers';
-import { ALLOWANCE_HOLDER } from '../config';
+import { allowanceHolderForChain } from '../config';
 import { getErc20Contract } from './erc20';
+
+async function resolveAllowanceHolder(signer: Signer): Promise<string> {
+  if (!signer.provider) {
+    throw new Error('Signer provider required to resolve AllowanceHolder address');
+  }
+  const network = await signer.provider.getNetwork();
+  return allowanceHolderForChain(Number(network.chainId));
+}
 
 /**
  * Minimal ABI fragment for AllowanceHolder — only the exec function we call.
@@ -33,8 +41,8 @@ export const ALLOWANCE_HOLDER_ABI = [
  * Returns an ethers Contract instance for AllowanceHolder connected to the
  * given signer.
  */
-export function getAllowanceHolderContract(signer: Signer): ethers.Contract {
-  return new ethers.Contract(ALLOWANCE_HOLDER, ALLOWANCE_HOLDER_ABI, signer);
+export function getAllowanceHolderContract(signer: Signer, allowanceHolder: string): ethers.Contract {
+  return new ethers.Contract(allowanceHolder, ALLOWANCE_HOLDER_ABI, signer);
 }
 
 /**
@@ -49,23 +57,24 @@ export async function ensureAllowanceForAllowanceHolder(
   token: string,
   requiredAmount: bigint,
 ): Promise<void> {
+  const allowanceHolder = await resolveAllowanceHolder(signer);
   const owner = await signer.getAddress();
   const erc20 = getErc20Contract(token, signer);
-  const allowanceRaw = await erc20.allowance(owner, ALLOWANCE_HOLDER);
+  const allowanceRaw = await erc20.allowance(owner, allowanceHolder);
   const allowance =
     typeof allowanceRaw === 'bigint' ? allowanceRaw : BigInt(allowanceRaw.toString());
 
   if (allowance >= requiredAmount) {
     console.log(
-      `AllowanceHolder allowance OK (${allowance.toString()} >= ${requiredAmount.toString()})`,
+      `AllowanceHolder (${allowanceHolder}) allowance OK (${allowance.toString()} >= ${requiredAmount.toString()})`,
     );
     return;
   }
 
   console.log(
-    `Approving AllowanceHolder: allowance ${allowance.toString()} < required ${requiredAmount.toString()}, sending approve...`,
+    `Approving AllowanceHolder ${allowanceHolder}: allowance ${allowance.toString()} < required ${requiredAmount.toString()}, sending approve...`,
   );
-  const tx = await erc20.approve(ALLOWANCE_HOLDER, MaxUint256);
+  const tx = await erc20.approve(allowanceHolder, MaxUint256);
   console.log(`approve tx sent: ${tx.hash}`);
   const receipt = await tx.wait();
   if (!receipt || receipt.status !== 1) {
@@ -94,7 +103,8 @@ export async function execViaAH(
   callData: string,
   txValue?: bigint,
 ): Promise<ethers.TransactionReceipt> {
-  const ah = getAllowanceHolderContract(signer);
+  const allowanceHolder = await resolveAllowanceHolder(signer);
+  const ah = getAllowanceHolderContract(signer, allowanceHolder);
 
   const tx = await ah.exec(operator, token, amount, target, callData, {
     value: txValue ?? 0n,

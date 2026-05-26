@@ -14,6 +14,7 @@ export const CHAIN_IDS = {
   /** Polygon PoS mainnet — used by e2e scripts as the source chain. */
   POLYGON: 137,
   OPTIMISM: 10,
+  MANTLE: 5000,
 } as const;
 
 /** Base URL for explorer transaction pages: `${prefix}${txHash}`. */
@@ -22,12 +23,28 @@ export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
   [CHAIN_IDS.ARBITRUM]: 'https://arbiscan.io/tx/',
   [CHAIN_IDS.BASE]: 'https://basescan.org/tx/',
   [CHAIN_IDS.POLYGON]: 'https://polygonscan.com/tx/',
+  [CHAIN_IDS.MANTLE]: 'https://mantlescan.xyz/tx/',
 };
 
 // ─── Contract addresses ───────────────────────────────────────────────────────
 
-/** 0x AllowanceHolder — same address on every EVM chain */
+/** Canonical 0x AllowanceHolder (CREATE2) — default on most EVM chains. */
 export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
+
+/** Mantle AllowanceHolder — distinct deployment on Mantle mainnet. */
+export const ALLOWANCE_HOLDER_MANTLE = '0x0000000000005E88410CcDFaDe4a5EfaE4b49562';
+
+const ALLOWANCE_HOLDER_BY_CHAIN_ID: Record<number, string> = {
+  [CHAIN_IDS.MANTLE]: ALLOWANCE_HOLDER_MANTLE,
+};
+
+/**
+ * Resolve AllowanceHolder contract address for `chainId`.
+ * Falls back to {@link ALLOWANCE_HOLDER} on chains without a chain-specific deployment.
+ */
+export function allowanceHolderForChain(chainId: number): string {
+  return ALLOWANCE_HOLDER_BY_CHAIN_ID[chainId] ?? ALLOWANCE_HOLDER;
+}
 
 /**
  * Deployed `OpenRouterV2Unchecked` — one address per chain used by e2e scripts.
@@ -40,6 +57,7 @@ export const ROUTER_BY_CHAIN_ID: Record<number, string> = {
   [CHAIN_IDS.BASE]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
   [CHAIN_IDS.ETHEREUM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
   [CHAIN_IDS.OPTIMISM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.MANTLE]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
 };
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -88,6 +106,10 @@ export const TOKENS = {
   /** Canonical wrapped gas token on Polygon PoS (18 decimals). */
   WMATIC_POLYGON: '0x0d500B1d8E8eF31E21C99d1Db9A6444d3ADf1270',
   AAVE_BASE: '0x63706e401c06ac8513145b7687a14804d17f814b',
+  /** Ethena ENA on Mantle (18 decimals). */
+  ENA_MANTLE: '0x58538e6a46e07434d7e7375bc268d3cb839c0133',
+  /** Circle-bridged USDC on Mantle (6 decimals). */
+  USDC_MANTLE: '0x09bc4e0d864854c6afb6eb9a9cdf58ac190d0df9',
   /**
    * USDT0 on Polygon PoS — the inner ERC-20 token that the OFT Adapter wraps (6 decimals).
    * Users approve the OFT Adapter to pull this token, then call Adapter.send().
@@ -193,8 +215,18 @@ export const STARGATE_USDC_ARB = '0xe8CDF27AcD73a434D661C84887215F7598e7d0d3';
 export const STARGATE_USDC_POLYGON =
   '0x9Aa02D4Fae7F58b8E8f34c66E756cC734DAc7fe4';
 
+/**
+ * Stargate v2 USDC pool on Mantle.
+ * Source: bungee `STARGATE_CUSTOM_LIST` / Stargate v2 technical reference.
+ */
+export const STARGATE_USDC_MANTLE =
+  '0xAc290Ad4e0c891FDc295ca4F0a6214cf6dC6acDC';
+
 /** LayerZero v2 endpoint ID for Base (EID 30184). */
 export const BASE_LZ_EID = 30184;
+
+/** LayerZero v2 endpoint ID for Mantle (EID 30181). */
+export const MANTLE_LZ_EID = 30181;
 
 /** LayerZero v2 endpoint ID for Arbitrum (EID 30110). */
 export const ARBITRUM_LZ_EID = 30110;
@@ -233,6 +265,7 @@ export const RPC = {
   POLYGON: process.env.POLYGON_RPC ?? 'https://polygon-bor.publicnode.com',
   ETHEREUM: process.env.ETHEREUM_RPC ?? 'https://eth.llamarpc.com',
   BASE: process.env.BASE_RPC ?? 'https://mainnet.base.org',
+  MANTLE: process.env.MANTLE_RPC ?? 'https://rpc.mantle.xyz',
 } as const;
 
 // ─── API keys ─────────────────────────────────────────────────────────────────
