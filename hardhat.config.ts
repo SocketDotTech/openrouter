@@ -127,6 +127,32 @@ const config: HardhatUserConfig = {
       chainId: 1329,
       accounts,
     },
+    katana: {
+      url: process.env.KATANA_RPC ?? 'https://rpc.katana.network',
+      chainId: 747474,
+      accounts,
+    },
+    hyperEvm: {
+      url: process.env.HYPEREVM_RPC ?? 'https://rpc.hyperliquid.xyz/evm',
+      chainId: 999,
+      accounts,
+    },
+    plasma: {
+      url: process.env.PLASMA_RPC ?? 'https://rpc.plasma.to',
+      chainId: 9745,
+      accounts,
+      gasPrice: 1_000_000_000,
+    },
+    monad: {
+      url: process.env.MONAD_RPC ?? 'https://rpc.monad.xyz',
+      chainId: 143,
+      accounts,
+    },
+    tempo: {
+      url: process.env.TEMPO_RPC ?? 'https://rpc.mainnet.tempo.xyz',
+      chainId: 4217,
+      accounts,
+    },
     // testnets
     arbitrumSepolia: {
       url:
@@ -160,7 +186,15 @@ const config: HardhatUserConfig = {
       sonic: process.env.SONIC_ETHERSCAN_KEY ?? '',
       unichain: process.env.UNICHAIN_ETHERSCAN_KEY ?? '',
       berachain: process.env.BERACHAIN_ETHERSCAN_KEY ?? '',
+      ink: process.env.INK_ETHERSCAN_KEY ?? '',
+      mode: process.env.MODE_ETHERSCAN_KEY ?? '',
+      worldchain: process.env.WORLDCHAIN_ETHERSCAN_KEY ?? '',
       sei: process.env.SEI_ETHERSCAN_KEY ?? '',
+      katana: process.env.KATANA_ETHERSCAN_KEY ?? '',
+      hyperEvm: process.env.HYPEREVM_ETHERSCAN_KEY ?? '',
+      plasma: process.env.PLASMA_ETHERSCAN_KEY ?? '',
+      monad: process.env.MONAD_ETHERSCAN_KEY ?? '',
+      tempo: process.env.TEMPO_ETHERSCAN_KEY ?? '',
       arbitrumSepolia: process.env.ARBITRUM_ETHERSCAN_KEY ?? '',
       optimismSepolia: process.env.OPTIMISM_ETHERSCAN_KEY ?? '',
     },
@@ -323,6 +357,47 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: 'https://seitrace.com/pacific-1/api',
           browserURL: 'https://seitrace.com',
+        },
+      },
+      {
+        network: 'katana',
+        chainId: 747474,
+        urls: {
+          apiURL: 'https://explorer.katanarpc.com/api',
+          browserURL: 'https://explorer.katanarpc.com',
+        },
+      },
+      {
+        network: 'hyperEvm',
+        chainId: 999,
+        urls: {
+          apiURL: 'https://api.etherscan.io/v2/api?chainid=999',
+          browserURL: 'https://hyperevmscan.io',
+        },
+      },
+      {
+        network: 'plasma',
+        chainId: 9745,
+        urls: {
+          apiURL:
+            'https://api.routescan.io/v2/network/mainnet/evm/9745/etherscan/api',
+          browserURL: 'https://plasmascan.to',
+        },
+      },
+      {
+        network: 'monad',
+        chainId: 143,
+        urls: {
+          apiURL: 'https://api.etherscan.io/v2/api?chainid=143',
+          browserURL: 'https://monadscan.com',
+        },
+      },
+      {
+        network: 'tempo',
+        chainId: 4217,
+        urls: {
+          apiURL: 'https://explore.mainnet.tempo.xyz/api',
+          browserURL: 'https://explore.mainnet.tempo.xyz',
         },
       },
       {
