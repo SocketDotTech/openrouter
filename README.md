@@ -23,8 +23,8 @@ src/
   common/                        # AllowanceHolder context, libs, access control
   manipulators/                  # optional helpers for fork PoCs (Across, math)
 test/
-  combined/                      # unit tests against OpenRouter
-  poc/                           # fork PoCs (excluded from default forge profile)
+  combined/                      # unit tests (OpenRouterV2Unchecked*.t.sol naming; tests OpenRouter)
+  poc/                           # fork PoCs (use FOUNDRY_PROFILE=poc)
 scripts/
   deploy/                        # CREATE3 deployment via Hardhat
   e2e/                           # live mainnet e2e scripts (swap, bridge, CCTP, Stargate, OFT, relay)

@@ -15,9 +15,11 @@ There is **no backend signature verification**, **no nonce**, and **no deadline*
 
 ```text
 src/
-  OpenRouter.sol                    # ship target
+  OpenRouter.sol                    # ship target (contract OpenRouter)
   common/
+    AccessRoles.sol
     allowance/AllowanceHolderContext.sol
+    interfaces/IERC20.sol
     interfaces/IAllowanceHolder.sol
     lib/BytesSpliceLib.sol
     lib/CurrencyLib.sol
@@ -54,6 +56,13 @@ Native token input skips AllowanceHolder pull: the caller must forward sufficien
 | `rescueFunds` | Owner `RESCUE_ROLE` recovery of stuck tokens (operational, not a security boundary) |
 
 Each structured entrypoint emits `RequestExecuted(bytes32 quoteId)` for off-chain correlation. `quoteId` is caller-defined; the contract does not validate it.
+
+Structured ABI parameter order (see [`scripts/e2e/utils/routerAbi.ts`](scripts/e2e/utils/routerAbi.ts)):
+
+- `swap(quoteId, flags, input, fee, swapData, swapCallData, receiver)`
+- `swapAndBridge(quoteId, flags, input, fee, swapData, swapCallData, bridgeData, bridgeCallData)`
+- `bridge(quoteId, input, fee, bridgeData, bridgeCallData)`
+- `performActions(quoteId, actions)`
 
 ---
 
@@ -99,7 +108,7 @@ struct BridgeData {
 
 ### `swapAndBridge`
 
-Same pull / pre-fee / swap / post-fee logic as above, but swap output **always** remains on `address(this)` for bridging. Then `_doBridge` splices the post-fee amount into bridge calldata (when flagged), approves the bridge spender, and calls the bridge target.
+Same pull / pre-fee / swap / post-fee logic as above, but swap output **always** remains on `address(this)` for bridging. Then `_execBridge` splices the post-fee amount into bridge calldata (when flagged), approves the bridge spender, and calls the bridge target.
 
 ### `bridge`
 
@@ -224,7 +233,8 @@ There is **no built-in pull** in `performActions`. Compose AllowanceHolder `tran
 
 - **`_pullFromUser`** — AllowanceHolder ERC-20 pull or native `msg.value` check.
 - **`_execSwap`** — balance-delta or returndata word decode; enforces `minOutput` at the entrypoint.
-- **`_doBridge`** — optional `BytesSpliceLib.spliceWord` on bridge calldata, approval, then `_doCall`.
+- **`_execBridge`** — optional `BytesSpliceLib.spliceWord` on bridge calldata, approval, then `_execCall`.
+- **`_execCall` / `_execCallCalldata`** — low-level calls with bubbled revert data; calldata variant avoids an extra memory copy when returndata is not needed.
 - **`_performActions`** — splice loop + low-level `call` / `staticcall` with bubbled revert data.
 
 Approvals use Solady `safeApproveWithRetry` to `type(uint256).max` only when current allowance is below the needed amount.
@@ -279,7 +289,7 @@ ABI encoders (update if the Solidity ABI changes):
 
 Tests:
 
-- `test/combined/OpenRouterV2Unchecked*.t.sol` — unit tests against `src/OpenRouter.sol`
+- `test/combined/OpenRouterV2Unchecked*.t.sol` — unit tests against `OpenRouter` (historical filenames; imports `src/OpenRouter.sol`)
 - `test/poc/*OpenRouterPoC.t.sol` — fork PoCs using `performActions` + manipulators
 
 Deploy: `scripts/deploy/deployOpenRouter.ts` (`constructor(address _owner)` grants `RESCUE_ROLE`).

@@ -1,24 +1,24 @@
 # OpenRouter Assumptions
 
-Last reviewed: 2026-05-19.
+Last reviewed: 2026-05-27.
 
-Scope: `src/combined/OpenRouterV2Unchecked.sol`.
+Scope: [`src/OpenRouter.sol`](src/OpenRouter.sol) — contract `OpenRouter`.
 
 This document captures the assumptions that make the unchecked OpenRouter safe to operate. Many of these are business and integration assumptions, not guarantees enforced by the contract.
 
 ## Source Of Truth
 
-`OpenRouterV2Unchecked` intentionally removes backend signature verification, nonces, and deadlines. Public entrypoints can be called by anyone.
+`OpenRouter` intentionally removes backend signature verification, nonces, and deadlines. Public entrypoints can be called by anyone.
 
 Current checked-in public surface:
 
 - `swap(...)`
 - `swapAndBridge(...)`
 - `bridge(...)`
-- `performActions()(...)`
-- `rescueFunds(...)`
+- `performActions(...)`
+- `rescueFunds(...)` (`RESCUE_ROLE` only)
 
-`OPENROUTER_CONTEXT.md` and `scripts/e2e/utils/routerAbi.ts` may mention `performExecution(...)`; verify against the Solidity file before relying on that ABI.
+The monolithic `performExecution(...)` entrypoint was removed. E2e ABI reference: [`scripts/e2e/utils/routerAbi.ts`](scripts/e2e/utils/routerAbi.ts).
 
 ## Enforcement Classes
 
@@ -78,7 +78,7 @@ Operational requirements:
 
 - The frontend/backend must validate recipients, fee receivers, fee amounts, swap targets, bridge targets, approval spenders, destination chain/domain, bridge min amounts, and refund addresses before presenting a transaction.
 - Wallet simulation and transaction review should show the actual route effects where possible.
-- `requestHash` is only an event correlation id. It does not enforce uniqueness, replay protection, or user consent.
+- `quoteId` (sometimes named `requestHash` in backend TypeScript) is only an event correlation id. It does not enforce uniqueness, replay protection, or user consent.
 
 ## Fund Pull Assumptions
 
@@ -245,4 +245,4 @@ Before enabling a route or integration, confirm:
 - Excess native value and bridge refunds do not end up on the router.
 - Monitoring exists for router balances, direct allowances to router, and unexpected downstream roles.
 
-If any critical business assumption is false, do not rely on `OpenRouterV2Unchecked` as-is. Add access control, use a signed variant, or remove the downstream privilege/funds/allowance that makes the public call surface dangerous.
+If any critical business assumption is false, do not rely on `OpenRouter` as-is. Add access control, use a signed variant, or remove the downstream privilege/funds/allowance that makes the public call surface dangerous.
