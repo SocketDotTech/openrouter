@@ -127,6 +127,21 @@ const config: HardhatUserConfig = {
       chainId: 1329,
       accounts,
     },
+    megaeth: {
+      url: process.env.MEGAETH_RPC ?? 'https://rpc.megaeth.xyz',
+      chainId: 4326,
+      accounts,
+    },
+    plume: {
+      url: process.env.PLUME_RPC ?? 'https://rpc.plume.org',
+      chainId: 98866,
+      accounts,
+    },
+    ethereal: {
+      url: process.env.ETHEREAL_RPC ?? 'https://rpc.ethereal.trade',
+      chainId: 5064014,
+      accounts,
+    },
     katana: {
       url: process.env.KATANA_RPC ?? 'https://rpc.katana.network',
       chainId: 747474,
@@ -190,6 +205,10 @@ const config: HardhatUserConfig = {
       mode: process.env.MODE_ETHERSCAN_KEY ?? '',
       worldchain: process.env.WORLDCHAIN_ETHERSCAN_KEY ?? '',
       sei: process.env.SEI_ETHERSCAN_KEY ?? '',
+      soneium: process.env.SONEIUM_ETHERSCAN_KEY ?? '',
+      megaeth: process.env.MEGAETH_ETHERSCAN_KEY ?? '',
+      plume: process.env.PLUME_ETHERSCAN_KEY ?? '',
+      ethereal: process.env.ETHEREAL_ETHERSCAN_KEY ?? '',
       katana: process.env.KATANA_ETHERSCAN_KEY ?? '',
       hyperEvm: process.env.HYPEREVM_ETHERSCAN_KEY ?? '',
       plasma: process.env.PLASMA_ETHERSCAN_KEY ?? '',
@@ -357,6 +376,30 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: 'https://seitrace.com/pacific-1/api',
           browserURL: 'https://seitrace.com',
+        },
+      },
+      {
+        network: 'megaeth',
+        chainId: 4326,
+        urls: {
+          apiURL: 'https://api.etherscan.io/v2/api?chainid=4326',
+          browserURL: 'https://mega.etherscan.io',
+        },
+      },
+      {
+        network: 'plume',
+        chainId: 98866,
+        urls: {
+          apiURL: 'https://explorer.plume.org/api',
+          browserURL: 'https://explorer.plume.org',
+        },
+      },
+      {
+        network: 'ethereal',
+        chainId: 5064014,
+        urls: {
+          apiURL: 'https://explorer.ethereal.trade/api',
+          browserURL: 'https://explorer.ethereal.trade',
         },
       },
       {

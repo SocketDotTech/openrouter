@@ -15,6 +15,14 @@ export const CHAIN_IDS = {
   POLYGON: 137,
   OPTIMISM: 10,
   MANTLE: 5000,
+  /** MegaETH mainnet — Relay USDM → Base USDC e2e. */
+  MEGAETH: 4326,
+  /** Plume mainnet — Relay WPLUME → Base USDC e2e. */
+  PLUME: 98866,
+  /** Soneium mainnet — Relay bridged USDC → Base USDC e2e. */
+  SONEIUM: 1868,
+  /** Blast mainnet — Relay USDe → Base USDC e2e. */
+  BLAST: 81457,
 } as const;
 
 /** Base URL for explorer transaction pages: `${prefix}${txHash}`. */
@@ -24,6 +32,10 @@ export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
   [CHAIN_IDS.BASE]: 'https://basescan.org/tx/',
   [CHAIN_IDS.POLYGON]: 'https://polygonscan.com/tx/',
   [CHAIN_IDS.MANTLE]: 'https://mantlescan.xyz/tx/',
+  [CHAIN_IDS.MEGAETH]: 'https://mega.etherscan.io/tx/',
+  [CHAIN_IDS.PLUME]: 'https://explorer.plume.org/tx/',
+  [CHAIN_IDS.SONEIUM]: 'https://soneium.blockscout.com/tx/',
+  [CHAIN_IDS.BLAST]: 'https://blastscan.io/tx/',
 };
 
 // ─── Contract addresses ───────────────────────────────────────────────────────
@@ -34,8 +46,19 @@ export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
 /** Mantle AllowanceHolder — distinct deployment on Mantle mainnet. */
 export const ALLOWANCE_HOLDER_MANTLE = '0x0000000000005E88410CcDFaDe4a5EfaE4b49562';
 
+/**
+ * Socket-deployed Cancun AllowanceHolder (CREATE at deployer nonce 0).
+ * Used on MegaETH and other chains where 0x has not deployed the CREATE2 holder.
+ */
+export const ALLOWANCE_HOLDER_SOCKET = '0x105F1403277E737b312214DdE8067E9ffBCf7F12';
+
 const ALLOWANCE_HOLDER_BY_CHAIN_ID: Record<number, string> = {
   [CHAIN_IDS.MANTLE]: ALLOWANCE_HOLDER_MANTLE,
+  [CHAIN_IDS.MEGAETH]: ALLOWANCE_HOLDER_SOCKET,
+  [CHAIN_IDS.PLUME]: ALLOWANCE_HOLDER_SOCKET,
+  [CHAIN_IDS.SONEIUM]: ALLOWANCE_HOLDER_SOCKET,
+  /** Blast — 0x canonical CREATE2 AllowanceHolder (not Socket CREATE). */
+  [CHAIN_IDS.BLAST]: ALLOWANCE_HOLDER,
 };
 
 /**
@@ -58,6 +81,10 @@ export const ROUTER_BY_CHAIN_ID: Record<number, string> = {
   [CHAIN_IDS.ETHEREUM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
   [CHAIN_IDS.OPTIMISM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
   [CHAIN_IDS.MANTLE]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.MEGAETH]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.PLUME]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.SONEIUM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
+  [CHAIN_IDS.BLAST]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
 };
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -126,6 +153,26 @@ export const TOKENS = {
    * Matches bungee `oftSupportedTokens` / {@link USDT0_OFT_ADAPTER_ARBITRUM}.
    */
   USDT0_ARB: '0xFd086bC7CD5C481DCC9C85ebE478A1C0b69FCbb9',
+  /**
+   * MegaUSD / USDM on MegaETH (18 decimals).
+   * Relay: https://relay.link/bridge/base?fromChainId=4326&fromCurrency=0xfafddbb3...
+   */
+  USDM_MEGAETH: '0xfafddbb3fc7688494971a79cc65dca3ef82079e7',
+  /**
+   * Wrapped PLUME on Plume (18 decimals).
+   * Relay: https://relay.link/bridge/base?fromChainId=98866&fromCurrency=0xea237441...
+   */
+  WPLUME_PLUME: '0xea237441c92cae6fc17caaf9a7acb3f953be4bd1',
+  /**
+   * Bridged USDC on Soneium (6 decimals).
+   * Relay: https://relay.link/bridge/base?fromChainId=1868&fromCurrency=0xba9986d2...
+   */
+  USDC_SONEIUM: '0xba9986d2381edf1da03b0b9c1f8b00dc4aacc369',
+  /**
+   * Ethena USDe on Blast (18 decimals).
+   * Relay: https://relay.link/bridge/base?fromChainId=81457&fromCurrency=0x5d3a1ff2...
+   */
+  USDE_BLAST: '0x5d3a1ff2b6bab83b63cd9ad0787074081a52ef34',
 } as const;
 
 /**
@@ -266,6 +313,10 @@ export const RPC = {
   ETHEREUM: process.env.ETHEREUM_RPC ?? 'https://eth.llamarpc.com',
   BASE: process.env.BASE_RPC ?? 'https://mainnet.base.org',
   MANTLE: process.env.MANTLE_RPC ?? 'https://rpc.mantle.xyz',
+  MEGAETH: process.env.MEGAETH_RPC ?? 'https://rpc.megaeth.xyz',
+  PLUME: process.env.PLUME_RPC ?? 'https://rpc.plume.org',
+  SONEIUM: process.env.SONEIUM_RPC ?? 'https://rpc.soneium.org',
+  BLAST: process.env.BLAST_RPC ?? 'https://blastl2-mainnet.public.blastapi.io',
 } as const;
 
 // ─── API keys ─────────────────────────────────────────────────────────────────
