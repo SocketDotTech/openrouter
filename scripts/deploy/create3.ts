@@ -6,9 +6,25 @@ export const CREATE_X_FACTORY = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
 /** CREATE3 salt label used by `deployOpenRouter.ts`. */
 export const OPEN_ROUTER_CREATE3_SALT_TEXT = 'OpenRouter' + '000';
 
+/** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
+export const BUNGEE_RECEIVER_CREATE3_SALT_TEXT = 'BungeeReceiver' + '000';
+
+/** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
+export const CALLDATA_EXECUTOR_CREATE3_SALT_TEXT = 'CalldataExecutor' + '000';
+
 /** Keccak256 salt for deterministic OpenRouter CREATE3 deployments. */
 export const OPEN_ROUTER_CREATE3_SALT = keccak256(
   toUtf8Bytes(OPEN_ROUTER_CREATE3_SALT_TEXT),
+);
+
+/** Keccak256 salt for deterministic BungeeReceiver CREATE3 deployments. */
+export const BUNGEE_RECEIVER_CREATE3_SALT = keccak256(
+  toUtf8Bytes(BUNGEE_RECEIVER_CREATE3_SALT_TEXT),
+);
+
+/** Keccak256 salt for deterministic CalldataExecutor CREATE3 deployments. */
+export const CALLDATA_EXECUTOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(CALLDATA_EXECUTOR_CREATE3_SALT_TEXT),
 );
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -99,4 +115,60 @@ export function decodeCreate3DeploymentFromTxReceipt(params: {
   }
 
   return '0x' + eventData.slice(26);
+}
+
+/**
+ * Checks whether BungeeReceiver bytecode is present at the given address.
+ * When deployed, reads `owner()` to confirm the contract responds.
+ */
+export async function getBungeeReceiverDeploymentStatus(params: {
+  provider: Provider;
+  address: string;
+}): Promise<{ address: string; deployed: boolean; owner?: string }> {
+  const { provider, address } = params;
+  const bytecode = await provider.getCode(address);
+
+  if (!hasContractBytecode(bytecode)) {
+    return { address, deployed: false };
+  }
+
+  try {
+    const contract = new Contract(
+      address,
+      ['function owner() view returns (address)'],
+      provider,
+    );
+    const owner = (await contract.owner()) as string;
+    return { address, deployed: true, owner };
+  } catch {
+    return { address, deployed: false };
+  }
+}
+
+/**
+ * Checks whether CalldataExecutor bytecode is present at the given address.
+ * When deployed, reads `BUNGEE_RECEIVER()` to confirm the contract responds.
+ */
+export async function getCalldataExecutorDeploymentStatus(params: {
+  provider: Provider;
+  address: string;
+}): Promise<{ address: string; deployed: boolean; bungeeReceiver?: string }> {
+  const { provider, address } = params;
+  const bytecode = await provider.getCode(address);
+
+  if (!hasContractBytecode(bytecode)) {
+    return { address, deployed: false };
+  }
+
+  try {
+    const contract = new Contract(
+      address,
+      ['function BUNGEE_RECEIVER() view returns (address)'],
+      provider,
+    );
+    const bungeeReceiver = (await contract.BUNGEE_RECEIVER()) as string;
+    return { address, deployed: true, bungeeReceiver };
+  } catch {
+    return { address, deployed: false };
+  }
 }
