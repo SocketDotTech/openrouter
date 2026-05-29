@@ -61,8 +61,8 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         ///      `callType | (storeResult ? 1 << 8 : 0) | (uint160(target) << 16)`.
         ///
         /// Bit layout (least significant bits first):
-        ///   bits 255..160 : reserved (0)
-        ///   bits 159..16  : target address (uint160, left-aligned in this field)
+        ///   bits 255..176 : reserved (0)
+        ///   bits 175..16  : target address (uint160, shifted left by 16 — occupies 160 bits)
         ///   bit 8         : storeResult — when set, returndata is saved to `results[i]`
         ///                   even on success so later actions can splice from it
         ///   bits 7..3     : reserved (0)
