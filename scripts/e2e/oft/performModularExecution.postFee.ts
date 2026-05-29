@@ -30,7 +30,7 @@ import {
   RPC,
   OPEN_OCEAN_API_KEY,
   OO_SLIPPAGE_PERCENT,
-  ALLOWANCE_HOLDER,
+  allowanceHolderForChain,
   ARBITRUM_LZ_EID,
   USDT0_OFT_ADAPTER_POLYGON,
 } from '../config';
@@ -44,6 +44,7 @@ import { ensureRouterErc20Balance } from '../utils/reproducibility';
 import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
+const ALLOWANCE_HOLDER = allowanceHolderForChain(CHAIN_IDS.POLYGON);
 const LZ_EXTRA_OPTIONS = Options.newOptions().addExecutorLzReceiveOption(65000, 0).toHex();
 const OFT_AMOUNT_LD_OFFSET = 196;
 

@@ -30,7 +30,7 @@ import {
   RPC,
   OPEN_OCEAN_API_KEY,
   OO_SLIPPAGE_PERCENT,
-  ALLOWANCE_HOLDER,
+  allowanceHolderForChain,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
 import { encodeTransfer, encodeBalanceOf, getWalletErc20Balance } from '../utils/erc20';
@@ -42,6 +42,7 @@ import { ensureRouterErc20Balance } from '../utils/reproducibility';
 import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
+const ALLOWANCE_HOLDER = allowanceHolderForChain(CHAIN_IDS.POLYGON);
 
 interface OoQuoteResponse {
   data: { to: string; data: string; outAmount: string; minOutAmount: string };
