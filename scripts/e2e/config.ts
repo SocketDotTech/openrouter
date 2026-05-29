@@ -9,33 +9,71 @@ dotenv.config();
 
 export const CHAIN_IDS = {
   ETHEREUM: 1,
-  ARBITRUM: 42161,
-  BASE: 8453,
+  OPTIMISM: 10,
+  BNB: 56,
+  GNOSIS: 100,
   /** Polygon PoS mainnet — used by e2e scripts as the source chain. */
   POLYGON: 137,
-  OPTIMISM: 10,
+  UNICHAIN: 130,
+  SONIC: 146,
+  /** Monad mainnet. */
+  MONAD: 143,
+  WORLDCHAIN: 480,
   MANTLE: 5000,
+  BASE: 8453,
+  /** HyperEVM (Hyperliquid). */
+  HYPEREVM: 999,
+  /** Tempo mainnet — AllowanceHolder only; OpenRouter not deployed (deposit-only chain). */
+  TEMPO: 4217,
   /** MegaETH mainnet — Relay USDM → Base USDC e2e. */
   MEGAETH: 4326,
-  /** Plume mainnet — Relay WPLUME → Base USDC e2e. */
-  PLUME: 98866,
+  ARBITRUM: 42161,
+  LINEA: 59144,
+  INK: 57073,
+  AVALANCHE: 43114,
+  SCROLL: 534352,
+  MODE: 34443,
   /** Soneium mainnet — Relay bridged USDC → Base USDC e2e. */
   SONEIUM: 1868,
+  PLASMA: 9745,
   /** Blast mainnet — Relay USDe → Base USDC e2e. */
   BLAST: 81457,
+  BERACHAIN: 80094,
+  SEI: 1329,
+  /** Plume mainnet — Relay WPLUME → Base USDC e2e. */
+  PLUME: 98866,
+  KATANA: 747474,
 } as const;
 
 /** Base URL for explorer transaction pages: `${prefix}${txHash}`. */
 export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
   [CHAIN_IDS.ETHEREUM]: 'https://etherscan.io/tx/',
-  [CHAIN_IDS.ARBITRUM]: 'https://arbiscan.io/tx/',
-  [CHAIN_IDS.BASE]: 'https://basescan.org/tx/',
+  [CHAIN_IDS.OPTIMISM]: 'https://optimistic.etherscan.io/tx/',
+  [CHAIN_IDS.BNB]: 'https://bscscan.com/tx/',
+  [CHAIN_IDS.GNOSIS]: 'https://gnosisscan.io/tx/',
   [CHAIN_IDS.POLYGON]: 'https://polygonscan.com/tx/',
+  [CHAIN_IDS.UNICHAIN]: 'https://uniscan.xyz/tx/',
+  [CHAIN_IDS.SONIC]: 'https://sonicscan.org/tx/',
+  [CHAIN_IDS.MONAD]: 'https://monadscan.com/tx/',
+  [CHAIN_IDS.WORLDCHAIN]: 'https://worldscan.org/tx/',
   [CHAIN_IDS.MANTLE]: 'https://mantlescan.xyz/tx/',
+  [CHAIN_IDS.BASE]: 'https://basescan.org/tx/',
+  [CHAIN_IDS.HYPEREVM]: 'https://hyperevmscan.io/tx/',
+  [CHAIN_IDS.TEMPO]: 'https://explore.mainnet.tempo.xyz/tx/',
   [CHAIN_IDS.MEGAETH]: 'https://mega.etherscan.io/tx/',
-  [CHAIN_IDS.PLUME]: 'https://explorer.plume.org/tx/',
+  [CHAIN_IDS.ARBITRUM]: 'https://arbiscan.io/tx/',
+  [CHAIN_IDS.LINEA]: 'https://lineascan.build/tx/',
+  [CHAIN_IDS.INK]: 'https://explorer.inkonchain.com/tx/',
+  [CHAIN_IDS.AVALANCHE]: 'https://snowscan.xyz/tx/',
+  [CHAIN_IDS.SCROLL]: 'https://scrollscan.com/tx/',
+  [CHAIN_IDS.MODE]: 'https://explorer.mode.network/tx/',
   [CHAIN_IDS.SONEIUM]: 'https://soneium.blockscout.com/tx/',
+  [CHAIN_IDS.PLASMA]: 'https://plasmascan.to/tx/',
   [CHAIN_IDS.BLAST]: 'https://blastscan.io/tx/',
+  [CHAIN_IDS.BERACHAIN]: 'https://berascan.com/tx/',
+  [CHAIN_IDS.SEI]: 'https://seitrace.com/tx/',
+  [CHAIN_IDS.PLUME]: 'https://explorer.plume.org/tx/',
+  [CHAIN_IDS.KATANA]: 'https://explorer.katanarpc.com/tx/',
 };
 
 // ─── Contract addresses ───────────────────────────────────────────────────────
@@ -48,7 +86,7 @@ export const ALLOWANCE_HOLDER_MANTLE = '0x0000000000005E88410CcDFaDe4a5EfaE4b495
 
 /**
  * Socket-deployed Cancun AllowanceHolder (CREATE at deployer nonce 0).
- * Used on MegaETH and other chains where 0x has not deployed the CREATE2 holder.
+ * Used on chains where 0x has not deployed the CREATE2 holder (Sei, MegaETH, Plume, Soneium).
  */
 export const ALLOWANCE_HOLDER_SOCKET = '0x105F1403277E737b312214DdE8067E9ffBCf7F12';
 
@@ -57,8 +95,7 @@ const ALLOWANCE_HOLDER_BY_CHAIN_ID: Record<number, string> = {
   [CHAIN_IDS.MEGAETH]: ALLOWANCE_HOLDER_SOCKET,
   [CHAIN_IDS.PLUME]: ALLOWANCE_HOLDER_SOCKET,
   [CHAIN_IDS.SONEIUM]: ALLOWANCE_HOLDER_SOCKET,
-  /** Blast — 0x canonical CREATE2 AllowanceHolder (not Socket CREATE). */
-  [CHAIN_IDS.BLAST]: ALLOWANCE_HOLDER,
+  [CHAIN_IDS.SEI]: ALLOWANCE_HOLDER_SOCKET,
 };
 
 /**
@@ -69,23 +106,47 @@ export function allowanceHolderForChain(chainId: number): string {
   return ALLOWANCE_HOLDER_BY_CHAIN_ID[chainId] ?? ALLOWANCE_HOLDER;
 }
 
+/** CREATE3 OpenRouter address — same on every deployed chain. Keep in sync with bungee-backend. */
+export const OPEN_ROUTER_ADDRESS = '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7';
+
+/** Chains with a deployed OpenRouter (direct DEX / bridge quotes). Tempo excluded (deposit-only). */
+export const OPEN_ROUTER_CHAIN_IDS: readonly number[] = [
+  CHAIN_IDS.ETHEREUM,
+  CHAIN_IDS.POLYGON,
+  CHAIN_IDS.BASE,
+  CHAIN_IDS.OPTIMISM,
+  CHAIN_IDS.ARBITRUM,
+  CHAIN_IDS.BNB,
+  CHAIN_IDS.WORLDCHAIN,
+  CHAIN_IDS.SONIC,
+  CHAIN_IDS.INK,
+  CHAIN_IDS.AVALANCHE,
+  CHAIN_IDS.UNICHAIN,
+  CHAIN_IDS.BERACHAIN,
+  CHAIN_IDS.SCROLL,
+  CHAIN_IDS.HYPEREVM,
+  CHAIN_IDS.PLASMA,
+  CHAIN_IDS.MONAD,
+  CHAIN_IDS.LINEA,
+  CHAIN_IDS.MANTLE,
+  CHAIN_IDS.GNOSIS,
+  CHAIN_IDS.KATANA,
+  CHAIN_IDS.MODE,
+  CHAIN_IDS.MEGAETH,
+  CHAIN_IDS.PLUME,
+  CHAIN_IDS.BLAST,
+  CHAIN_IDS.SONEIUM,
+  CHAIN_IDS.SEI,
+];
+
 /**
- * Deployed `OpenRouterV2Unchecked` — one address per chain used by e2e scripts.
+ * Deployed OpenRouter — one CREATE3 address per chain used by e2e scripts.
  * Override per chain with env `ROUTER_CHAIN_<chainId>` (e.g. ROUTER_CHAIN_1 for Ethereum).
  * Chains without an entry fall back to legacy `ROUTER_ADDRESS` when set.
  */
-export const ROUTER_BY_CHAIN_ID: Record<number, string> = {
-  [CHAIN_IDS.POLYGON]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.ARBITRUM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.BASE]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.ETHEREUM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.OPTIMISM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.MANTLE]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.MEGAETH]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.PLUME]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.SONEIUM]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-  [CHAIN_IDS.BLAST]: '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7',
-};
+export const ROUTER_BY_CHAIN_ID: Record<number, string> = Object.fromEntries(
+  OPEN_ROUTER_CHAIN_IDS.map((chainId) => [chainId, OPEN_ROUTER_ADDRESS]),
+);
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 
@@ -308,15 +369,33 @@ export function bpsOf(amount: bigint, bps: number): bigint {
 // ─── RPC endpoints ────────────────────────────────────────────────────────────
 
 export const RPC = {
-  ARBITRUM: process.env.ARBITRUM_RPC ?? 'https://arb1.arbitrum.io/rpc',
-  POLYGON: process.env.POLYGON_RPC ?? 'https://polygon-bor.publicnode.com',
   ETHEREUM: process.env.ETHEREUM_RPC ?? 'https://eth.llamarpc.com',
-  BASE: process.env.BASE_RPC ?? 'https://mainnet.base.org',
+  OPTIMISM: process.env.OPTIMISM_RPC ?? 'https://mainnet.optimism.io',
+  BNB: process.env.BSC_RPC ?? 'https://bsc-dataseed.binance.org/',
+  GNOSIS: process.env.GNOSIS_RPC ?? 'https://rpc.ankr.com/gnosis',
+  POLYGON: process.env.POLYGON_RPC ?? 'https://polygon-bor.publicnode.com',
+  UNICHAIN: process.env.UNICHAIN_RPC ?? 'https://0xrpc.io/uni',
+  SONIC: process.env.SONIC_RPC ?? 'https://rpc.ankr.com/sonic_mainnet',
+  MONAD: process.env.MONAD_RPC ?? 'https://rpc.monad.xyz',
+  WORLDCHAIN: process.env.WORLDCHAIN_RPC ?? 'https://worldchain-mainnet.g.alchemy.com/public',
   MANTLE: process.env.MANTLE_RPC ?? 'https://rpc.mantle.xyz',
+  BASE: process.env.BASE_RPC ?? 'https://mainnet.base.org',
+  HYPEREVM: process.env.HYPEREVM_RPC ?? 'https://rpc.hyperliquid.xyz/evm',
+  TEMPO: process.env.TEMPO_RPC ?? 'https://rpc.mainnet.tempo.xyz',
   MEGAETH: process.env.MEGAETH_RPC ?? 'https://rpc.megaeth.xyz',
-  PLUME: process.env.PLUME_RPC ?? 'https://rpc.plume.org',
+  ARBITRUM: process.env.ARBITRUM_RPC ?? 'https://arb1.arbitrum.io/rpc',
+  LINEA: process.env.LINEA_RPC ?? 'https://rpc.linea.build',
+  INK: process.env.INK_RPC ?? 'https://rpc-gel.inkonchain.com',
+  AVALANCHE: process.env.AVALANCHE_RPC ?? 'https://rpc.ankr.com/avalanche',
+  SCROLL: process.env.SCROLL_RPC ?? 'https://1rpc.io/scroll',
+  MODE: process.env.MODE_RPC ?? 'https://1rpc.io/mode',
   SONEIUM: process.env.SONEIUM_RPC ?? 'https://rpc.soneium.org',
+  PLASMA: process.env.PLASMA_RPC ?? 'https://rpc.plasma.to',
   BLAST: process.env.BLAST_RPC ?? 'https://blastl2-mainnet.public.blastapi.io',
+  BERACHAIN: process.env.BERACHAIN_RPC ?? 'https://berachain-rpc.publicnode.com',
+  SEI: process.env.SEI_RPC ?? 'https://evm-rpc.sei-apis.com',
+  PLUME: process.env.PLUME_RPC ?? 'https://rpc.plume.org',
+  KATANA: process.env.KATANA_RPC ?? 'https://rpc.katana.network',
 } as const;
 
 // ─── API keys ─────────────────────────────────────────────────────────────────

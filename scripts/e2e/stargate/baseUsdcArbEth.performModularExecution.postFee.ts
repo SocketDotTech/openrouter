@@ -27,7 +27,7 @@ import {
   RPC,
   OPEN_OCEAN_API_KEY,
   OO_SLIPPAGE_PERCENT,
-  ALLOWANCE_HOLDER,
+  allowanceHolderForChain,
   NATIVE_TOKEN_ADDRESS,
   STARGATE_NATIVE_BASE,
   ARBITRUM_LZ_EID,
@@ -42,6 +42,7 @@ import { ensureRouterErc20Balance, ensureRouterNativeBalance } from '../utils/re
 import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_BASE = routerAddressForChain(CHAIN_IDS.BASE);
+const ALLOWANCE_HOLDER = allowanceHolderForChain(CHAIN_IDS.BASE);
 
 const STARGATE_ABI = [
   'function quoteSend(tuple(uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes extraOptions, bytes composeMsg, bytes oftCmd) sendParam, bool payInLzToken) external view returns (tuple(uint256 nativeFee, uint256 lzTokenFee) messagingFee)',

@@ -30,7 +30,7 @@ import {
   RPC,
   OPEN_OCEAN_API_KEY,
   OO_SLIPPAGE_PERCENT,
-  ALLOWANCE_HOLDER,
+  allowanceHolderForChain,
   NATIVE_TOKEN_ADDRESS,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
@@ -43,6 +43,7 @@ import { ensureRouterErc20Balance, ensureRouterNativeBalance } from '../utils/re
 import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_ETH = routerAddressForChain(CHAIN_IDS.ETHEREUM);
+const ALLOWANCE_HOLDER = allowanceHolderForChain(CHAIN_IDS.ETHEREUM);
 
 interface OoQuoteResponse {
   data: { to: string; data: string; outAmount: string; minOutAmount: string };

@@ -23,7 +23,7 @@ import {
   FEE_BPS,
   bpsOf,
   RPC,
-  ALLOWANCE_HOLDER,
+  allowanceHolderForChain,
 } from '../config';
 import { execViaAH, ensureAllowanceForAllowanceHolder } from '../utils/allowanceHolder';
 import { encodeTransfer, getWalletErc20Balance } from '../utils/erc20';
@@ -36,6 +36,7 @@ import { ensureRouterErc20Balance } from '../utils/reproducibility';
 import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
+const ALLOWANCE_HOLDER = allowanceHolderForChain(CHAIN_IDS.POLYGON);
 
 async function main(): Promise<void> {
   const privateKey = process.env.PRIVATE_KEY;

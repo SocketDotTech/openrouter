@@ -27,7 +27,7 @@ import {
   RPC,
   ZEROX_API_KEY,
   SWAP_SLIPPAGE_BPS,
-  ALLOWANCE_HOLDER,
+  allowanceHolderForChain,
 } from "../config";
 import {
   execViaAH,
@@ -45,6 +45,7 @@ import { resolveApprovalSpender } from '../utils/routerAllowance';
 // post-fee (0x01) | returndata (no 0x02)
 const FLAGS = 0x01n;
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
+const ALLOWANCE_HOLDER = allowanceHolderForChain(CHAIN_IDS.POLYGON);
 const ZEROX_BASE_URL = "https://api.0x.org";
 
 interface ZeroXTransaction {
