@@ -11,11 +11,24 @@ export const OPEN_ROUTER_CREATE3_SALT = keccak256(
   toUtf8Bytes(OPEN_ROUTER_CREATE3_SALT_TEXT),
 );
 
+/** CREATE3 salt label used by `deployAcrossERC20AmountManipulator.ts`. */
+export const ACROSS_MANIPULATOR_CREATE3_SALT_TEXT =
+  'AcrossERC20AmountManipulator' + '1';
+
+/** Keccak256 salt for deterministic Across manipulator CREATE3 deployments. */
+export const ACROSS_MANIPULATOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(ACROSS_MANIPULATOR_CREATE3_SALT_TEXT),
+);
+
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 
 /** Observed OpenRouter CREATE3 address for salt `OpenRouter000` via canonical CreateX. */
 export const OPEN_ROUTER_EXPECTED_ADDRESS =
   '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7';
+
+/** Observed AcrossERC20AmountManipulator CREATE3 address on all deployed mainnets. */
+export const ACROSS_MANIPULATOR_EXPECTED_ADDRESS =
+  '0x05481b7163c376ab4cb0ebc7d17f2cf7651042ee';
 
 /**
  * Resolves the OpenRouter contract address for deployment checks.
@@ -35,6 +48,60 @@ export function resolveOpenRouterAddress(): string {
 /** Returns true when `code` looks like a deployed contract (non-empty bytecode). */
 export function hasContractBytecode(code: string): boolean {
   return code !== '0x' && code.length > 2;
+}
+
+/**
+ * Resolves the AcrossERC20AmountManipulator contract address for deployment checks.
+ *
+ * Priority: `ACROSS_MANIPULATOR_ADDRESS` env → {@link ACROSS_MANIPULATOR_EXPECTED_ADDRESS}.
+ */
+export function resolveAcrossManipulatorAddress(): string {
+  const envAddress = process.env.ACROSS_MANIPULATOR_ADDRESS?.trim();
+  if (envAddress && ADDR_HEX_RE.test(envAddress)) {
+    return envAddress;
+  }
+
+  return ACROSS_MANIPULATOR_EXPECTED_ADDRESS;
+}
+
+/**
+ * Checks whether AcrossERC20AmountManipulator bytecode is present at the resolved CREATE3
+ * address. When deployed, also static-calls `deriveOutputAmount` to confirm the contract
+ * responds as expected.
+ */
+export async function getAcrossManipulatorDeploymentStatus(params: {
+  provider: Provider;
+}): Promise<{ address: string; deployed: boolean }> {
+  const address = resolveAcrossManipulatorAddress();
+  const bytecode = await params.provider.getCode(address);
+
+  if (!hasContractBytecode(bytecode)) {
+    return { address, deployed: false };
+  }
+
+  try {
+    const manipulator = new Contract(
+      address,
+      [
+        'function deriveOutputAmount(uint256,uint256,uint256,uint256) pure returns (uint256)',
+      ],
+      params.provider,
+    );
+    const outputAmount = (await manipulator.deriveOutputAmount.staticCall(
+      1000n,
+      1n,
+      18n,
+      18n,
+    )) as bigint;
+
+    if (outputAmount !== 999n) {
+      return { address, deployed: false };
+    }
+
+    return { address, deployed: true };
+  } catch {
+    return { address, deployed: false };
+  }
 }
 
 /**

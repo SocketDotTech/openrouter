@@ -10,12 +10,14 @@
 
 import hre from 'hardhat';
 import { ethers } from 'hardhat';
-import { keccak256, toUtf8Bytes } from 'ethers';
 import {
+  ACROSS_MANIPULATOR_CREATE3_SALT,
   CREATE_X_FACTORY,
   Create3ABI,
   decodeCreate3DeploymentFromTxReceipt,
+  getAcrossManipulatorDeploymentStatus,
 } from './create3';
+import { confirm } from '../utils';
 
 async function main() {
   const [deployer] = await ethers.getSigners();
@@ -24,6 +26,16 @@ async function main() {
   console.log('Deployer:  ', deployer.address);
   console.log('Network:   ', networkName);
   console.log('');
+
+  const existing = await getAcrossManipulatorDeploymentStatus({
+    provider: ethers.provider,
+  });
+  if (existing.deployed) {
+    console.log(
+      `AcrossERC20AmountManipulator already deployed on ${networkName} at ${existing.address}`,
+    );
+    return;
+  }
 
   const create3Factory = new ethers.Contract(
     CREATE_X_FACTORY,
@@ -36,18 +48,16 @@ async function main() {
   );
   const deployTransaction = await factory.getDeployTransaction();
 
-  const saltText = 'AcrossERC20AmountManipulator' + 1;
-  const salt = keccak256(toUtf8Bytes(saltText));
-
   const deployAddress = await create3Factory.deployCreate3.staticCall(
-    salt,
+    ACROSS_MANIPULATOR_CREATE3_SALT,
     deployTransaction.data,
   );
   console.log('Contract address will be:', deployAddress);
+  // await confirm('Are you sure you want to deploy? (y/n) ');
 
   console.log('Deploying AcrossERC20AmountManipulator via CREATE3...');
   const create3Deployment = await create3Factory.deployCreate3(
-    salt,
+    ACROSS_MANIPULATOR_CREATE3_SALT,
     deployTransaction.data,
   );
   console.log('CREATE3 deployment tx:', create3Deployment.hash);
