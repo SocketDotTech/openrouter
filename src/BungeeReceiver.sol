@@ -59,6 +59,7 @@ contract BungeeReceiver is AccessControl {
     error InvalidNonce();
     error InvalidExecution();
     error ZeroAddress();
+    error QuoteAlreadyExecuted();
 
     // =========================================================================
     // Events
@@ -78,6 +79,7 @@ contract BungeeReceiver is AccessControl {
     address public immutable CALLDATA_EXECUTOR;
 
     mapping(uint256 => bool) public nonceUsed;
+    mapping(bytes32 => bool) public quoteIdExecuted;
 
     // =========================================================================
     // Constructor
@@ -146,6 +148,11 @@ contract BungeeReceiver is AccessControl {
         );
 
         _useNonce(payload.nonce);
+
+        if (quoteIdExecuted[payload.quoteId]) {
+            revert QuoteAlreadyExecuted();
+        }
+        quoteIdExecuted[payload.quoteId] = true;
 
         // Transfer bridged funds to the IBungeeExecutor target before calling it (CEI).
         CurrencyLib.transfer(payload.bridgedToken, payload.target, payload.outputAmount);
