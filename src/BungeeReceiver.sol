@@ -58,6 +58,7 @@ contract BungeeReceiver is AccessControl {
     error InvalidSigner();
     error InvalidNonce();
     error InvalidExecution();
+    error ZeroAddress();
 
     // =========================================================================
     // Events
@@ -88,6 +89,9 @@ contract BungeeReceiver is AccessControl {
      * @param _calldataExecutor Address of the CalldataExecutor satellite contract.
      */
     constructor(address _owner, address _solverSigner, address _calldataExecutor) AccessControl(_owner) {
+        if (_solverSigner == address(0) || _calldataExecutor == address(0)) {
+            revert ZeroAddress();
+        }
         _grantRole(RESCUE_ROLE, _owner);
         SOLVER_SIGNER = _solverSigner;
         CALLDATA_EXECUTOR = _calldataExecutor;
@@ -105,6 +109,9 @@ contract BungeeReceiver is AccessControl {
      * @param _solverSigner New signer address.
      */
     function setSolverSigner(address _solverSigner) external onlyOwner {
+        if (_solverSigner == address(0)) {
+            revert ZeroAddress();
+        }
         SOLVER_SIGNER = _solverSigner;
         emit SolverSignerUpdated(_solverSigner);
     }

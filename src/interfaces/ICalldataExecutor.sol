@@ -10,5 +10,5 @@ interface ICalldataExecutor {
     /// @param encodedData ABI-encoded calldata forwarded to `to`.
     /// @param msgGasLimit Gas forwarded to the call; prevents unbounded gas consumption.
     /// @return success Whether the call succeeded.
-    function executeCalldata(address to, bytes memory encodedData, uint256 msgGasLimit) external returns (bool success);
+    function executeCalldata(address to, bytes calldata encodedData, uint256 msgGasLimit) external returns (bool success);
 }

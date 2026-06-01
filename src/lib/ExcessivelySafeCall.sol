@@ -19,20 +19,15 @@ library ExcessivelySafeCall {
         address _target,
         uint256 _gas,
         uint16 _maxCopy,
-        bytes memory _calldata
+        bytes calldata _calldata
     ) internal returns (bool success, bytes memory returnData) {
         uint256 _toCopy;
         returnData = new bytes(_maxCopy);
-        assembly {
-            success := call(
-                _gas,
-                _target,
-                0,
-                add(_calldata, 0x20),
-                mload(_calldata),
-                0,
-                0
-            )
+        assembly ("memory-safe") {
+            let ptr := mload(0x40)
+            calldatacopy(ptr, _calldata.offset, _calldata.length)
+            mstore(0x40, and(add(add(ptr, _calldata.length), 0x1f), not(0x1f)))
+            success := call(_gas, _target, 0, ptr, _calldata.length, 0, 0)
             _toCopy := returndatasize()
             if gt(_toCopy, _maxCopy) { _toCopy := _maxCopy }
             mstore(returnData, _toCopy)

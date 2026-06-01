@@ -66,9 +66,20 @@ async function main() {
     );
     hasError = true;
   } else {
-    console.log(
-      `CalldataExecutor deployed on ${networkName} (chainId=${chainId}) at ${executorAddress}, BUNGEE_RECEIVER=${executorStatus.bungeeReceiver}`,
-    );
+    if (
+      executorStatus.bungeeReceiver?.toLowerCase() !==
+      receiverAddress.toLowerCase()
+    ) {
+      console.error(
+        `CalldataExecutor BUNGEE_RECEIVER mismatch on ${networkName} (chainId=${chainId}): ` +
+          `executor=${executorAddress}, expected receiver=${receiverAddress}, got ${executorStatus.bungeeReceiver}`,
+      );
+      hasError = true;
+    } else {
+      console.log(
+        `CalldataExecutor deployed on ${networkName} (chainId=${chainId}) at ${executorAddress}, BUNGEE_RECEIVER=${executorStatus.bungeeReceiver}`,
+      );
+    }
   }
 
   // ── Check BungeeReceiver ─────────────────────────────────────────────────────

@@ -72,6 +72,15 @@ async function main() {
   });
 
   if (executorStatus.deployed) {
+    if (
+      executorStatus.bungeeReceiver?.toLowerCase() !==
+      receiverAddress.toLowerCase()
+    ) {
+      throw new Error(
+        `CalldataExecutor wiring mismatch at ${executorAddress}: ` +
+          `BUNGEE_RECEIVER=${executorStatus.bungeeReceiver}, expected ${receiverAddress}`,
+      );
+    }
     console.log(
       `CalldataExecutor already deployed at ${executorAddress}, BUNGEE_RECEIVER=${executorStatus.bungeeReceiver}`,
     );

@@ -16,6 +16,7 @@ contract CalldataExecutor is ICalldataExecutor {
     using ExcessivelySafeCall for address;
 
     error OnlyBungeeReceiver();
+    error ZeroAddress();
 
     address public immutable BUNGEE_RECEIVER;
 
@@ -23,11 +24,14 @@ contract CalldataExecutor is ICalldataExecutor {
     uint16 public constant MAX_COPY_BYTES = 0;
 
     constructor(address _bungeeReceiver) {
+        if (_bungeeReceiver == address(0)) {
+            revert ZeroAddress();
+        }
         BUNGEE_RECEIVER = _bungeeReceiver;
     }
 
     /// @inheritdoc ICalldataExecutor
-    function executeCalldata(address to, bytes memory encodedData, uint256 msgGasLimit) external returns (bool success) {
+    function executeCalldata(address to, bytes calldata encodedData, uint256 msgGasLimit) external returns (bool success) {
         if (msg.sender != BUNGEE_RECEIVER) {
             revert OnlyBungeeReceiver();
         }
