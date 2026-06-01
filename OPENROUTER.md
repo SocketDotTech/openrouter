@@ -280,6 +280,17 @@ Structured entrypoints keep audit surface small: linear control flow and explici
 
 ---
 
+## Deployed addresses
+
+See [`scripts/e2e/config.ts`](scripts/e2e/config.ts) for the canonical list. Summary:
+
+- **OpenRouter:** `0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7` on all supported mainnets (26 chains; Tempo has AllowanceHolder only).
+- **AllowanceHolder:** `0x0000000000001fF3684f28c67538d4D072C22734` by default; Mantle uses `0x0000000000005E88410CcDFaDe4a5EfaE4b49562`; Sei / MegaETH / Plume / Soneium use Socket-deployed `0x105F1403277E737b312214DdE8067E9ffBCf7F12`.
+
+E2e scripts resolve per-chain AllowanceHolder via `allowanceHolderForChain(chainId)`.
+
+---
+
 ## Backend and tests
 
 ABI encoders (update if the Solidity ABI changes):

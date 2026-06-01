@@ -25,7 +25,7 @@ import {
   FEE_BPS,
   bpsOf,
   RPC,
-  ALLOWANCE_HOLDER,
+  allowanceHolderForChain,
   STARGATE_USDC_POLYGON,
   BASE_LZ_EID,
   STARGATE_AMOUNT_LD_OFFSET,
@@ -40,6 +40,7 @@ import { ensureRouterErc20Balance } from '../utils/reproducibility';
 import { modularApproveIfNeeded } from '../utils/routerAllowance';
 
 const ROUTER_POLYGON = routerAddressForChain(CHAIN_IDS.POLYGON);
+const ALLOWANCE_HOLDER = allowanceHolderForChain(CHAIN_IDS.POLYGON);
 
 const STARGATE_ABI = [
   'function quoteSend(tuple(uint32 dstEid, bytes32 to, uint256 amountLD, uint256 minAmountLD, bytes extraOptions, bytes composeMsg, bytes oftCmd) sendParam, bool payInLzToken) external view returns (tuple(uint256 nativeFee, uint256 lzTokenFee) messagingFee)',

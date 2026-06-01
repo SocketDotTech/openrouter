@@ -105,6 +105,22 @@ Solidity uses `quoteId`; some backend helpers still name the same bytes32 `reque
 
 If the Solidity ABI changes, update those hard-coded ABI strings first. Direct DEX and direct bridge quote builders depend on them.
 
+## Deployed addresses
+
+Canonical source: [`scripts/e2e/config.ts`](scripts/e2e/config.ts) — keep in sync with `bungee-backend/src/modules/directQuote/directQuote.config.ts` and `directQuote.constants.ts`.
+
+**OpenRouter** (CREATE3, all supported chains): `0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7`
+
+**AllowanceHolder** (chain-specific; users approve this, not OpenRouter):
+
+| Address | Chains |
+|---------|--------|
+| `0x0000000000001fF3684f28c67538d4D072C22734` | Default 0x CREATE2 holder |
+| `0x0000000000005E88410CcDFaDe4a5EfaE4b49562` | Mantle |
+| `0x105F1403277E737b312214DdE8067E9ffBCf7F12` | Sei, MegaETH, Plume, Soneium |
+
+Resolve at runtime with `allowanceHolderForChain(chainId)` in e2e scripts. On-chain, `OpenRouter` hardcodes the canonical CREATE2 address in `IAllowanceHolder.sol`; chains with a non-canonical AllowanceHolder require a chain-specific router build or backend-only routing — confirm deployment parity before enabling those chains in production.
+
 ## Gotchas
 
 - ERC-20 inputs must be submitted through 0x AllowanceHolder, not directly to the router, or `_msgSender() == user` fails.

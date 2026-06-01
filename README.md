@@ -100,13 +100,44 @@ Flag masks and deployed addresses must stay in sync with `bungee-backend` config
 
 Users must approve **AllowanceHolder**, not OpenRouter, and call `AllowanceHolder.exec` with the router as target. Details in [`OPENROUTER.md`](OPENROUTER.md).
 
-## Deployed addresses (e2e defaults)
+## Deployed addresses
 
-| Chain | Router |
-|-------|--------|
-| Polygon (137) | `0x33654252CEA9c95220Aa1d434a3631d5c0843AA4` |
-| Arbitrum (42161) | `0xe1788A0374EF5D4C35e62478FdB35F37CeE5B951` |
-| Base (8453) | `0x91b536E79cd3607b593f3011937862609D608253` |
-| Ethereum (1) | `0xeB5ae85Fe7e3E272Ac77fd316079589C0Ed91648` |
+OpenRouter is deployed at **`0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7`** (CREATE3) on all supported mainnets below. Canonical config: [`scripts/e2e/config.ts`](scripts/e2e/config.ts) (`OPEN_ROUTER_ADDRESS`, `OPEN_ROUTER_CHAIN_IDS`).
 
-AllowanceHolder (all EVM chains): `0x0000000000001fF3684f28c67538d4D072C22734`
+| Chain | Chain ID |
+|-------|----------|
+| Ethereum | 1 |
+| Optimism | 10 |
+| BNB | 56 |
+| Gnosis | 100 |
+| Polygon | 137 |
+| Unichain | 130 |
+| Sonic | 146 |
+| Monad | 143 |
+| World Chain | 480 |
+| Mantle | 5000 |
+| Base | 8453 |
+| HyperEVM | 999 |
+| MegaETH | 4326 |
+| Arbitrum | 42161 |
+| Linea | 59144 |
+| Ink | 57073 |
+| Avalanche | 43114 |
+| Scroll | 534352 |
+| Mode | 34443 |
+| Soneium | 1868 |
+| Plasma | 9745 |
+| Blast | 81457 |
+| Berachain | 80094 |
+| Sei | 1329 |
+| Plume | 98866 |
+| Katana | 747474 |
+
+**AllowanceHolder** (users approve this contract, not OpenRouter):
+
+| Address | Chains |
+|---------|--------|
+| `0x0000000000001fF3684f28c67538d4D072C22734` | Default (0x CREATE2): Ethereum, Polygon, Base, Optimism, Arbitrum, BNB, World Chain, Sonic, Ink, Avalanche, Unichain, Berachain, Scroll, HyperEVM, Plasma, Monad, Linea, Tempo, Blast, Gnosis, Katana, Mode |
+| `0x0000000000005E88410CcDFaDe4a5EfaE4b49562` | Mantle |
+| `0x105F1403277E737b312214DdE8067E9ffBCf7F12` | Sei, MegaETH, Plume, Soneium (Socket-deployed) |
+
