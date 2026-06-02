@@ -20,10 +20,13 @@
 import hre from 'hardhat';
 import { ethers } from 'hardhat';
 import {
+  BUNGEE_RECEIVER_CREATE3_SALT,
+  BUNGEE_RECEIVER_EXPECTED_ADDRESS,
+  CALLDATA_EXECUTOR_CREATE3_SALT,
+  CALLDATA_EXECUTOR_EXPECTED_ADDRESS,
   CREATE_X_FACTORY,
   Create3ABI,
-  BUNGEE_RECEIVER_CREATE3_SALT,
-  CALLDATA_EXECUTOR_CREATE3_SALT,
+  computeFinalAddress,
   decodeCreate3DeploymentFromTxReceipt,
   getBungeeReceiverDeploymentStatus,
   getCalldataExecutorDeploymentStatus,
@@ -48,17 +51,29 @@ async function main() {
     deployer,
   );
 
-  // Pre-compute both CREATE3 addresses before deploying anything.
-  // CREATE3 address is deterministic: f(salt, deployer) — no bytecode dependency.
-  const receiverAddress = (await create3Factory.computeCreate3Address(
+  // Pre-compute both CREATE3 addresses before deploying anything (no bytecode dependency).
+  // Do not use computeCreate3Address(rawSalt, deployer.address): CreateX deployCreate3 runs
+  // _guard(rawSalt) and resolves the address with the factory (_SELF) as deployer, not the EOA.
+  // EOA as the second argument only applies when you operate your own CREATE3 factory.
+  const receiverAddress = await computeFinalAddress(
     BUNGEE_RECEIVER_CREATE3_SALT,
-    deployer.address,
-  )) as string;
-
-  const executorAddress = (await create3Factory.computeCreate3Address(
+    create3Factory,
+  );
+  const executorAddress = await computeFinalAddress(
     CALLDATA_EXECUTOR_CREATE3_SALT,
-    deployer.address,
-  )) as string;
+    create3Factory,
+  );
+
+  if (receiverAddress !== BUNGEE_RECEIVER_EXPECTED_ADDRESS) {
+    throw new Error(
+      `BungeeReceiver precomputed address mismatch: got ${receiverAddress}, expected ${BUNGEE_RECEIVER_EXPECTED_ADDRESS}`,
+    );
+  }
+  if (executorAddress !== CALLDATA_EXECUTOR_EXPECTED_ADDRESS) {
+    throw new Error(
+      `CalldataExecutor precomputed address mismatch: got ${executorAddress}, expected ${CALLDATA_EXECUTOR_EXPECTED_ADDRESS}`,
+    );
+  }
 
   console.log('Pre-computed BungeeReceiver address:   ', receiverAddress);
   console.log('Pre-computed CalldataExecutor address: ', executorAddress);
@@ -140,6 +155,17 @@ async function main() {
       throw new Error('BungeeReceiver address not found in CREATE3 receipt');
     }
     console.log('BungeeReceiver deployed to:', deployedReceiverAddress);
+  }
+
+  if (receiverAddress !== BUNGEE_RECEIVER_EXPECTED_ADDRESS) {
+    throw new Error(
+      `BungeeReceiver address mismatch after deploy: got ${receiverAddress}, expected ${BUNGEE_RECEIVER_EXPECTED_ADDRESS}`,
+    );
+  }
+  if (executorAddress !== CALLDATA_EXECUTOR_EXPECTED_ADDRESS) {
+    throw new Error(
+      `CalldataExecutor address mismatch after deploy: got ${executorAddress}, expected ${CALLDATA_EXECUTOR_EXPECTED_ADDRESS}`,
+    );
   }
 
   console.log('\n=== Deployment Summary ===');

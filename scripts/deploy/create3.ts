@@ -1,4 +1,12 @@
-import { Contract, Log, Provider, TransactionReceipt, keccak256, toUtf8Bytes } from 'ethers';
+import {
+  AbiCoder,
+  Contract,
+  Log,
+  Provider,
+  TransactionReceipt,
+  keccak256,
+  toUtf8Bytes,
+} from 'ethers';
 
 // CreateX factory — https://createx.rocks/
 export const CREATE_X_FACTORY = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
@@ -25,6 +33,8 @@ export const BUNGEE_RECEIVER_CREATE3_SALT = keccak256(
 /** Keccak256 salt for deterministic CalldataExecutor CREATE3 deployments. */
 export const CALLDATA_EXECUTOR_CREATE3_SALT = keccak256(
   toUtf8Bytes(CALLDATA_EXECUTOR_CREATE3_SALT_TEXT),
+);
+
 /** CREATE3 salt label used by `deployAcrossERC20AmountManipulator.ts`. */
 export const ACROSS_MANIPULATOR_CREATE3_SALT_TEXT =
   'AcrossERC20AmountManipulator' + '1';
@@ -43,6 +53,43 @@ export const OPEN_ROUTER_EXPECTED_ADDRESS =
 /** Observed AcrossERC20AmountManipulator CREATE3 address on all deployed mainnets. */
 export const ACROSS_MANIPULATOR_EXPECTED_ADDRESS =
   '0x05481b7163c376ab4cb0ebc7d17f2cf7651042ee';
+
+/**
+ * BungeeReceiver CREATE3 address for salt `BungeeReceiver000` via canonical CreateX.
+ * Verified with {@link computeFinalAddress} (guarded salt + factory deployer), not
+ * `computeCreate3Address(rawSalt, eoa)`.
+ */
+export const BUNGEE_RECEIVER_EXPECTED_ADDRESS =
+  '0xCa81DA19B02265bB9aD42Fc12b943999DDd80b81';
+
+/**
+ * CalldataExecutor CREATE3 address for salt `CalldataExecutor000` via canonical CreateX.
+ * Verified with {@link computeFinalAddress} (guarded salt + factory deployer), not
+ * `computeCreate3Address(rawSalt, eoa)`.
+ */
+export const CALLDATA_EXECUTOR_EXPECTED_ADDRESS =
+  '0x3e610B7bFDf0ad3bbA2417Cd086Ca4Fa91A2Ee31';
+
+/**
+ * Mirrors CreateX `_guard` for random/unspecified salts: `keccak256(abi.encode(rawSalt))`.
+ */
+export function computeGuardedSalt(rawSalt: string): string {
+  return keccak256(AbiCoder.defaultAbiCoder().encode(['bytes32'], [rawSalt]));
+}
+
+/**
+ * Resolves the final CREATE3 deployment address for `rawSalt` through CreateX.
+ * Uses guarded salt and the one-arg `computeCreate3Address` overload (factory `_SELF` deployer).
+ */
+export async function computeFinalAddress(
+  rawSalt: string,
+  create3Factory: Contract,
+): Promise<string> {
+  const guardedSalt = computeGuardedSalt(rawSalt);
+  return (await create3Factory['computeCreate3Address(bytes32)'](
+    guardedSalt,
+  )) as string;
+}
 
 /**
  * Resolves the OpenRouter contract address for deployment checks.
@@ -150,6 +197,7 @@ export async function getOpenRouterDeploymentStatus(params: {
 export const Create3ABI = [
   'function computeCreate2Address(bytes32,bytes32,address) view returns (address)',
   'function deployCreate2(bytes32,bytes) payable returns (address)',
+  'function computeCreate3Address(bytes32) view returns (address)',
   'function computeCreate3Address(bytes32,address) view returns (address)',
   'function deployCreate3(bytes32,bytes) payable returns (address)',
 ];

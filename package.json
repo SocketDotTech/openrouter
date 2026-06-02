@@ -5,8 +5,13 @@
   "scripts": {
     "compile": "hardhat compile",
     "deploy": "hardhat run scripts/deploy/deployOpenRouter.ts --network",
+    "deploy:openrouter": "hardhat run scripts/deploy/deployOpenRouter.ts --network",
+    "deploy:receiver-executor": "hardhat run scripts/deploy/deployReceiverAndExecutor.ts --network",
     "deploy:across-manipulator": "hardhat run scripts/deploy/deployAcrossERC20AmountManipulator.ts --network",
     "deploy:v2": "hardhat run scripts/deploy/deployOpenRouterV2.ts --network",
+    "check:openrouter": "hardhat run scripts/deploy/checkOpenRouterDeployment.ts",
+    "check:receiver": "hardhat run scripts/deploy/checkReceiverDeployment.ts",
+    "check:across-manipulator": "hardhat run scripts/deploy/checkAcrossManipulatorDeployment.ts",
     "typechain": "hardhat typechain",
     "slither": "bash scripts/docker-slither.sh"
   },

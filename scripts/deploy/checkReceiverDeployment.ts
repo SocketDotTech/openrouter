@@ -1,26 +1,23 @@
 /**
  * Checks that BungeeReceiver and CalldataExecutor are deployed on the current network.
- * Addresses are computed deterministically from the deployer address and CREATE3 salts —
- * no hardcoded address constants needed.
+ * Addresses are derived from CREATE3 salts via CreateX (guarded salt + factory deployer).
  *
  * Usage:
  *   npx hardhat run scripts/deploy/checkReceiverDeployment.ts --network <network>
  *
- * Required env vars:
- *   DEPLOYER_ADDRESS — address used to deploy the contracts (determines CREATE3 addresses)
- *
  * Optional env vars:
- *   OWNER_ADDRESS    — if set, assert BungeeReceiver owner() matches this address
+ *   OWNER_ADDRESS — if set, assert BungeeReceiver owner() matches this address
  */
 
 import hre from 'hardhat';
 import { ethers } from 'hardhat';
 import { Contract } from 'ethers';
 import {
-  CREATE_X_FACTORY,
-  Create3ABI,
   BUNGEE_RECEIVER_CREATE3_SALT,
   CALLDATA_EXECUTOR_CREATE3_SALT,
+  CREATE_X_FACTORY,
+  Create3ABI,
+  computeFinalAddress,
   getBungeeReceiverDeploymentStatus,
   getCalldataExecutorDeploymentStatus,
 } from './create3';
@@ -29,27 +26,21 @@ async function main() {
   const networkName = hre.network.name;
   const { chainId } = await ethers.provider.getNetwork();
 
-  const deployerAddress = process.env.DEPLOYER_ADDRESS?.trim();
-  if (!deployerAddress) {
-    console.error('DEPLOYER_ADDRESS env var is required');
-    process.exit(1);
-  }
-
   const create3Factory = new Contract(
     CREATE_X_FACTORY,
     Create3ABI,
     ethers.provider,
   );
 
-  const receiverAddress = (await create3Factory.computeCreate3Address(
+  // Do not use computeCreate3Address(rawSalt, eoa): CreateX uses guarded salt + factory deployer.
+  const receiverAddress = await computeFinalAddress(
     BUNGEE_RECEIVER_CREATE3_SALT,
-    deployerAddress,
-  )) as string;
-
-  const executorAddress = (await create3Factory.computeCreate3Address(
+    create3Factory,
+  );
+  const executorAddress = await computeFinalAddress(
     CALLDATA_EXECUTOR_CREATE3_SALT,
-    deployerAddress,
-  )) as string;
+    create3Factory,
+  );
 
   let hasError = false;
 
