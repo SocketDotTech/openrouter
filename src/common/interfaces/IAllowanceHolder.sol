@@ -1,10 +1,9 @@
 // SPDX-License-Identifier: MIT
 pragma solidity 0.8.34;
 
-// @dev Mainnet AllowanceHolder address. Same address is used for every chain
-//      on which 0x deploys it via the canonical CREATE2 deployer. See:
-//      https://docs.0x.org/docs/core-concepts/contracts#allowanceholder-recommended
-IAllowanceHolder constant ALLOWANCE_HOLDER = IAllowanceHolder(0x0000000000001fF3684f28c67538d4D072C22734);
+// @dev Socket CREATE3 AllowanceHolder address. Chain-specific OpenRouter builds
+//      patch this constant before compilation when needed.
+IAllowanceHolder constant ALLOWANCE_HOLDER = IAllowanceHolder(0x50c4E75a512F2A14A7b304787Adf79C4531A5909);
 
 /// @title IAllowanceHolder
 /// @notice External-facing interface of 0x's AllowanceHolder contract.

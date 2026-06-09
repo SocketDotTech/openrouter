@@ -8,6 +8,16 @@ dotenvConfig({ path: resolve(__dirname, './.env') });
 
 const deployerKey = process.env.DEPLOYER_PRIVATE_KEY;
 const accounts = deployerKey ? [deployerKey] : [];
+const openRouterEvmVersion = process.env.OPENROUTER_EVM_VERSION?.trim();
+if (
+  openRouterEvmVersion &&
+  openRouterEvmVersion !== 'cancun' &&
+  openRouterEvmVersion !== 'shanghai'
+) {
+  throw new Error(
+    `OPENROUTER_EVM_VERSION must be 'cancun' or 'shanghai', got '${openRouterEvmVersion}'`,
+  );
+}
 
 const config: HardhatUserConfig = {
   solidity: {
@@ -17,7 +27,7 @@ const config: HardhatUserConfig = {
         enabled: true,
         runs: 2000,
       },
-      evmVersion: 'cancun',
+      evmVersion: openRouterEvmVersion || 'cancun',
     },
   },
   networks: {

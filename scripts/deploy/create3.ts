@@ -12,7 +12,11 @@ import {
 export const CREATE_X_FACTORY = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
 
 /** CREATE3 salt label used by `deployOpenRouter.ts`. */
-export const OPEN_ROUTER_CREATE3_SALT_TEXT = 'OpenRouter' + '000';
+export const OPEN_ROUTER_CREATE3_SALT_TEXT = 'OpenRouter50cfe7:4030514';
+
+/** CREATE3 salt label used by `deployAllowanceHolder.ts`. */
+export const ALLOWANCE_HOLDER_CREATE3_SALT_TEXT =
+  'AllowanceHolder50c4e7:5981577';
 
 /** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
 export const BUNGEE_RECEIVER_CREATE3_SALT_TEXT = 'BungeeReceiver' + '000';
@@ -23,6 +27,11 @@ export const CALLDATA_EXECUTOR_CREATE3_SALT_TEXT = 'CalldataExecutor' + '000';
 /** Keccak256 salt for deterministic OpenRouter CREATE3 deployments. */
 export const OPEN_ROUTER_CREATE3_SALT = keccak256(
   toUtf8Bytes(OPEN_ROUTER_CREATE3_SALT_TEXT),
+);
+
+/** Keccak256 salt for deterministic AllowanceHolder CREATE3 deployments. */
+export const ALLOWANCE_HOLDER_CREATE3_SALT = keccak256(
+  toUtf8Bytes(ALLOWANCE_HOLDER_CREATE3_SALT_TEXT),
 );
 
 /** Keccak256 salt for deterministic BungeeReceiver CREATE3 deployments. */
@@ -46,9 +55,9 @@ export const ACROSS_MANIPULATOR_CREATE3_SALT = keccak256(
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 
-/** Observed OpenRouter CREATE3 address for salt `OpenRouter000` via canonical CreateX. */
+/** Observed OpenRouter CREATE3 address for salt `OpenRouter50cfe7:4030514` via canonical CreateX. */
 export const OPEN_ROUTER_EXPECTED_ADDRESS =
-  '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7';
+  '0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a';
 
 /** Observed AcrossERC20AmountManipulator CREATE3 address on all deployed mainnets. */
 export const ACROSS_MANIPULATOR_EXPECTED_ADDRESS =
@@ -95,7 +104,8 @@ export async function computeFinalAddress(
  * Resolves the OpenRouter contract address for deployment checks.
  *
  * Priority: `OPENROUTER_ADDRESS` env → {@link OPEN_ROUTER_EXPECTED_ADDRESS}.
- * The default matches CreateX CREATE3 salt `OpenRouter000` used by `deployOpenRouter.ts`.
+ * The default matches CreateX CREATE3 salt `OpenRouter50cfe7:4030514` used by
+ * `deployOpenRouter.ts`.
  */
 export function resolveOpenRouterAddress(): string {
   const envAddress = process.env.OPENROUTER_ADDRESS?.trim();

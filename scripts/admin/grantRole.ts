@@ -43,7 +43,7 @@ export const _grantRole = async (params: { role: Role; grantee: string }) => {
   console.log('Grantee:', grantee);
   await confirm('Continue? y/n ');
 
-  const contractAddress = '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7';
+  const contractAddress = '0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a';
 
   const contract = await ethers.getContractAt(
     'OpenRouter',
