@@ -11,6 +11,11 @@
     "deploy:v2": "hardhat run scripts/deploy/deployOpenRouterV2.ts --network",
     "check:openrouter": "hardhat run scripts/deploy/checkOpenRouterDeployment.ts",
     "check:receiver": "hardhat run scripts/deploy/checkReceiverDeployment.ts",
+    "check:receiver:all": "hardhat run scripts/deploy/checkReceiverAllChains.ts",
+    "check:calldata-executor": "hardhat run scripts/deploy/checkCalldataExecutorDeployment.ts",
+    "check:calldata-executor:all": "hardhat run scripts/deploy/checkCalldataExecutorAllChains.ts",
+    "check:deployer-balances": "hardhat run scripts/deploy/checkDeployerBalances.ts",
+    "deploy:receiver-executor:all": "hardhat run scripts/deploy/deployReceiverAllChains.ts",
     "check:across-manipulator": "hardhat run scripts/deploy/checkAcrossManipulatorDeployment.ts",
     "typechain": "hardhat typechain",
     "slither": "bash scripts/docker-slither.sh"

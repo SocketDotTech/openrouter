@@ -1,8 +1,6 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.34;
 
-import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
-
 import {AccessControl} from "./common/utils/AccessControl.sol";
 import {CurrencyLib} from "./common/lib/CurrencyLib.sol";
 import {RescueFundsLib} from "./common/lib/RescueFundsLib.sol";
@@ -27,8 +25,6 @@ import {IBungeeExecutor} from "./interfaces/IBungeeExecutor.sol";
 ///         Arbitrary calldata execution is delegated to `CalldataExecutor` (a separate stateless
 ///         proxy) so that a misbehaving destination cannot affect funds still held here.
 contract BungeeReceiver is AccessControl {
-    using SafeTransferLib for address;
-
     // =========================================================================
     // Structs
     // =========================================================================
