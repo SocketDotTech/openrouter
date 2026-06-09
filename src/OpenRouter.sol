@@ -158,7 +158,6 @@ contract OpenRouter is AllowanceHolderContext {
     // =========================================================================
 
     error SwapOutputInsufficient();
-    error InvalidExecution();
     error CallerNotSignedUser();
     error InsufficientMsgValue();
     error FutureSplice(uint256 actionIndex, uint256 sourceActionIndex);
@@ -205,13 +204,6 @@ contract OpenRouter is AllowanceHolderContext {
         bytes calldata swapCallData,
         address receiver
     ) external payable returns (uint256 finalAmount) {
-        if (
-            input.user == address(0) || input.inputToken == address(0) || swapData.target == address(0)
-                || receiver == address(0)
-        ) {
-            revert InvalidExecution();
-        }
-
         // Parse flags
         bool postFee = fee.amount != 0 && ((flags & POST_FEE_FLAG_BIT_MASK) != 0);
         bool useBalanceOf = ((flags & BALANCE_FLAG_BIT_MASK) != 0);
@@ -289,13 +281,6 @@ contract OpenRouter is AllowanceHolderContext {
         BridgeData calldata bridgeData,
         bytes calldata bridgeCallData
     ) external payable {
-        if (
-            bridgeData.target == address(0) || input.user == address(0) || input.inputToken == address(0)
-                || swapData.target == address(0)
-        ) {
-            revert InvalidExecution();
-        }
-
         // Execute swap before bridge
         uint256 finalAmount = _swapBeforeBridge(flags, input, fee, swapData, swapCallData);
 
@@ -323,10 +308,6 @@ contract OpenRouter is AllowanceHolderContext {
         BridgeData calldata bridgeData,
         bytes calldata bridgeCallData
     ) external payable {
-        if (bridgeData.target == address(0) || input.user == address(0) || input.inputToken == address(0)) {
-            revert InvalidExecution();
-        }
-
         // Pull funds from user via AllowanceHolder
         _pullFromUser(input.inputToken, input.user, input.inputAmount);
 
