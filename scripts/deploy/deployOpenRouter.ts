@@ -21,10 +21,8 @@ import {
 async function main() {
   const [deployer] = await ethers.getSigners();
   const networkName = hre.network.name;
-  const owner = deployer.address;
 
   console.log('Deployer:  ', deployer.address);
-  console.log('Owner:     ', owner);
   console.log('Network:   ', networkName);
   console.log('');
 
@@ -33,13 +31,10 @@ async function main() {
   });
   if (existing.deployed) {
     console.log(
-      `OpenRouter already deployed on ${networkName} at ${existing.address}, owner=${existing.owner}`,
+      `OpenRouter already deployed on ${networkName} at ${existing.address}`,
     );
     return;
   }
-
-  const constructorArgs = { _owner: owner };
-  console.log('constructorArgs', constructorArgs);
 
   const create3Factory = new ethers.Contract(
     CREATE_X_FACTORY,
@@ -48,7 +43,7 @@ async function main() {
   );
 
   const factory = await ethers.getContractFactory('OpenRouter');
-  const deployTransaction = await factory.getDeployTransaction(owner);
+  const deployTransaction = await factory.getDeployTransaction();
 
   const deployAddress = await create3Factory.deployCreate3.staticCall(
     OPEN_ROUTER_CREATE3_SALT,
@@ -83,7 +78,7 @@ async function main() {
     try {
       await hre.run('verify:verify', {
         address: routerAddress,
-        constructorArguments: [owner],
+        constructorArguments: [],
       });
       console.log('Contract verified on block explorer');
     } catch (err) {

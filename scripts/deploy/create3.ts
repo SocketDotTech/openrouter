@@ -167,31 +167,14 @@ export async function getAcrossManipulatorDeploymentStatus(params: {
 
 /**
  * Checks whether OpenRouter bytecode is present at the resolved CREATE3 address.
- * When deployed, also reads `owner()` to confirm the contract responds.
  */
 export async function getOpenRouterDeploymentStatus(params: {
   provider: Provider;
-}): Promise<{ address: string; deployed: boolean; owner?: string }> {
+}): Promise<{ address: string; deployed: boolean }> {
   const address = resolveOpenRouterAddress();
   const bytecode = await params.provider.getCode(address);
 
-  if (!hasContractBytecode(bytecode)) {
-    return { address, deployed: false };
-  }
-
-  try {
-    const router = new Contract(
-      address,
-      ['function owner() view returns (address)'],
-      params.provider,
-    );
-    const owner = (await router.owner()) as string;
-
-    return { address, deployed: true, owner };
-  } catch {
-    // Bytecode exists but does not look like OpenRouter — proceed with deployment.
-    return { address, deployed: false };
-  }
+  return { address, deployed: hasContractBytecode(bytecode) };
 }
 
 export const Create3ABI = [
