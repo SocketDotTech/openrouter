@@ -22,7 +22,7 @@ export const RECEIVER_DEPLOY_NETWORKS: readonly ReceiverDeployNetwork[] = [
   { name: 'sonic', chainId: CHAIN_IDS.SONIC, rpcEnvKey: 'SONIC_RPC', rpcFallback: 'https://rpc.ankr.com/sonic_mainnet' },
   { name: 'ink', chainId: CHAIN_IDS.INK, rpcEnvKey: 'INK_RPC', rpcFallback: 'https://rpc-gel.inkonchain.com' },
   { name: 'avalanche', chainId: CHAIN_IDS.AVALANCHE, rpcEnvKey: 'AVALANCHE_RPC', rpcFallback: 'https://rpc.ankr.com/avalanche' },
-  { name: 'unichain', chainId: CHAIN_IDS.UNICHAIN, rpcEnvKey: 'UNICHAIN_RPC', rpcFallback: 'https://0xrpc.io/uni' },
+  { name: 'unichain', chainId: CHAIN_IDS.UNICHAIN, rpcEnvKey: 'UNICHAIN_RPC', rpcFallback: 'https://unichain-rpc.publicnode.com' },
   { name: 'berachain', chainId: CHAIN_IDS.BERACHAIN, rpcEnvKey: 'BERACHAIN_RPC', rpcFallback: 'https://berachain-rpc.publicnode.com' },
   { name: 'scroll', chainId: CHAIN_IDS.SCROLL, rpcEnvKey: 'SCROLL_RPC', rpcFallback: 'https://1rpc.io/scroll' },
   { name: 'hyperEvm', chainId: CHAIN_IDS.HYPEREVM, rpcEnvKey: 'HYPEREVM_RPC', rpcFallback: 'https://rpc.hyperliquid.xyz/evm' },

@@ -18,6 +18,22 @@ import {
 } from './create3';
 import { DeploymentRegistryRowUpdate, upsertDeploymentRegistryRow } from './deploymentRegistry';
 import { ReceiverDeployNetwork, resolveRpcUrl } from './networks';
+import {
+  DeploymentTransactionOverrides,
+  getDeploymentTransactionOverrides,
+} from './transactionOverrides';
+
+const TX_WAIT_TIMEOUT_MS = Number(
+  process.env.TX_WAIT_TIMEOUT_MS?.trim() || '10000',
+);
+const FORCE_EXPLICIT_NONCE_CHAINS = new Set(
+  (process.env.FORCE_EXPLICIT_NONCE_CHAINS ?? '')
+    .split(',')
+    .map((name) => name.trim().toLowerCase())
+    .filter(Boolean),
+);
+const BYTECODE_RETRY_MS = 1_000;
+const BYTECODE_RETRIES = 20;
 
 export type ReceiverChainStatus = {
   network: ReceiverDeployNetwork;
@@ -58,6 +74,55 @@ export function createNetworkProvider(network: ReceiverDeployNetwork): JsonRpcPr
   return new JsonRpcProvider(resolveRpcUrl(network), network.chainId, {
     staticNetwork: true,
   });
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolveSleep) => setTimeout(resolveSleep, ms));
+}
+
+async function waitForReceiptWithTimeout<T extends { wait: () => Promise<unknown>; hash: string }>(
+  transaction: T,
+  label: string,
+): Promise<unknown> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      transaction.wait(),
+      new Promise((_, reject) => {
+        timeout = setTimeout(
+          () =>
+            reject(
+              new Error(
+                `${label} transaction ${transaction.hash} was not mined within ${TX_WAIT_TIMEOUT_MS}ms`,
+              ),
+            ),
+          TX_WAIT_TIMEOUT_MS,
+        );
+      }),
+    ]);
+  } finally {
+    if (timeout) {
+      clearTimeout(timeout);
+    }
+  }
+}
+
+async function waitForContractBytecode(params: {
+  provider: Provider;
+  address: string;
+  label: string;
+}): Promise<void> {
+  const { provider, address, label } = params;
+  for (let attempt = 0; attempt < BYTECODE_RETRIES; attempt += 1) {
+    const bytecode = await provider.getCode(address);
+    if (hasContractBytecode(bytecode)) {
+      return;
+    }
+
+    await sleep(BYTECODE_RETRY_MS);
+  }
+
+  throw new Error(`${label} bytecode not visible at ${address}`);
 }
 
 async function resolveReceiverAddresses(params: {
@@ -210,6 +275,29 @@ export async function deployReceiverOnNetwork(params: {
     const create3Factory = new Contract(CREATE_X_FACTORY, Create3ABI, wallet);
     let executorInitcodeHash: string | undefined;
     let receiverInitcodeHash: string | undefined;
+    const [latestNonce, pendingNonce] = await Promise.all([
+      provider.getTransactionCount(wallet.address, 'latest'),
+      provider.getTransactionCount(wallet.address, 'pending'),
+    ]);
+    let nextNonce: number | undefined;
+    const transactionOverrides = await getDeploymentTransactionOverrides({
+      network,
+      provider,
+    });
+    const forceExplicitNonce = FORCE_EXPLICIT_NONCE_CHAINS.has(
+      network.name.toLowerCase(),
+    );
+    if (pendingNonce < latestNonce || forceExplicitNonce) {
+      nextNonce = latestNonce;
+      console.warn(
+        `  [${network.name}] using explicit nonces from latest (latest=${latestNonce}, pending=${pendingNonce})`,
+      );
+    }
+
+    const nextOverrides = (): DeploymentTransactionOverrides =>
+      nextNonce === undefined
+        ? transactionOverrides
+        : { ...transactionOverrides, nonce: nextNonce++ };
 
     const receiverAddress = await computeFinalAddress(
       BUNGEE_RECEIVER_CREATE3_SALT,
@@ -258,17 +346,26 @@ export async function deployReceiverOnNetwork(params: {
       const executorDeployment = await create3Factory.deployCreate3(
         CALLDATA_EXECUTOR_CREATE3_SALT,
         executorDeployTx.data,
+        nextOverrides(),
       );
       console.log(`  [${network.name}] CalldataExecutor tx: ${executorDeployment.hash}`);
 
-      const executorReceipt = await executorDeployment.wait();
+      const executorReceipt = await waitForReceiptWithTimeout(
+        executorDeployment,
+        'CalldataExecutor',
+      );
       const deployedExecutorAddress = decodeCreate3DeploymentFromTxReceipt({
-        receipt: executorReceipt,
+        receipt: executorReceipt as Awaited<ReturnType<typeof executorDeployment.wait>>,
       });
       if (!deployedExecutorAddress) {
         throw new Error('CalldataExecutor address not found in CREATE3 receipt');
       }
       console.log(`  [${network.name}] CalldataExecutor deployed`);
+      await waitForContractBytecode({
+        provider,
+        address: executorAddress,
+        label: 'CalldataExecutor',
+      });
     }
 
     const executorRegistryPath = await writeReceiverDeploymentRegistry({
@@ -323,17 +420,26 @@ export async function deployReceiverOnNetwork(params: {
     const receiverDeployment = await create3Factory.deployCreate3(
       BUNGEE_RECEIVER_CREATE3_SALT,
       receiverDeployTx.data,
+      nextOverrides(),
     );
     console.log(`  [${network.name}] BungeeReceiver tx: ${receiverDeployment.hash}`);
 
-    const receiverReceipt = await receiverDeployment.wait();
+    const receiverReceipt = await waitForReceiptWithTimeout(
+      receiverDeployment,
+      'BungeeReceiver',
+    );
     const deployedReceiverAddress = decodeCreate3DeploymentFromTxReceipt({
-      receipt: receiverReceipt,
+      receipt: receiverReceipt as Awaited<ReturnType<typeof receiverDeployment.wait>>,
     });
     if (!deployedReceiverAddress) {
       throw new Error('BungeeReceiver address not found in CREATE3 receipt');
     }
     console.log(`  [${network.name}] BungeeReceiver deployed`);
+    await waitForContractBytecode({
+      provider,
+      address: receiverAddress,
+      label: 'BungeeReceiver',
+    });
 
     const registryPath = await writeReceiverDeploymentRegistry({
       network,

@@ -4,6 +4,8 @@ import {
   Log,
   Provider,
   TransactionReceipt,
+  getCreate2Address,
+  getCreateAddress,
   keccak256,
   toUtf8Bytes,
 } from 'ethers';
@@ -54,6 +56,9 @@ export const ACROSS_MANIPULATOR_CREATE3_SALT = keccak256(
 );
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
+const CREATE3_PROXY_INIT_CODE_HASH = keccak256(
+  '0x67363d3d37363d34f03d5260086018f3',
+);
 
 /** Observed OpenRouter CREATE3 address for salt `OpenRouter50cfe7:4030514` via canonical CreateX. */
 export const OPEN_ROUTER_EXPECTED_ADDRESS =
@@ -87,6 +92,19 @@ export function computeGuardedSalt(rawSalt: string): string {
 }
 
 /**
+ * Local equivalent of CreateX `computeCreate3Address(bytes32)` for the canonical factory.
+ */
+export function computeFinalAddressLocally(rawSalt: string): string {
+  const guardedSalt = computeGuardedSalt(rawSalt);
+  const proxy = getCreate2Address(
+    CREATE_X_FACTORY,
+    guardedSalt,
+    CREATE3_PROXY_INIT_CODE_HASH,
+  );
+  return getCreateAddress({ from: proxy, nonce: 1 });
+}
+
+/**
  * Resolves the final CREATE3 deployment address for `rawSalt` through CreateX.
  * Uses guarded salt and the one-arg `computeCreate3Address` overload (factory `_SELF` deployer).
  */
@@ -95,9 +113,13 @@ export async function computeFinalAddress(
   create3Factory: Contract,
 ): Promise<string> {
   const guardedSalt = computeGuardedSalt(rawSalt);
-  return (await create3Factory['computeCreate3Address(bytes32)'](
-    guardedSalt,
-  )) as string;
+  try {
+    return (await create3Factory['computeCreate3Address(bytes32)'](
+      guardedSalt,
+    )) as string;
+  } catch {
+    return computeFinalAddressLocally(rawSalt);
+  }
 }
 
 /**
