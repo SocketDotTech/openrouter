@@ -1,9 +1,12 @@
-import { Contract, JsonRpcProvider, Wallet } from 'ethers';
+import { Contract, JsonRpcProvider, Provider, Wallet, keccak256 } from 'ethers';
 import { ethers } from 'hardhat';
+import { allowanceHolderVariantForChain } from '../e2e/config';
 import {
   BUNGEE_RECEIVER_CREATE3_SALT,
+  BUNGEE_RECEIVER_CREATE3_SALT_TEXT,
   BUNGEE_RECEIVER_EXPECTED_ADDRESS,
   CALLDATA_EXECUTOR_CREATE3_SALT,
+  CALLDATA_EXECUTOR_CREATE3_SALT_TEXT,
   CALLDATA_EXECUTOR_EXPECTED_ADDRESS,
   CREATE_X_FACTORY,
   Create3ABI,
@@ -11,7 +14,9 @@ import {
   decodeCreate3DeploymentFromTxReceipt,
   getBungeeReceiverDeploymentStatus,
   getCalldataExecutorDeploymentStatus,
+  hasContractBytecode,
 } from './create3';
+import { DeploymentRegistryRowUpdate, upsertDeploymentRegistryRow } from './deploymentRegistry';
 import { ReceiverDeployNetwork, resolveRpcUrl } from './networks';
 
 export type ReceiverChainStatus = {
@@ -55,6 +60,89 @@ export function createNetworkProvider(network: ReceiverDeployNetwork): JsonRpcPr
   });
 }
 
+async function resolveReceiverAddresses(params: {
+  provider: Provider;
+}): Promise<{ receiverAddress: string; executorAddress: string }> {
+  const create3Factory = new Contract(CREATE_X_FACTORY, Create3ABI, params.provider);
+
+  const receiverAddress = await computeFinalAddress(
+    BUNGEE_RECEIVER_CREATE3_SALT,
+    create3Factory,
+  );
+  const executorAddress = await computeFinalAddress(
+    CALLDATA_EXECUTOR_CREATE3_SALT,
+    create3Factory,
+  );
+
+  return { receiverAddress, executorAddress };
+}
+
+export async function writeReceiverDeploymentRegistry(params: {
+  network: ReceiverDeployNetwork;
+  provider: Provider;
+  receiverAddress: string;
+  executorAddress: string;
+  receiverInitcodeHash?: string;
+  executorInitcodeHash?: string;
+}): Promise<string | null> {
+  const {
+    network,
+    provider,
+    receiverAddress,
+    executorAddress,
+    receiverInitcodeHash,
+    executorInitcodeHash,
+  } = params;
+
+  const [receiverBytecode, executorBytecode] = await Promise.all([
+    provider.getCode(receiverAddress),
+    provider.getCode(executorAddress),
+  ]);
+
+  const update: DeploymentRegistryRowUpdate = {
+    chainId: network.chainId,
+    variant: allowanceHolderVariantForChain(network.chainId),
+  };
+
+  if (hasContractBytecode(receiverBytecode)) {
+    update.bungeeReceiverAddress = receiverAddress;
+    update.bungeeReceiverSalt = BUNGEE_RECEIVER_CREATE3_SALT;
+    update.bungeeReceiverSaltText = BUNGEE_RECEIVER_CREATE3_SALT_TEXT;
+    update.bungeeReceiverInitcodeHash = receiverInitcodeHash;
+    update.bungeeReceiverRuntimeBytecodeHash = keccak256(receiverBytecode);
+  }
+
+  if (hasContractBytecode(executorBytecode)) {
+    update.calldataExecutorAddress = executorAddress;
+    update.calldataExecutorSalt = CALLDATA_EXECUTOR_CREATE3_SALT;
+    update.calldataExecutorSaltText = CALLDATA_EXECUTOR_CREATE3_SALT_TEXT;
+    update.calldataExecutorInitcodeHash = executorInitcodeHash;
+    update.calldataExecutorRuntimeBytecodeHash = keccak256(executorBytecode);
+  }
+
+  if (!update.bungeeReceiverAddress && !update.calldataExecutorAddress) {
+    return null;
+  }
+
+  return upsertDeploymentRegistryRow(update);
+}
+
+export async function writeReceiverDeploymentRegistryForNetwork(
+  network: ReceiverDeployNetwork,
+): Promise<string | null> {
+  const provider = createNetworkProvider(network);
+  const { receiverAddress, executorAddress } = await resolveReceiverAddresses({
+    provider,
+  });
+
+  return writeReceiverDeploymentRegistry({
+    network,
+    provider,
+    receiverAddress,
+    executorAddress,
+  });
+}
+
 /**
  * Reads CalldataExecutor + BungeeReceiver deployment status on a single chain.
  */
@@ -63,16 +151,9 @@ export async function getReceiverChainStatus(
 ): Promise<ReceiverChainStatus> {
   try {
     const provider = createNetworkProvider(network);
-    const create3Factory = new Contract(CREATE_X_FACTORY, Create3ABI, provider);
-
-    const receiverAddress = await computeFinalAddress(
-      BUNGEE_RECEIVER_CREATE3_SALT,
-      create3Factory,
-    );
-    const executorAddress = await computeFinalAddress(
-      CALLDATA_EXECUTOR_CREATE3_SALT,
-      create3Factory,
-    );
+    const { receiverAddress, executorAddress } = await resolveReceiverAddresses({
+      provider,
+    });
 
     const [executorStatus, receiverStatus] = await Promise.all([
       getCalldataExecutorDeploymentStatus({ provider, address: executorAddress }),
@@ -127,6 +208,8 @@ export async function deployReceiverOnNetwork(params: {
     const provider = createNetworkProvider(network);
     const wallet = new Wallet(deployerPrivateKey, provider);
     const create3Factory = new Contract(CREATE_X_FACTORY, Create3ABI, wallet);
+    let executorInitcodeHash: string | undefined;
+    let receiverInitcodeHash: string | undefined;
 
     const receiverAddress = await computeFinalAddress(
       BUNGEE_RECEIVER_CREATE3_SALT,
@@ -166,6 +249,10 @@ export async function deployReceiverOnNetwork(params: {
       const executorFactory = await ethers.getContractFactory('CalldataExecutor', wallet);
       const executorDeployTx =
         await executorFactory.getDeployTransaction(receiverAddress);
+      if (!executorDeployTx.data) {
+        throw new Error('CalldataExecutor deploy transaction is missing data');
+      }
+      executorInitcodeHash = keccak256(executorDeployTx.data);
 
       console.log(`  [${network.name}] Deploying CalldataExecutor...`);
       const executorDeployment = await create3Factory.deployCreate3(
@@ -184,6 +271,17 @@ export async function deployReceiverOnNetwork(params: {
       console.log(`  [${network.name}] CalldataExecutor deployed`);
     }
 
+    const executorRegistryPath = await writeReceiverDeploymentRegistry({
+      network,
+      provider,
+      receiverAddress,
+      executorAddress,
+      executorInitcodeHash,
+    });
+    if (executorRegistryPath) {
+      console.log(`  [${network.name}] Deployment CSV: ${executorRegistryPath}`);
+    }
+
     const receiverStatus = await getBungeeReceiverDeploymentStatus({
       provider,
       address: receiverAddress,
@@ -193,6 +291,15 @@ export async function deployReceiverOnNetwork(params: {
       console.log(
         `  [${network.name}] BungeeReceiver already deployed, owner=${receiverStatus.owner}`,
       );
+      const registryPath = await writeReceiverDeploymentRegistry({
+        network,
+        provider,
+        receiverAddress,
+        executorAddress,
+      });
+      if (registryPath) {
+        console.log(`  [${network.name}] Deployment CSV: ${registryPath}`);
+      }
       return {
         network,
         skipped: true,
@@ -207,6 +314,10 @@ export async function deployReceiverOnNetwork(params: {
       solverSigner,
       executorAddress,
     );
+    if (!receiverDeployTx.data) {
+      throw new Error('BungeeReceiver deploy transaction is missing data');
+    }
+    receiverInitcodeHash = keccak256(receiverDeployTx.data);
 
     console.log(`  [${network.name}] Deploying BungeeReceiver...`);
     const receiverDeployment = await create3Factory.deployCreate3(
@@ -223,6 +334,18 @@ export async function deployReceiverOnNetwork(params: {
       throw new Error('BungeeReceiver address not found in CREATE3 receipt');
     }
     console.log(`  [${network.name}] BungeeReceiver deployed`);
+
+    const registryPath = await writeReceiverDeploymentRegistry({
+      network,
+      provider,
+      receiverAddress,
+      executorAddress,
+      receiverInitcodeHash,
+      executorInitcodeHash,
+    });
+    if (registryPath) {
+      console.log(`  [${network.name}] Deployment CSV: ${registryPath}`);
+    }
 
     return {
       network,

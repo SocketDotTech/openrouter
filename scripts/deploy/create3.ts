@@ -19,10 +19,10 @@ export const ALLOWANCE_HOLDER_CREATE3_SALT_TEXT =
   'AllowanceHolder50c4e7:5981577';
 
 /** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
-export const BUNGEE_RECEIVER_CREATE3_SALT_TEXT = 'BungeeReceiver' + '000';
+export const BUNGEE_RECEIVER_CREATE3_SALT_TEXT = 'BungeeReceiver';
 
 /** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
-export const CALLDATA_EXECUTOR_CREATE3_SALT_TEXT = 'CalldataExecutor' + '000';
+export const CALLDATA_EXECUTOR_CREATE3_SALT_TEXT = 'CalldataExecutor';
 
 /** Keccak256 salt for deterministic OpenRouter CREATE3 deployments. */
 export const OPEN_ROUTER_CREATE3_SALT = keccak256(
@@ -64,20 +64,20 @@ export const ACROSS_MANIPULATOR_EXPECTED_ADDRESS =
   '0x05481b7163c376ab4cb0ebc7d17f2cf7651042ee';
 
 /**
- * BungeeReceiver CREATE3 address for salt `BungeeReceiver000` via canonical CreateX.
+ * BungeeReceiver CREATE3 address for salt `BungeeReceiver` via canonical CreateX.
  * Verified with {@link computeFinalAddress} (guarded salt + factory deployer), not
  * `computeCreate3Address(rawSalt, eoa)`.
  */
 export const BUNGEE_RECEIVER_EXPECTED_ADDRESS =
-  '0xCa81DA19B02265bB9aD42Fc12b943999DDd80b81';
+  '0x8A774c1B73998A54ff09341f3cfF8A0010BbA7f1';
 
 /**
- * CalldataExecutor CREATE3 address for salt `CalldataExecutor000` via canonical CreateX.
+ * CalldataExecutor CREATE3 address for salt `CalldataExecutor` via canonical CreateX.
  * Verified with {@link computeFinalAddress} (guarded salt + factory deployer), not
  * `computeCreate3Address(rawSalt, eoa)`.
  */
 export const CALLDATA_EXECUTOR_EXPECTED_ADDRESS =
-  '0x3e610B7bFDf0ad3bbA2417Cd086Ca4Fa91A2Ee31';
+  '0xC914815120FA5A7e05748398C9fDf1d1b2729008';
 
 /**
  * Mirrors CreateX `_guard` for random/unspecified salts: `keccak256(abi.encode(rawSalt))`.

@@ -17,10 +17,17 @@ import {
   computeFinalAddress,
   getCalldataExecutorDeploymentStatus,
 } from './create3';
+import { writeReceiverDeploymentRegistry } from './receiverDeployCore';
 
 async function main() {
   const networkName = hre.network.name;
   const { chainId } = await ethers.provider.getNetwork();
+  const registryNetwork = {
+    name: networkName,
+    chainId: Number(chainId),
+    rpcEnvKey: '',
+    rpcFallback: '',
+  };
 
   const create3Factory = new Contract(
     CREATE_X_FACTORY,
@@ -59,6 +66,16 @@ async function main() {
   console.log(
     `CalldataExecutor deployed on ${networkName} (chainId=${chainId}) at ${executorAddress}, BUNGEE_RECEIVER=${status.bungeeReceiver}`,
   );
+
+  const registryPath = await writeReceiverDeploymentRegistry({
+    network: registryNetwork,
+    provider: ethers.provider,
+    receiverAddress: BUNGEE_RECEIVER_EXPECTED_ADDRESS,
+    executorAddress,
+  });
+  if (registryPath) {
+    console.log(`Deployment CSV: ${registryPath}`);
+  }
 }
 
 main().catch((err) => {

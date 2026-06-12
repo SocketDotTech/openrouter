@@ -25,6 +25,7 @@ import {
   resolveDeployerPrivateKey,
   resolveOwnerAddress,
   resolveSolverSignerAddress,
+  writeReceiverDeploymentRegistryForNetwork,
 } from './receiverDeployCore';
 
 function parseChainFilter(): Set<string> | null {
@@ -84,6 +85,10 @@ async function main() {
     if (status.executorDeployed && status.receiverDeployed) {
       skippedDeployed++;
       console.log('  Skip: already fully deployed');
+      const registryPath = await writeReceiverDeploymentRegistryForNetwork(network);
+      if (registryPath) {
+        console.log(`  Deployment CSV: ${registryPath}`);
+      }
       continue;
     }
 
@@ -94,6 +99,12 @@ async function main() {
       console.log(
         `  Skip: insufficient balance (${formatEther(balance)} native, need ${formatEther(minBalanceWei)})`,
       );
+      if (status.executorDeployed || status.receiverDeployed) {
+        const registryPath = await writeReceiverDeploymentRegistryForNetwork(network);
+        if (registryPath) {
+          console.log(`  Deployment CSV: ${registryPath}`);
+        }
+      }
       continue;
     }
 

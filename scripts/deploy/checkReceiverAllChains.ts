@@ -14,7 +14,10 @@ import {
   CALLDATA_EXECUTOR_EXPECTED_ADDRESS,
 } from './create3';
 import { RECEIVER_DEPLOY_NETWORKS } from './networks';
-import { getReceiverChainStatus } from './receiverDeployCore';
+import {
+  getReceiverChainStatus,
+  writeReceiverDeploymentRegistryForNetwork,
+} from './receiverDeployCore';
 
 async function main() {
   const expectedOwner = process.env.OWNER_ADDRESS?.trim();
@@ -43,6 +46,10 @@ async function main() {
       errors++;
       console.log(`[ERR] ${network.name} (chainId=${network.chainId}): ${status.error}`);
       continue;
+    }
+
+    if (status.executorDeployed || status.receiverDeployed) {
+      await writeReceiverDeploymentRegistryForNetwork(network);
     }
 
     const bothDeployed = status.executorDeployed && status.receiverDeployed;

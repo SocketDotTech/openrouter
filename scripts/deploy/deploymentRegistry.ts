@@ -19,6 +19,16 @@ export const DEPLOYMENT_REGISTRY_COLUMNS = [
   'openRouterSaltText',
   'openRouterInitcodeHash',
   'openRouterRuntimeBytecodeHash',
+  'bungeeReceiverAddress',
+  'bungeeReceiverSalt',
+  'bungeeReceiverSaltText',
+  'bungeeReceiverInitcodeHash',
+  'bungeeReceiverRuntimeBytecodeHash',
+  'calldataExecutorAddress',
+  'calldataExecutorSalt',
+  'calldataExecutorSaltText',
+  'calldataExecutorInitcodeHash',
+  'calldataExecutorRuntimeBytecodeHash',
 ] as const;
 
 type DeploymentRegistryColumn = (typeof DEPLOYMENT_REGISTRY_COLUMNS)[number];
@@ -36,6 +46,16 @@ export interface DeploymentRegistryRow {
   openRouterSaltText?: string;
   openRouterInitcodeHash?: string;
   openRouterRuntimeBytecodeHash?: string;
+  bungeeReceiverAddress?: string;
+  bungeeReceiverSalt?: string;
+  bungeeReceiverSaltText?: string;
+  bungeeReceiverInitcodeHash?: string;
+  bungeeReceiverRuntimeBytecodeHash?: string;
+  calldataExecutorAddress?: string;
+  calldataExecutorSalt?: string;
+  calldataExecutorSaltText?: string;
+  calldataExecutorInitcodeHash?: string;
+  calldataExecutorRuntimeBytecodeHash?: string;
 }
 
 export type DeploymentRegistryRowUpdate = Partial<
@@ -178,6 +198,20 @@ function rowFromRecord(
     openRouterInitcodeHash: record.openRouterInitcodeHash || undefined,
     openRouterRuntimeBytecodeHash:
       record.openRouterRuntimeBytecodeHash || undefined,
+    bungeeReceiverAddress: record.bungeeReceiverAddress || undefined,
+    bungeeReceiverSalt: record.bungeeReceiverSalt || undefined,
+    bungeeReceiverSaltText: record.bungeeReceiverSaltText || undefined,
+    bungeeReceiverInitcodeHash:
+      record.bungeeReceiverInitcodeHash || undefined,
+    bungeeReceiverRuntimeBytecodeHash:
+      record.bungeeReceiverRuntimeBytecodeHash || undefined,
+    calldataExecutorAddress: record.calldataExecutorAddress || undefined,
+    calldataExecutorSalt: record.calldataExecutorSalt || undefined,
+    calldataExecutorSaltText: record.calldataExecutorSaltText || undefined,
+    calldataExecutorInitcodeHash:
+      record.calldataExecutorInitcodeHash || undefined,
+    calldataExecutorRuntimeBytecodeHash:
+      record.calldataExecutorRuntimeBytecodeHash || undefined,
   };
 }
 
@@ -198,6 +232,18 @@ function rowToRecord(
     openRouterSaltText: row.openRouterSaltText ?? '',
     openRouterInitcodeHash: row.openRouterInitcodeHash ?? '',
     openRouterRuntimeBytecodeHash: row.openRouterRuntimeBytecodeHash ?? '',
+    bungeeReceiverAddress: row.bungeeReceiverAddress ?? '',
+    bungeeReceiverSalt: row.bungeeReceiverSalt ?? '',
+    bungeeReceiverSaltText: row.bungeeReceiverSaltText ?? '',
+    bungeeReceiverInitcodeHash: row.bungeeReceiverInitcodeHash ?? '',
+    bungeeReceiverRuntimeBytecodeHash:
+      row.bungeeReceiverRuntimeBytecodeHash ?? '',
+    calldataExecutorAddress: row.calldataExecutorAddress ?? '',
+    calldataExecutorSalt: row.calldataExecutorSalt ?? '',
+    calldataExecutorSaltText: row.calldataExecutorSaltText ?? '',
+    calldataExecutorInitcodeHash: row.calldataExecutorInitcodeHash ?? '',
+    calldataExecutorRuntimeBytecodeHash:
+      row.calldataExecutorRuntimeBytecodeHash ?? '',
   };
 }
 
