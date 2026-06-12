@@ -105,21 +105,31 @@ Solidity uses `quoteId`; some backend helpers still name the same bytes32 `reque
 
 If the Solidity ABI changes, update those hard-coded ABI strings first. Direct DEX and direct bridge quote builders depend on them.
 
-## Deployed addresses
+## Deployment addresses
 
 Canonical source: [`scripts/e2e/config.ts`](scripts/e2e/config.ts) — keep in sync with `bungee-backend/src/modules/directQuote/directQuote.config.ts` and `directQuote.constants.ts`.
 
-**OpenRouter** (CREATE3, all supported chains): `0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7`
+**OpenRouter** (CREATE3, all supported chains): `0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a`
 
 **AllowanceHolder** (chain-specific; users approve this, not OpenRouter):
 
 | Address | Chains |
 |---------|--------|
-| `0x0000000000001fF3684f28c67538d4D072C22734` | Default 0x CREATE2 holder |
-| `0x0000000000005E88410CcDFaDe4a5EfaE4b49562` | Mantle |
-| `0x105F1403277E737b312214DdE8067E9ffBCf7F12` | Sei, MegaETH, Plume, Soneium |
+| `0x50c4E75a512F2A14A7b304787Adf79C4531A5909` | Socket CREATE3 holder for all configured holder chains |
 
-Resolve at runtime with `allowanceHolderForChain(chainId)` in e2e scripts. On-chain, `OpenRouter` hardcodes the canonical CREATE2 address in `IAllowanceHolder.sol`; chains with a non-canonical AllowanceHolder require a chain-specific router build or backend-only routing — confirm deployment parity before enabling those chains in production.
+Resolve at runtime with `allowanceHolderForChain(chainId)` in e2e scripts. On-chain, `OpenRouter` hardcodes the holder address in `IAllowanceHolder.sol`; chains with a non-canonical AllowanceHolder require a chain-specific router build or backend-only routing — confirm deployment parity before enabling those chains in production.
+
+Deployment helpers:
+
+- 0x has two AllowanceHolder hardfork variants: Cancun/EIP-1153 uses transient `tload/tstore`; Shanghai/no-TLOAD uses the storage-backed `AllowanceHolderOld` pattern.
+- `scripts/deploy/checkAllowanceHolderDeployment.ts` checks bytecode at the configured holder address and upserts the chain row in `deployments.csv`.
+- `scripts/deploy/deployAllowanceHolder.ts` deploys holder bytecode from `ALLOWANCE_HOLDER_CANCUN_DEPLOYMENT_BYTECODE` or `ALLOWANCE_HOLDER_SHANGHAI_DEPLOYMENT_BYTECODE`, checks optional initcode hashes, and uses CreateX CREATE3 with salt text `AllowanceHolder50c4e7:5981577`.
+- CREATE3 deployment requires the canonical CreateX factory at `0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed` on the target chain.
+- Unchanged upstream 0x holder bytecode checks `address(this)` against 0x's addresses in its constructor, so CREATE3 requires our own or patched holder bytecode that permits the CreateX-computed address.
+- Override holder config with `ALLOWANCE_HOLDER_CHAIN_<chainId>` / global `ALLOWANCE_HOLDER_ADDRESS`; override hardfork variant with `ALLOWANCE_HOLDER_VARIANT_CHAIN_<chainId>` / global `ALLOWANCE_HOLDER_VARIANT`.
+- `scripts/deploy/deployOpenRouterPatched.ts` must be used for chain-specific router deploys. It patches `src/common/interfaces/IAllowanceHolder.sol` before compilation and upserts build data in `deployments.csv`; `deployOpenRouter.ts` upserts OpenRouter deployment fields after the CREATE3 tx is confirmed. Holder address priority is env override, then `deployments.csv`, then static config.
+- `scripts/deploy/deployOpenRouterByBuildProfile.ts` batches router deploys by `(EVM version, AllowanceHolder address)`, compiles once per profile, then deploys matching networks in parallel with `--no-compile`.
+- OpenRouter currently uses Cancun `mcopy` in `src/OpenRouter.sol` and `src/common/lib/BytesSpliceLib.sol`; the patched deploy wrapper refuses Shanghai/no-Cancun OpenRouter builds until those copies are made fork-compatible.
 
 ## Gotchas
 

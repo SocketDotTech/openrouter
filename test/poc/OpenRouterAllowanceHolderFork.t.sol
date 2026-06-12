@@ -34,7 +34,7 @@ contract OpenRouterAllowanceHolderForkTest is Test {
         uint256 forkBlock = vm.envOr("POLYGON_FORK_BLOCK", POLYGON_FORK_BLOCK);
         vm.createSelectFork(rpcUrl, forkBlock);
 
-        Router router = new Router(address(this));
+        Router router = new Router();
         NoopBridgeTarget noopBridge = new NoopBridgeTarget();
 
         deal(POLYGON_USDC, user, INPUT_AMOUNT);

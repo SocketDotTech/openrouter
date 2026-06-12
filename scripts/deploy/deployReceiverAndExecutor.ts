@@ -31,13 +31,23 @@ import {
   getBungeeReceiverDeploymentStatus,
   getCalldataExecutorDeploymentStatus,
 } from './create3';
+import { writeReceiverDeploymentRegistry } from './receiverDeployCore';
 
 async function main() {
   const [deployer] = await ethers.getSigners();
   const networkName = hre.network.name;
+  const chainId = Number((await ethers.provider.getNetwork()).chainId);
+  const registryNetwork = {
+    name: networkName,
+    chainId,
+    rpcEnvKey: '',
+    rpcFallback: '',
+  };
   const owner = process.env.OWNER_ADDRESS?.trim() || deployer.address;
   const solverSigner =
     process.env.SOLVER_SIGNER_ADDRESS?.trim() || deployer.address;
+  let executorInitcodeHash: string | undefined;
+  let receiverInitcodeHash: string | undefined;
 
   console.log('Deployer:      ', deployer.address);
   console.log('Owner:         ', owner);
@@ -103,6 +113,10 @@ async function main() {
     const executorFactory = await ethers.getContractFactory('CalldataExecutor');
     const executorDeployTx =
       await executorFactory.getDeployTransaction(receiverAddress);
+    if (!executorDeployTx.data) {
+      throw new Error('CalldataExecutor deploy transaction is missing data');
+    }
+    executorInitcodeHash = ethers.keccak256(executorDeployTx.data);
 
     console.log('Deploying CalldataExecutor via CREATE3...');
     const executorDeployment = await create3Factory.deployCreate3(
@@ -121,6 +135,17 @@ async function main() {
     console.log('CalldataExecutor deployed to:', deployedExecutorAddress);
   }
 
+  const executorRegistryPath = await writeReceiverDeploymentRegistry({
+    network: registryNetwork,
+    provider: ethers.provider,
+    receiverAddress,
+    executorAddress,
+    executorInitcodeHash,
+  });
+  if (executorRegistryPath) {
+    console.log('Deployment CSV:', executorRegistryPath);
+  }
+
   // ── Deploy BungeeReceiver (wired with actual executor address) ───────────────
 
   const receiverStatus = await getBungeeReceiverDeploymentStatus({
@@ -132,6 +157,15 @@ async function main() {
     console.log(
       `BungeeReceiver already deployed at ${receiverAddress}, owner=${receiverStatus.owner}`,
     );
+    const registryPath = await writeReceiverDeploymentRegistry({
+      network: registryNetwork,
+      provider: ethers.provider,
+      receiverAddress,
+      executorAddress,
+    });
+    if (registryPath) {
+      console.log('Deployment CSV:', registryPath);
+    }
   } else {
     const receiverFactory = await ethers.getContractFactory('BungeeReceiver');
     const receiverDeployTx = await receiverFactory.getDeployTransaction(
@@ -139,6 +173,10 @@ async function main() {
       solverSigner,
       executorAddress,
     );
+    if (!receiverDeployTx.data) {
+      throw new Error('BungeeReceiver deploy transaction is missing data');
+    }
+    receiverInitcodeHash = ethers.keccak256(receiverDeployTx.data);
 
     console.log('Deploying BungeeReceiver via CREATE3...');
     const receiverDeployment = await create3Factory.deployCreate3(
@@ -155,6 +193,18 @@ async function main() {
       throw new Error('BungeeReceiver address not found in CREATE3 receipt');
     }
     console.log('BungeeReceiver deployed to:', deployedReceiverAddress);
+
+    const registryPath = await writeReceiverDeploymentRegistry({
+      network: registryNetwork,
+      provider: ethers.provider,
+      receiverAddress,
+      executorAddress,
+      receiverInitcodeHash,
+      executorInitcodeHash,
+    });
+    if (registryPath) {
+      console.log('Deployment CSV:', registryPath);
+    }
   }
 
   if (receiverAddress !== BUNGEE_RECEIVER_EXPECTED_ADDRESS) {
@@ -172,8 +222,7 @@ async function main() {
   console.log(`CalldataExecutor: ${executorAddress}`);
   console.log(`BungeeReceiver:   ${receiverAddress}`);
 
-  const chainId = (await ethers.provider.getNetwork()).chainId;
-  if (chainId !== 31337n) {
+  if (BigInt(chainId) !== 31337n) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
     try {

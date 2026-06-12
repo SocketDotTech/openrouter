@@ -6,7 +6,6 @@
  *
  * Optional env:
  *   OPENROUTER_ADDRESS — override expected CREATE3 address
- *   OWNER_ADDRESS      — if set, assert `owner()` matches this address
  */
 
 import hre from 'hardhat';
@@ -28,19 +27,8 @@ async function main() {
     process.exit(1);
   }
 
-  const expectedOwner = process.env.OWNER_ADDRESS?.trim();
-  if (
-    expectedOwner &&
-    deployment.owner?.toLowerCase() !== expectedOwner.toLowerCase()
-  ) {
-    console.error(
-      `OpenRouter owner mismatch on ${networkName} (chainId=${chainId}): expected ${expectedOwner}, got ${deployment.owner}`,
-    );
-    process.exit(1);
-  }
-
   console.log(
-    `OpenRouter deployed on ${networkName} (chainId=${chainId}) at ${deployment.address}, owner=${deployment.owner}`,
+    `OpenRouter deployed on ${networkName} (chainId=${chainId}) at ${deployment.address}`,
   );
 }
 

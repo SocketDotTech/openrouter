@@ -4,20 +4,17 @@ pragma solidity 0.8.34;
 import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
 import {IERC20} from "./common/interfaces/IERC20.sol";
-import {AccessControl} from "./common/utils/AccessControl.sol";
 import {AllowanceHolderContext} from "./common/allowance/AllowanceHolderContext.sol";
 import {ALLOWANCE_HOLDER} from "./common/interfaces/IAllowanceHolder.sol";
 import {BytesSpliceLib} from "./common/lib/BytesSpliceLib.sol";
 import {CurrencyLib} from "./common/lib/CurrencyLib.sol";
-import {RescueFundsLib} from "./common/lib/RescueFundsLib.sol";
-import {RESCUE_ROLE} from "./common/AccessRoles.sol";
 
 /// @title OpenRouter
 /// @notice Pull → optional fee → swap/bridge execution without backend signature verification.
 ///         Fund safety rests on AllowanceHolder's transient allowance scoping (operator + owner + token):
 ///         only the user whose address was passed to `AllowanceHolder.exec` can authorise a pull of
 ///         their own funds. The `_msgSender() == user` check in `_pullFromUser` enforces this.
-contract OpenRouter is AccessControl, AllowanceHolderContext {
+contract OpenRouter is AllowanceHolderContext {
     using SafeTransferLib for address;
 
     // =========================================================================
@@ -161,7 +158,6 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
     // =========================================================================
 
     error SwapOutputInsufficient();
-    error InvalidExecution();
     error CallerNotSignedUser();
     error InsufficientMsgValue();
     error FutureSplice(uint256 actionIndex, uint256 sourceActionIndex);
@@ -175,18 +171,6 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
     // =========================================================================
 
     event RequestExecuted(bytes32 indexed quoteId);
-
-    // =========================================================================
-    // Constructor
-    // =========================================================================
-
-    /**
-     * @notice Deploys the router and grants `RESCUE_ROLE` to `_owner`.
-     * @param _owner Initial contract owner and rescue-role holder.
-     */
-    constructor(address _owner) AccessControl(_owner) {
-        _grantRole(RESCUE_ROLE, _owner);
-    }
 
     /// @notice Accepts native ETH forwarded with bridge/swap calls.
     receive() external payable {}
@@ -220,13 +204,6 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         bytes calldata swapCallData,
         address receiver
     ) external payable returns (uint256 finalAmount) {
-        if (
-            input.user == address(0) || input.inputToken == address(0) || swapData.target == address(0)
-                || receiver == address(0)
-        ) {
-            revert InvalidExecution();
-        }
-
         // Parse flags
         bool postFee = fee.amount != 0 && ((flags & POST_FEE_FLAG_BIT_MASK) != 0);
         bool useBalanceOf = ((flags & BALANCE_FLAG_BIT_MASK) != 0);
@@ -304,13 +281,6 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         BridgeData calldata bridgeData,
         bytes calldata bridgeCallData
     ) external payable {
-        if (
-            bridgeData.target == address(0) || input.user == address(0) || input.inputToken == address(0)
-                || swapData.target == address(0)
-        ) {
-            revert InvalidExecution();
-        }
-
         // Execute swap before bridge
         uint256 finalAmount = _swapBeforeBridge(flags, input, fee, swapData, swapCallData);
 
@@ -338,10 +308,6 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
         BridgeData calldata bridgeData,
         bytes calldata bridgeCallData
     ) external payable {
-        if (bridgeData.target == address(0) || input.user == address(0) || input.inputToken == address(0)) {
-            revert InvalidExecution();
-        }
-
         // Pull funds from user via AllowanceHolder
         _pullFromUser(input.inputToken, input.user, input.inputAmount);
 
@@ -757,15 +723,5 @@ contract OpenRouter is AccessControl, AllowanceHolderContext {
             // read the word at the offset from return data
             word := mload(add(add(ret, 0x20), offset))
         }
-    }
-
-    /**
-     * @notice Rescues funds from the contract if they are locked by mistake.
-     * @param token The address of the token contract.
-     * @param rescueTo The address where rescued tokens need to be sent.
-     * @param amount The amount of tokens to be rescued.
-     */
-    function rescueFunds(address token, address rescueTo, uint256 amount) external onlyRole(RESCUE_ROLE) {
-        RescueFundsLib.rescueFunds(token, rescueTo, amount);
     }
 }

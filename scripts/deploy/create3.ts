@@ -4,6 +4,8 @@ import {
   Log,
   Provider,
   TransactionReceipt,
+  getCreate2Address,
+  getCreateAddress,
   keccak256,
   toUtf8Bytes,
 } from 'ethers';
@@ -12,17 +14,26 @@ import {
 export const CREATE_X_FACTORY = '0xba5Ed099633D3B313e4D5F7bdc1305d3c28ba5Ed';
 
 /** CREATE3 salt label used by `deployOpenRouter.ts`. */
-export const OPEN_ROUTER_CREATE3_SALT_TEXT = 'OpenRouter' + '000';
+export const OPEN_ROUTER_CREATE3_SALT_TEXT = 'OpenRouter50cfe7:4030514';
+
+/** CREATE3 salt label used by `deployAllowanceHolder.ts`. */
+export const ALLOWANCE_HOLDER_CREATE3_SALT_TEXT =
+  'AllowanceHolder50c4e7:5981577';
 
 /** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
-export const BUNGEE_RECEIVER_CREATE3_SALT_TEXT = 'BungeeReceiver' + '000';
+export const BUNGEE_RECEIVER_CREATE3_SALT_TEXT = 'BungeeReceiver';
 
 /** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
-export const CALLDATA_EXECUTOR_CREATE3_SALT_TEXT = 'CalldataExecutor' + '000';
+export const CALLDATA_EXECUTOR_CREATE3_SALT_TEXT = 'CalldataExecutor';
 
 /** Keccak256 salt for deterministic OpenRouter CREATE3 deployments. */
 export const OPEN_ROUTER_CREATE3_SALT = keccak256(
   toUtf8Bytes(OPEN_ROUTER_CREATE3_SALT_TEXT),
+);
+
+/** Keccak256 salt for deterministic AllowanceHolder CREATE3 deployments. */
+export const ALLOWANCE_HOLDER_CREATE3_SALT = keccak256(
+  toUtf8Bytes(ALLOWANCE_HOLDER_CREATE3_SALT_TEXT),
 );
 
 /** Keccak256 salt for deterministic BungeeReceiver CREATE3 deployments. */
@@ -45,36 +56,52 @@ export const ACROSS_MANIPULATOR_CREATE3_SALT = keccak256(
 );
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
+const CREATE3_PROXY_INIT_CODE_HASH = keccak256(
+  '0x67363d3d37363d34f03d5260086018f3',
+);
 
-/** Observed OpenRouter CREATE3 address for salt `OpenRouter000` via canonical CreateX. */
+/** Observed OpenRouter CREATE3 address for salt `OpenRouter50cfe7:4030514` via canonical CreateX. */
 export const OPEN_ROUTER_EXPECTED_ADDRESS =
-  '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7';
+  '0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a';
 
 /** Observed AcrossERC20AmountManipulator CREATE3 address on all deployed mainnets. */
 export const ACROSS_MANIPULATOR_EXPECTED_ADDRESS =
   '0x05481b7163c376ab4cb0ebc7d17f2cf7651042ee';
 
 /**
- * BungeeReceiver CREATE3 address for salt `BungeeReceiver000` via canonical CreateX.
+ * BungeeReceiver CREATE3 address for salt `BungeeReceiver` via canonical CreateX.
  * Verified with {@link computeFinalAddress} (guarded salt + factory deployer), not
  * `computeCreate3Address(rawSalt, eoa)`.
  */
 export const BUNGEE_RECEIVER_EXPECTED_ADDRESS =
-  '0xCa81DA19B02265bB9aD42Fc12b943999DDd80b81';
+  '0x8A774c1B73998A54ff09341f3cfF8A0010BbA7f1';
 
 /**
- * CalldataExecutor CREATE3 address for salt `CalldataExecutor000` via canonical CreateX.
+ * CalldataExecutor CREATE3 address for salt `CalldataExecutor` via canonical CreateX.
  * Verified with {@link computeFinalAddress} (guarded salt + factory deployer), not
  * `computeCreate3Address(rawSalt, eoa)`.
  */
 export const CALLDATA_EXECUTOR_EXPECTED_ADDRESS =
-  '0x3e610B7bFDf0ad3bbA2417Cd086Ca4Fa91A2Ee31';
+  '0xC914815120FA5A7e05748398C9fDf1d1b2729008';
 
 /**
  * Mirrors CreateX `_guard` for random/unspecified salts: `keccak256(abi.encode(rawSalt))`.
  */
 export function computeGuardedSalt(rawSalt: string): string {
   return keccak256(AbiCoder.defaultAbiCoder().encode(['bytes32'], [rawSalt]));
+}
+
+/**
+ * Local equivalent of CreateX `computeCreate3Address(bytes32)` for the canonical factory.
+ */
+export function computeFinalAddressLocally(rawSalt: string): string {
+  const guardedSalt = computeGuardedSalt(rawSalt);
+  const proxy = getCreate2Address(
+    CREATE_X_FACTORY,
+    guardedSalt,
+    CREATE3_PROXY_INIT_CODE_HASH,
+  );
+  return getCreateAddress({ from: proxy, nonce: 1 });
 }
 
 /**
@@ -86,16 +113,21 @@ export async function computeFinalAddress(
   create3Factory: Contract,
 ): Promise<string> {
   const guardedSalt = computeGuardedSalt(rawSalt);
-  return (await create3Factory['computeCreate3Address(bytes32)'](
-    guardedSalt,
-  )) as string;
+  try {
+    return (await create3Factory['computeCreate3Address(bytes32)'](
+      guardedSalt,
+    )) as string;
+  } catch {
+    return computeFinalAddressLocally(rawSalt);
+  }
 }
 
 /**
  * Resolves the OpenRouter contract address for deployment checks.
  *
  * Priority: `OPENROUTER_ADDRESS` env → {@link OPEN_ROUTER_EXPECTED_ADDRESS}.
- * The default matches CreateX CREATE3 salt `OpenRouter000` used by `deployOpenRouter.ts`.
+ * The default matches CreateX CREATE3 salt `OpenRouter50cfe7:4030514` used by
+ * `deployOpenRouter.ts`.
  */
 export function resolveOpenRouterAddress(): string {
   const envAddress = process.env.OPENROUTER_ADDRESS?.trim();
@@ -167,31 +199,14 @@ export async function getAcrossManipulatorDeploymentStatus(params: {
 
 /**
  * Checks whether OpenRouter bytecode is present at the resolved CREATE3 address.
- * When deployed, also reads `owner()` to confirm the contract responds.
  */
 export async function getOpenRouterDeploymentStatus(params: {
   provider: Provider;
-}): Promise<{ address: string; deployed: boolean; owner?: string }> {
+}): Promise<{ address: string; deployed: boolean }> {
   const address = resolveOpenRouterAddress();
   const bytecode = await params.provider.getCode(address);
 
-  if (!hasContractBytecode(bytecode)) {
-    return { address, deployed: false };
-  }
-
-  try {
-    const router = new Contract(
-      address,
-      ['function owner() view returns (address)'],
-      params.provider,
-    );
-    const owner = (await router.owner()) as string;
-
-    return { address, deployed: true, owner };
-  } catch {
-    // Bytecode exists but does not look like OpenRouter — proceed with deployment.
-    return { address, deployed: false };
-  }
+  return { address, deployed: hasContractBytecode(bytecode) };
 }
 
 export const Create3ABI = [
