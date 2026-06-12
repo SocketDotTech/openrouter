@@ -67,7 +67,7 @@ abstract contract OpenRouterV2UncheckedTestBase is Test {
     function setUp() public virtual {
         vm.etch(address(ALLOWANCE_HOLDER), address(new MockAllowanceHolder()).code);
 
-        router = new Router(address(this));
+        router = new Router();
         inputToken = new MockERC20("Input Token", "IN");
         outputToken = new MockERC20("Output Token", "OUT");
         swapTarget = new MockSwap();

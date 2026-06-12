@@ -23,6 +23,8 @@ export const CHAIN_IDS = {
   BASE: 8453,
   /** HyperEVM (Hyperliquid). */
   HYPEREVM: 999,
+  /** Arc mainnet. */
+  ARC: 5042,
   /** Tempo mainnet — AllowanceHolder only; OpenRouter not deployed (deposit-only chain). */
   TEMPO: 4217,
   /** MegaETH mainnet — Relay USDM → Base USDC e2e. */
@@ -78,36 +80,61 @@ export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
 
 // ─── Contract addresses ───────────────────────────────────────────────────────
 
-/** Canonical 0x AllowanceHolder (CREATE2) — default on most EVM chains. */
-export const ALLOWANCE_HOLDER = '0x0000000000001fF3684f28c67538d4D072C22734';
+const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 
-/** Mantle AllowanceHolder — distinct deployment on Mantle mainnet. */
-export const ALLOWANCE_HOLDER_MANTLE = '0x0000000000005E88410CcDFaDe4a5EfaE4b49562';
+export type AllowanceHolderVariant = 'cancun' | 'shanghai';
 
-/**
- * Socket-deployed Cancun AllowanceHolder (CREATE at deployer nonce 0).
- * Used on chains where 0x has not deployed the CREATE2 holder (Sei, MegaETH, Plume, Soneium).
- */
-export const ALLOWANCE_HOLDER_SOCKET = '0x105F1403277E737b312214DdE8067E9ffBCf7F12';
+/** Socket CREATE3 AllowanceHolder — same address on every deployed chain. */
+export const ALLOWANCE_HOLDER = '0x50c4E75a512F2A14A7b304787Adf79C4531A5909';
 
 const ALLOWANCE_HOLDER_BY_CHAIN_ID: Record<number, string> = {
-  [CHAIN_IDS.MANTLE]: ALLOWANCE_HOLDER_MANTLE,
-  [CHAIN_IDS.MEGAETH]: ALLOWANCE_HOLDER_SOCKET,
-  [CHAIN_IDS.PLUME]: ALLOWANCE_HOLDER_SOCKET,
-  [CHAIN_IDS.SONEIUM]: ALLOWANCE_HOLDER_SOCKET,
-  [CHAIN_IDS.SEI]: ALLOWANCE_HOLDER_SOCKET,
+};
+
+const ALLOWANCE_HOLDER_VARIANT_BY_CHAIN_ID: Record<
+  number,
+  AllowanceHolderVariant
+> = {
 };
 
 /**
  * Resolve AllowanceHolder contract address for `chainId`.
- * Falls back to {@link ALLOWANCE_HOLDER} on chains without a chain-specific deployment.
+ *
+ * Priority: `ALLOWANCE_HOLDER_CHAIN_<chainId>` env → `ALLOWANCE_HOLDER_ADDRESS`
+ * env → chain-specific map → {@link ALLOWANCE_HOLDER}.
  */
 export function allowanceHolderForChain(chainId: number): string {
+  const envSpecific = process.env[`ALLOWANCE_HOLDER_CHAIN_${chainId}`]?.trim();
+  if (envSpecific && ADDR_HEX_RE.test(envSpecific)) {
+    return envSpecific;
+  }
+
+  const envGlobal = process.env.ALLOWANCE_HOLDER_ADDRESS?.trim();
+  if (envGlobal && ADDR_HEX_RE.test(envGlobal)) {
+    return envGlobal;
+  }
+
   return ALLOWANCE_HOLDER_BY_CHAIN_ID[chainId] ?? ALLOWANCE_HOLDER;
 }
 
+export function allowanceHolderVariantForChain(
+  chainId: number,
+): AllowanceHolderVariant {
+  const envSpecific =
+    process.env[`ALLOWANCE_HOLDER_VARIANT_CHAIN_${chainId}`]?.trim();
+  if (envSpecific === 'cancun' || envSpecific === 'shanghai') {
+    return envSpecific;
+  }
+
+  const envGlobal = process.env.ALLOWANCE_HOLDER_VARIANT?.trim();
+  if (envGlobal === 'cancun' || envGlobal === 'shanghai') {
+    return envGlobal;
+  }
+
+  return ALLOWANCE_HOLDER_VARIANT_BY_CHAIN_ID[chainId] ?? 'cancun';
+}
+
 /** CREATE3 OpenRouter address — same on every deployed chain. Keep in sync with bungee-backend. */
-export const OPEN_ROUTER_ADDRESS = '0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7';
+export const OPEN_ROUTER_ADDRESS = '0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a';
 
 /** Chains with a deployed OpenRouter (direct DEX / bridge quotes). Tempo excluded (deposit-only). */
 export const OPEN_ROUTER_CHAIN_IDS: readonly number[] = [
@@ -125,6 +152,7 @@ export const OPEN_ROUTER_CHAIN_IDS: readonly number[] = [
   CHAIN_IDS.BERACHAIN,
   CHAIN_IDS.SCROLL,
   CHAIN_IDS.HYPEREVM,
+  CHAIN_IDS.ARC,
   CHAIN_IDS.PLASMA,
   CHAIN_IDS.MONAD,
   CHAIN_IDS.LINEA,
@@ -147,8 +175,6 @@ export const OPEN_ROUTER_CHAIN_IDS: readonly number[] = [
 export const ROUTER_BY_CHAIN_ID: Record<number, string> = Object.fromEntries(
   OPEN_ROUTER_CHAIN_IDS.map((chainId) => [chainId, OPEN_ROUTER_ADDRESS]),
 );
-
-const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 
 /**
  * Resolve router contract address for execution quotes / AH.exec on `chainId`.

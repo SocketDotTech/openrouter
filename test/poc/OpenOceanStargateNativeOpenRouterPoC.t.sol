@@ -267,7 +267,7 @@ contract OpenOceanStargateNativeOpenRouterPoCTest is Test {
     }
 
     function _routerAtFixtureAddress() internal returns (Router router) {
-        Router implementation = new Router(address(this));
+        Router implementation = new Router();
         vm.etch(FIXTURE_ROUTER, address(implementation).code);
         return Router(payable(FIXTURE_ROUTER));
     }

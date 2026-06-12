@@ -63,7 +63,11 @@ Hardhat is wired for deployment and TypeScript e2e scripts:
 
 ```bash
 npm run compile
-npm run deploy -- polygon    # scripts/deploy/deployOpenRouter.ts
+npm run deploy -- polygon    # patches ALLOWANCE_HOLDER, then deploys OpenRouter
+npm run deploy:openrouter:raw -- polygon
+npm run deploy:allowance-holder -- polygon
+npm run check:allowance-holder -- --network polygon
+ETHERSCAN_API_KEY=... npm run verify:allowance-holder
 npm run slither              # static analysis via Docker
 ```
 
@@ -75,7 +79,19 @@ Live scripts under `scripts/e2e/` submit routes through AllowanceHolder against 
 PRIVATE_KEY=0x... ts-node scripts/e2e/swap/swap.preFee.balanceOf.ts
 ```
 
-Override deployed router per chain with `ROUTER_CHAIN_<chainId>` or legacy `ROUTER_ADDRESS`. See `.env.example` for RPC and API key variables.
+Override deployed router per chain with `ROUTER_CHAIN_<chainId>` or legacy `ROUTER_ADDRESS`. Override AllowanceHolder per chain with `ALLOWANCE_HOLDER_CHAIN_<chainId>` or globally with `ALLOWANCE_HOLDER_ADDRESS`. Override the holder variant with `ALLOWANCE_HOLDER_VARIANT_CHAIN_<chainId>` or global `ALLOWANCE_HOLDER_VARIANT` (`cancun` or `shanghai`). See `.env.example` for RPC and API key variables.
+
+`deploy:allowance-holder` uses `ALLOWANCE_HOLDER_CANCUN_DEPLOYMENT_BYTECODE` on chains with EIP-1153 `TLOAD/TSTORE` and `ALLOWANCE_HOLDER_SHANGHAI_DEPLOYMENT_BYTECODE` on no-TLOAD chains. It deploys through CreateX CREATE3 with salt text `AllowanceHolder50c4e7:5981577`, resolving to `0x50c4E75a512F2A14A7b304787Adf79C4531A5909`; set `ALLOWANCE_HOLDER_CREATE3_SALT` for a raw bytes32 salt. CREATE3 requires the canonical CreateX factory on the target chain. Set `ALLOWANCE_HOLDER_CANCUN_INITCODE_HASH` / `ALLOWANCE_HOLDER_SHANGHAI_INITCODE_HASH` to make the script enforce the exact compiled bytecode before sending a transaction.
+
+Unchanged upstream 0x holder bytecode hard-checks `address(this)` against the 0x holder addresses in its constructor. CREATE3 deployments require our own or patched holder bytecode that permits the CreateX-computed address.
+
+AllowanceHolder deploy/check scripts upsert the chain row in `deployments.csv` with the resolved address, variant, CREATE3 salt, initcode hash when available, and runtime bytecode hash.
+
+OpenRouter deploys should go through `scripts/deploy/deployOpenRouterPatched.ts` (`npm run deploy -- <network>`). That wrapper patches `src/common/interfaces/IAllowanceHolder.sol` to the configured per-chain holder address before Hardhat compiles, sets `OPENROUTER_EVM_VERSION`, and upserts the build/deployment data in `deployments.csv`; the raw deploy updates the OpenRouter fields after the CREATE3 tx is confirmed. Holder address priority is env override, then `deployments.csv`, then static config. Do not use `deploy:openrouter:raw` for chain-specific holder deployments unless the source constant has already been prepared.
+
+For multi-chain deploys, use `npm run deploy:openrouter:batch -- ...` or the Make targets. The batch deployer groups networks by build profile `(EVM version, AllowanceHolder address)`, compiles once per profile, then deploys matching networks in parallel with `--no-compile`. Use `make deploy-openrouter-cancun` to deploy only Cancun profiles.
+
+Detailed runbook: [`ALLOWANCE_HOLDER_DEPLOYMENT.md`](ALLOWANCE_HOLDER_DEPLOYMENT.md).
 
 Modular route packing helpers: [`scripts/e2e/utils/modularActionsBuilder/`](scripts/e2e/utils/modularActionsBuilder/).
 
@@ -100,9 +116,9 @@ Flag masks and deployed addresses must stay in sync with `bungee-backend` config
 
 Users must approve **AllowanceHolder**, not OpenRouter, and call `AllowanceHolder.exec` with the router as target. Details in [`OPENROUTER.md`](OPENROUTER.md).
 
-## Deployed addresses
+## Deployment addresses
 
-OpenRouter is deployed at **`0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7`** (CREATE3) on all supported mainnets below. Canonical config: [`scripts/e2e/config.ts`](scripts/e2e/config.ts) (`OPEN_ROUTER_ADDRESS`, `OPEN_ROUTER_CHAIN_IDS`).
+OpenRouter is deployed at **`0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a`** (CREATE3) on all supported mainnets below. Canonical config: [`scripts/e2e/config.ts`](scripts/e2e/config.ts) (`OPEN_ROUTER_ADDRESS`, `OPEN_ROUTER_CHAIN_IDS`). Verify chain state with `npm run check:openrouter -- --network <network>`.
 
 | Chain | Chain ID |
 |-------|----------|
@@ -137,7 +153,6 @@ OpenRouter is deployed at **`0x1Cb8E88afDe521aaA0108F2b788D467C286ABAe7`** (CREA
 
 | Address | Chains |
 |---------|--------|
-| `0x0000000000001fF3684f28c67538d4D072C22734` | Default (0x CREATE2): Ethereum, Polygon, Base, Optimism, Arbitrum, BNB, World Chain, Sonic, Ink, Avalanche, Unichain, Berachain, Scroll, HyperEVM, Plasma, Monad, Linea, Tempo, Blast, Gnosis, Katana, Mode |
-| `0x0000000000005E88410CcDFaDe4a5EfaE4b49562` | Mantle |
-| `0x105F1403277E737b312214DdE8067E9ffBCf7F12` | Sei, MegaETH, Plume, Soneium (Socket-deployed) |
+| `0x50c4E75a512F2A14A7b304787Adf79C4531A5909` | Socket CREATE3 holder for all configured holder chains |
 
+0x uses two AllowanceHolder variants: a Cancun/EIP-1153 variant that uses transient storage, and a Shanghai/no-TLOAD variant for chains such as Mantle. The Socket holder uses the same CREATE3 address across variants/chains; the chosen variant controls bytecode, not address. If you deploy a new AllowanceHolder address, router bytecode must be compatible with that address. The OpenRouter deploy wrapper patches the hardcoded `ALLOWANCE_HOLDER` constant before compilation; existing OpenRouter deployments cannot be switched to a new holder only by changing frontend/backend config.
