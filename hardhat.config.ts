@@ -9,6 +9,10 @@ dotenvConfig({ path: resolve(__dirname, './.env') });
 const deployerKey = process.env.DEPLOYER_PRIVATE_KEY;
 const accounts = deployerKey ? [deployerKey] : [];
 const openRouterEvmVersion = process.env.OPENROUTER_EVM_VERSION?.trim();
+const etherscanApiKey = process.env.ETHERSCAN_API_KEY ?? '';
+const useEtherscanV2ApiKey = process.env.ETHERSCAN_V2_API_KEY === 'true';
+const explorerApiKey = (...keys: Array<string | undefined>): string =>
+  keys.find((key) => key && key.length > 0) ?? etherscanApiKey;
 if (
   openRouterEvmVersion &&
   openRouterEvmVersion !== 'cancun' &&
@@ -75,7 +79,7 @@ const config: HardhatUserConfig = {
       accounts,
     },
     scroll: {
-      url: process.env.SCROLL_RPC ?? 'https://1rpc.io/scroll',
+      url: process.env.SCROLL_RPC ?? 'https://rpc.scroll.io',
       chainId: 534352,
       accounts,
     },
@@ -101,12 +105,12 @@ const config: HardhatUserConfig = {
       accounts,
     },
     sonic: {
-      url: process.env.SONIC_RPC ?? 'https://rpc.ankr.com/sonic_mainnet',
+      url: process.env.SONIC_RPC ?? 'https://rpc.soniclabs.com',
       chainId: 146,
       accounts,
     },
     unichain: {
-      url: process.env.UNICHAIN_RPC ?? 'https://0xrpc.io/uni',
+      url: process.env.UNICHAIN_RPC ?? 'https://mainnet.unichain.org',
       chainId: 130,
       accounts,
     },
@@ -121,7 +125,7 @@ const config: HardhatUserConfig = {
       accounts,
     },
     soneium: {
-      url: process.env.SONEIUM_RPC ?? 'https://soneium.drpc.org',
+      url: process.env.SONEIUM_RPC ?? 'https://rpc.soneium.org',
       chainId: 1868,
       accounts,
     },
@@ -138,7 +142,7 @@ const config: HardhatUserConfig = {
       accounts,
     },
     megaeth: {
-      url: process.env.MEGAETH_RPC ?? 'https://rpc.megaeth.xyz',
+      url: process.env.MEGAETH_RPC ?? 'https://mainnet.megaeth.com/rpc',
       chainId: 4326,
       accounts,
     },
@@ -194,38 +198,80 @@ const config: HardhatUserConfig = {
   },
   etherscan: {
     enabled: true,
-    apiKey: {
-      mainnet: process.env.MAINNET_ETHERSCAN_KEY ?? '',
-      ethereum: process.env.MAINNET_ETHERSCAN_KEY ?? '',
-      polygon: process.env.POLYGON_ETHERSCAN_KEY ?? '',
-      arbitrumOne: process.env.ARBITRUM_ETHERSCAN_KEY ?? '',
-      optimism: process.env.OPTIMISM_ETHERSCAN_KEY ?? '',
-      base: process.env.BASE_ETHERSCAN_KEY ?? '',
-      bsc: process.env.BSC_ETHERSCAN_KEY ?? '',
-      avalanche: process.env.AVALANCHE_ETHERSCAN_KEY ?? '',
-      linea: process.env.LINEA_ETHERSCAN_KEY ?? '',
-      scroll: process.env.SCROLL_ETHERSCAN_KEY ?? '',
-      blast: process.env.BLAST_ETHERSCAN_KEY ?? '',
-      mantle: process.env.MANTLE_ETHERSCAN_KEY ?? '',
-      gnosis: process.env.GNOSIS_ETHERSCAN_KEY ?? '',
-      sonic: process.env.SONIC_ETHERSCAN_KEY ?? '',
-      unichain: process.env.UNICHAIN_ETHERSCAN_KEY ?? '',
-      berachain: process.env.BERACHAIN_ETHERSCAN_KEY ?? '',
-      ink: process.env.INK_ETHERSCAN_KEY ?? '',
-      mode: process.env.MODE_ETHERSCAN_KEY ?? '',
-      worldchain: process.env.WORLDCHAIN_ETHERSCAN_KEY ?? '',
-      sei: process.env.SEI_ETHERSCAN_KEY ?? '',
-      soneium: process.env.SONEIUM_ETHERSCAN_KEY ?? '',
-      megaeth: process.env.MEGAETH_ETHERSCAN_KEY ?? '',
-      plume: process.env.PLUME_ETHERSCAN_KEY ?? '',
-      ethereal: process.env.ETHEREAL_ETHERSCAN_KEY ?? '',
-      katana: process.env.KATANA_ETHERSCAN_KEY ?? '',
-      hyperEvm: process.env.HYPEREVM_ETHERSCAN_KEY ?? '',
-      plasma: process.env.PLASMA_ETHERSCAN_KEY ?? '',
-      monad: process.env.MONAD_ETHERSCAN_KEY ?? '',
-      tempo: process.env.TEMPO_ETHERSCAN_KEY ?? '',
-      arbitrumSepolia: process.env.ARBITRUM_ETHERSCAN_KEY ?? '',
-      optimismSepolia: process.env.OPTIMISM_ETHERSCAN_KEY ?? '',
+    apiKey: useEtherscanV2ApiKey ? etherscanApiKey : {
+      mainnet: explorerApiKey(process.env.MAINNET_ETHERSCAN_KEY),
+      ethereum: explorerApiKey(process.env.MAINNET_ETHERSCAN_KEY),
+      polygon: explorerApiKey(process.env.POLYGON_ETHERSCAN_KEY),
+      arbitrumOne: explorerApiKey(
+        process.env.ARBITRUM_ETHERSCAN_KEY,
+        process.env.ARBISCAN_API_KEY,
+      ),
+      optimism: explorerApiKey(
+        process.env.OPTIMISM_ETHERSCAN_KEY,
+        process.env.OPTIMISM_API_KEY,
+      ),
+      base: explorerApiKey(
+        process.env.BASE_ETHERSCAN_KEY,
+        process.env.BASESCAN_API_KEY,
+      ),
+      bsc: explorerApiKey(
+        process.env.BSC_ETHERSCAN_KEY,
+        process.env.BSCSCAN_API_KEY,
+      ),
+      avalanche: explorerApiKey(
+        process.env.AVALANCHE_ETHERSCAN_KEY,
+        process.env.SNOWTRACE_API_KEY,
+      ),
+      linea: explorerApiKey(
+        process.env.LINEA_ETHERSCAN_KEY,
+        process.env.LINEASCAN_API_KEY,
+      ),
+      scroll: explorerApiKey(
+        process.env.SCROLL_ETHERSCAN_KEY,
+        process.env.SCROLLSCAN_API_KEY,
+      ),
+      blast: explorerApiKey(
+        process.env.BLAST_ETHERSCAN_KEY,
+        process.env.BLASTSCAN_API_KEY,
+      ),
+      mantle: explorerApiKey(process.env.MANTLE_ETHERSCAN_KEY),
+      gnosis: explorerApiKey(
+        process.env.GNOSIS_ETHERSCAN_KEY,
+        process.env.GNOSISSCAN_API_KEY,
+      ),
+      sonic: explorerApiKey(
+        process.env.SONIC_ETHERSCAN_KEY,
+        process.env.SONICSCAN_API_KEY,
+      ),
+      unichain: explorerApiKey(process.env.UNICHAIN_ETHERSCAN_KEY),
+      berachain: explorerApiKey(
+        process.env.BERACHAIN_ETHERSCAN_KEY,
+        process.env.BERASCAN_API_KEY,
+      ),
+      ink: explorerApiKey(process.env.INK_ETHERSCAN_KEY),
+      mode: explorerApiKey(process.env.MODE_ETHERSCAN_KEY),
+      worldchain: explorerApiKey(
+        process.env.WORLDCHAIN_ETHERSCAN_KEY,
+        process.env.WORLDSCAN_API_KEY,
+      ),
+      sei: explorerApiKey(process.env.SEI_ETHERSCAN_KEY),
+      soneium: explorerApiKey(process.env.SONEIUM_ETHERSCAN_KEY),
+      megaeth: explorerApiKey(process.env.MEGAETH_ETHERSCAN_KEY),
+      plume: explorerApiKey(process.env.PLUME_ETHERSCAN_KEY),
+      ethereal: explorerApiKey(process.env.ETHEREAL_ETHERSCAN_KEY),
+      katana: explorerApiKey(process.env.KATANA_ETHERSCAN_KEY),
+      hyperEvm: explorerApiKey(process.env.HYPEREVM_ETHERSCAN_KEY),
+      plasma: explorerApiKey(process.env.PLASMA_ETHERSCAN_KEY),
+      monad: explorerApiKey(process.env.MONAD_ETHERSCAN_KEY),
+      tempo: explorerApiKey(process.env.TEMPO_ETHERSCAN_KEY),
+      arbitrumSepolia: explorerApiKey(
+        process.env.ARBITRUM_ETHERSCAN_KEY,
+        process.env.ARBISCAN_API_KEY,
+      ),
+      optimismSepolia: explorerApiKey(
+        process.env.OPTIMISM_ETHERSCAN_KEY,
+        process.env.OPTIMISM_API_KEY,
+      ),
     },
     customChains: [
       {
@@ -320,7 +366,7 @@ const config: HardhatUserConfig = {
         network: 'scroll',
         chainId: 534352,
         urls: {
-          apiURL: 'https://api.etherscan.io/v2/api?chainid=534352',
+          apiURL: 'https://scrollscan.com/api',
           browserURL: 'https://scrollscan.com',
         },
       },
@@ -384,8 +430,8 @@ const config: HardhatUserConfig = {
         network: 'sei',
         chainId: 1329,
         urls: {
-          apiURL: 'https://seitrace.com/pacific-1/api',
-          browserURL: 'https://seitrace.com',
+          apiURL: 'https://api.etherscan.io/v2/api?chainid=1329',
+          browserURL: 'https://seiscan.io',
         },
       },
       {
@@ -416,8 +462,8 @@ const config: HardhatUserConfig = {
         network: 'katana',
         chainId: 747474,
         urls: {
-          apiURL: 'https://explorer.katanarpc.com/api',
-          browserURL: 'https://explorer.katanarpc.com',
+          apiURL: 'https://api.etherscan.io/v2/api?chainid=747474',
+          browserURL: 'https://katanascan.com',
         },
       },
       {

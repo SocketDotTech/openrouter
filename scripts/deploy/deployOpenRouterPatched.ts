@@ -15,19 +15,16 @@ import {
 
 async function main() {
   const network = parseNetworkArg(process.argv.slice(2));
-  const { config, manifestPath } = await prepareOpenRouterBuild(network);
+  const { config, registryPath } = await prepareOpenRouterBuild(network);
 
   console.log('Prepared OpenRouter build');
   console.log('Network:          ', config.network);
   console.log('Chain ID:         ', config.chainId);
   console.log('AllowanceHolder:  ', config.allowanceHolder);
   console.log('AH source:        ', config.allowanceHolderConfigSource);
-  if (config.allowanceHolderDeploymentManifest) {
-    console.log('AH manifest:      ', config.allowanceHolderDeploymentManifest);
-  }
   console.log('AH variant:       ', config.allowanceHolderVariant);
   console.log('Hardhat EVM:      ', config.evmVersion);
-  console.log('Build manifest:   ', manifestPath);
+  console.log('Deployment CSV:   ', registryPath);
   console.log('');
 
   const result = spawnSync(

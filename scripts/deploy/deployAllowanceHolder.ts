@@ -33,7 +33,7 @@ import {
 import {
   getAllowanceHolderDeploymentStatus,
   resolveAllowanceHolderDeploymentBytecode,
-  writeAllowanceHolderDeploymentManifest,
+  writeAllowanceHolderDeploymentRegistry,
 } from './allowanceHolderDeployment';
 
 async function main() {
@@ -55,7 +55,7 @@ async function main() {
     console.log(
       `AllowanceHolder already deployed on ${networkName} at ${existing.address} (${existing.variant})`,
     );
-    const manifestPath = await writeAllowanceHolderDeploymentManifest({
+    const registryPath = await writeAllowanceHolderDeploymentRegistry({
       chainId,
       network: networkName,
       allowanceHolder: existing.address,
@@ -67,7 +67,7 @@ async function main() {
       runtimeBytecodeHash: existing.runtimeBytecodeHash,
       updatedAt: new Date().toISOString(),
     });
-    console.log('Manifest:', manifestPath);
+    console.log('Deployment CSV:', registryPath);
     return;
   }
 
@@ -135,7 +135,7 @@ async function main() {
     );
   }
 
-  const manifestPath = await writeAllowanceHolderDeploymentManifest({
+  const registryPath = await writeAllowanceHolderDeploymentRegistry({
     chainId,
     network: networkName,
     allowanceHolder: existing.address,
@@ -154,7 +154,7 @@ async function main() {
   console.log('\n=== Deployment Summary ===');
   console.log(`AllowanceHolder: ${existing.address}`);
   console.log(`Variant:         ${deployment.variant}`);
-  console.log(`Manifest:        ${manifestPath}`);
+  console.log(`Deployment CSV:  ${registryPath}`);
 }
 
 main().catch((err) => {

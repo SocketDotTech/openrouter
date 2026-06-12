@@ -1,5 +1,4 @@
-import { mkdir, writeFile } from 'fs/promises';
-import { dirname, resolve } from 'path';
+import { resolve } from 'path';
 import { Contract, Provider, keccak256, toUtf8Bytes } from 'ethers';
 import { allowanceHolderVariantForChain } from '../e2e/config';
 import type { AllowanceHolderVariant } from '../e2e/config';
@@ -11,6 +10,7 @@ import {
   computeFinalAddress,
   hasContractBytecode,
 } from './create3';
+import { upsertDeploymentRegistryRow } from './deploymentRegistry';
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 const BYTECODE_HEX_RE = /^0x(?:[a-fA-F0-9]{2})+$/;
@@ -237,20 +237,16 @@ export interface AllowanceHolderDeploymentManifest {
   updatedAt: string;
 }
 
-export function allowanceHolderManifestPath(chainId: number): string {
-  return resolve(
-    process.cwd(),
-    'deployments',
-    'allowance-holder',
-    `${chainId}.json`,
-  );
-}
-
-export async function writeAllowanceHolderDeploymentManifest(
+export async function writeAllowanceHolderDeploymentRegistry(
   manifest: AllowanceHolderDeploymentManifest,
 ): Promise<string> {
-  const filePath = allowanceHolderManifestPath(manifest.chainId);
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(filePath, `${JSON.stringify(manifest, null, 2)}\n`);
-  return filePath;
+  return upsertDeploymentRegistryRow({
+    chainId: manifest.chainId,
+    variant: manifest.variant,
+    allowanceHolderAddress: manifest.allowanceHolder,
+    allowanceHolderSalt: manifest.create3Salt,
+    allowanceHolderSaltText: manifest.create3SaltText,
+    allowanceHolderInitcodeHash: manifest.initcodeHash,
+    allowanceHolderRuntimeBytecodeHash: manifest.runtimeBytecodeHash,
+  });
 }

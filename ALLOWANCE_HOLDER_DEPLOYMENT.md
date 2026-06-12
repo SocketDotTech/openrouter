@@ -97,7 +97,71 @@ Salt constants live in `scripts/deploy/create3.ts`.
 | OpenRouter | `OpenRouter50cfe7:4030514` | `0x4c57cf418d2865efb93a3c31021f230798eaca0458d188fbb593e329718139ab` | `0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a` |
 | AllowanceHolder | `AllowanceHolder50c4e7:5981577` | `0xa450483209637d11f92238066a6b1f405ae093536f02dda3b90a36d36f180570` | `0x50c4E75a512F2A14A7b304787Adf79C4531A5909` |
 
+## Current Cancun Deployment
+
+The Cancun AllowanceHolder was deployed with CREATE3 on all configured Cancun
+holder chains on 2026-06-09 UTC.
+
+- Address: `0x50c4E75a512F2A14A7b304787Adf79C4531A5909`
+- Salt text: `AllowanceHolder50c4e7:5981577`
+- Raw salt:
+  `0xa450483209637d11f92238066a6b1f405ae093536f02dda3b90a36d36f180570`
+- Cancun initcode hash:
+  `0xe0afa70daed24ec949499638683365cbe4cbf097a1c8417a730e4b497cfb4610`
+- Runtime bytecode hash:
+  `0x0be5794255d21df0f4a10a516428f8d06805779d69b1714297bebcc18971e0b4`
+- Deployer: `0xB0BBff6311B7F245761A7846d3Ce7B1b100C1836`
+
+`deployments.csv` contains the current per-chain AllowanceHolder address,
+variant, CREATE3 salt, initcode hash when known, and runtime bytecode hash for:
+
+```text
+ethereum polygon base optimism arbitrum bsc worldchain sonic ink avalanche
+unichain berachain scroll hyperEvm plasma monad linea gnosis katana mode
+megaeth plume blast soneium sei tempo
+```
+
+The Cancun OpenRouter was deployed with CREATE3 on all configured OpenRouter
+Cancun chains on 2026-06-09 UTC.
+
+- Address: `0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a`
+- Salt text: `OpenRouter50cfe7:4030514`
+- Raw salt:
+  `0x4c57cf418d2865efb93a3c31021f230798eaca0458d188fbb593e329718139ab`
+- Cancun initcode hash:
+  `0x0e5ff42eb7810767de756c833a042818f95052b885634a3dc3adb679a4652f48`
+- Runtime bytecode hash:
+  `0xd1dbc2c8ca87939cadf58e4eb91832cbe44bd5d12e3a0a0d56c76928a818e26b`
+- Deployer: `0xB0BBff6311B7F245761A7846d3Ce7B1b100C1836`
+
+`deployments.csv` also contains the current per-chain OpenRouter address,
+CREATE3 salt, initcode hash when known, and runtime bytecode hash for:
+
+```text
+ethereum polygon base optimism arbitrum bsc worldchain sonic ink avalanche
+unichain berachain scroll hyperEvm plasma monad linea gnosis katana mode
+megaeth plume blast soneium sei
+```
+
 ## Commands
+
+Verify deployed AllowanceHolder instances:
+
+```bash
+ETHERSCAN_API_KEY=... npm run verify:allowance-holder
+ETHERSCAN_API_KEY=... npm run verify:allowance-holder -- polygon base arbitrum
+```
+
+The verification source lives under `verification/allowance-holder/`. It is the
+0x-settler Cancun AllowanceHolder with the constructor address guard patched to
+Socket's CREATE3 address. The compiled bytecode body matches the deployed
+initcode recovered from the CreateX deployment transaction. Some explorers
+record this as a similar/partial match because the original deployment metadata
+hash is not reproduced exactly.
+
+Plume's legacy Etherscan-compatible API blocks source verification POSTs from
+this environment, and Tempo does not expose an Etherscan-compatible verification
+API. The batch verifier submits those two to Sourcify instead.
 
 Deploy OpenRouter for one chain after patching the router-side
 `ALLOWANCE_HOLDER` constant:
@@ -106,12 +170,12 @@ Deploy OpenRouter for one chain after patching the router-side
 npm run deploy -- polygon
 ```
 
-The wrapper writes `deployments/openrouter-build/<chainId>.json`, sets
+The wrapper upserts the chain row in `deployments.csv`, sets
 `OPENROUTER_EVM_VERSION`, then invokes `scripts/deploy/deployOpenRouter.ts`.
 It resolves the holder address in this priority order:
 
 1. `ALLOWANCE_HOLDER_CHAIN_<chainId>` / `ALLOWANCE_HOLDER_ADDRESS`
-2. `deployments/allowance-holder/<chainId>.json`
+2. `deployments.csv`
 3. static defaults in `scripts/e2e/config.ts`
 
 The raw OpenRouter deployment script does not patch source and should only be
@@ -161,25 +225,20 @@ make check-allowance-holder
 
 ## Tracking
 
-Deploy/check scripts write manifests to:
+Deploy/check scripts upsert rows in:
 
 ```text
-deployments/allowance-holder/<chainId>.json
+deployments.csv
 ```
 
-Each manifest records the resolved holder address, variant, CREATE3 salt,
-runtime bytecode hash, and deployment tx metadata when available.
+Each row records one variant per chain plus AllowanceHolder and OpenRouter
+address, salt, salt text, initcode hash, and runtime bytecode hash. Missing
+values are left as empty CSV cells.
 
-OpenRouter build manifests are written to:
+Writers use a `deployments.csv.lock` directory plus atomic temp-file rename so
+parallel deployment processes do not overwrite each other.
 
-```text
-deployments/openrouter-build/<chainId>.json
-```
-
-Each OpenRouter build manifest records the network, chain ID, patched
-AllowanceHolder address, holder variant, and EVM version used for compilation.
-
-Keep the manifest, `scripts/e2e/config.ts`, backend config, and router bytecode
+Keep `deployments.csv`, `scripts/e2e/config.ts`, backend config, and router bytecode
 in sync. Existing OpenRouter bytecode calls the compile-time
 `ALLOWANCE_HOLDER` constant, so changing only frontend/backend config is not
 enough to switch an already deployed router to a new holder address.

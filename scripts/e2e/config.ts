@@ -92,7 +92,6 @@ const ALLOWANCE_HOLDER_VARIANT_BY_CHAIN_ID: Record<
   number,
   AllowanceHolderVariant
 > = {
-  [CHAIN_IDS.MANTLE]: 'shanghai',
 };
 
 /**

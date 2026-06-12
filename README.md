@@ -67,6 +67,7 @@ npm run deploy -- polygon    # patches ALLOWANCE_HOLDER, then deploys OpenRouter
 npm run deploy:openrouter:raw -- polygon
 npm run deploy:allowance-holder -- polygon
 npm run check:allowance-holder -- --network polygon
+ETHERSCAN_API_KEY=... npm run verify:allowance-holder
 npm run slither              # static analysis via Docker
 ```
 
@@ -84,9 +85,9 @@ Override deployed router per chain with `ROUTER_CHAIN_<chainId>` or legacy `ROUT
 
 Unchanged upstream 0x holder bytecode hard-checks `address(this)` against the 0x holder addresses in its constructor. CREATE3 deployments require our own or patched holder bytecode that permits the CreateX-computed address.
 
-AllowanceHolder deploy/check scripts write records to `deployments/allowance-holder/<chainId>.json` with the resolved address, variant, CREATE3 salt, tx hash, block, and runtime bytecode hash.
+AllowanceHolder deploy/check scripts upsert the chain row in `deployments.csv` with the resolved address, variant, CREATE3 salt, initcode hash when available, and runtime bytecode hash.
 
-OpenRouter deploys should go through `scripts/deploy/deployOpenRouterPatched.ts` (`npm run deploy -- <network>`). That wrapper patches `src/common/interfaces/IAllowanceHolder.sol` to the configured per-chain holder address before Hardhat compiles, sets `OPENROUTER_EVM_VERSION`, and writes `deployments/openrouter-build/<chainId>.json`. Holder address priority is env override, then `deployments/allowance-holder/<chainId>.json`, then static config. Do not use `deploy:openrouter:raw` for chain-specific holder deployments unless the source constant has already been prepared.
+OpenRouter deploys should go through `scripts/deploy/deployOpenRouterPatched.ts` (`npm run deploy -- <network>`). That wrapper patches `src/common/interfaces/IAllowanceHolder.sol` to the configured per-chain holder address before Hardhat compiles, sets `OPENROUTER_EVM_VERSION`, and upserts the build/deployment data in `deployments.csv`; the raw deploy updates the OpenRouter fields after the CREATE3 tx is confirmed. Holder address priority is env override, then `deployments.csv`, then static config. Do not use `deploy:openrouter:raw` for chain-specific holder deployments unless the source constant has already been prepared.
 
 For multi-chain deploys, use `npm run deploy:openrouter:batch -- ...` or the Make targets. The batch deployer groups networks by build profile `(EVM version, AllowanceHolder address)`, compiles once per profile, then deploys matching networks in parallel with `--no-compile`. Use `make deploy-openrouter-cancun` to deploy only Cancun profiles.
 
@@ -115,9 +116,9 @@ Flag masks and deployed addresses must stay in sync with `bungee-backend` config
 
 Users must approve **AllowanceHolder**, not OpenRouter, and call `AllowanceHolder.exec` with the router as target. Details in [`OPENROUTER.md`](OPENROUTER.md).
 
-## Deployed addresses
+## Deployment addresses
 
-OpenRouter is deployed at **`0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a`** (CREATE3) on all supported mainnets below. Canonical config: [`scripts/e2e/config.ts`](scripts/e2e/config.ts) (`OPEN_ROUTER_ADDRESS`, `OPEN_ROUTER_CHAIN_IDS`).
+OpenRouter is deployed at **`0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a`** (CREATE3) on all supported mainnets below. Canonical config: [`scripts/e2e/config.ts`](scripts/e2e/config.ts) (`OPEN_ROUTER_ADDRESS`, `OPEN_ROUTER_CHAIN_IDS`). Verify chain state with `npm run check:openrouter -- --network <network>`.
 
 | Chain | Chain ID |
 |-------|----------|

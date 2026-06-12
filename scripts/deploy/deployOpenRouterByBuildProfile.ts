@@ -17,7 +17,7 @@ import {
   parseNetworkArgs,
   patchOpenRouterAllowanceHolderConstant,
   resolveOpenRouterBuildConfig,
-  writeOpenRouterBuildManifest,
+  writeOpenRouterBuildRegistry,
 } from './openRouterBuild';
 import type { OpenRouterBuildConfig } from './openRouterBuild';
 
@@ -128,8 +128,8 @@ async function main() {
     await patchOpenRouterAllowanceHolderConstant(first.allowanceHolder);
 
     for (const config of group) {
-      const manifestPath = await writeOpenRouterBuildManifest(config);
-      console.log(`Manifest ${config.network}: ${manifestPath}`);
+      const registryPath = await writeOpenRouterBuildRegistry(config);
+      console.log(`Deployment CSV ${config.network}: ${registryPath}`);
     }
 
     const env = {

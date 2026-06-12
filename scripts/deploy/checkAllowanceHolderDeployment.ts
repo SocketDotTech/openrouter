@@ -18,7 +18,7 @@ import hre from 'hardhat';
 import { ethers } from 'hardhat';
 import {
   getAllowanceHolderDeploymentStatus,
-  writeAllowanceHolderDeploymentManifest,
+  writeAllowanceHolderDeploymentRegistry,
 } from './allowanceHolderDeployment';
 
 async function main() {
@@ -36,7 +36,7 @@ async function main() {
     );
   }
 
-  const manifestPath = await writeAllowanceHolderDeploymentManifest({
+  const registryPath = await writeAllowanceHolderDeploymentRegistry({
     chainId,
     network: networkName,
     allowanceHolder: deployment.address,
@@ -52,7 +52,7 @@ async function main() {
     `AllowanceHolder deployed on ${networkName} (chainId=${chainId}) at ${deployment.address} (${deployment.variant}, create3)`,
   );
   console.log(`Runtime bytecode hash: ${deployment.runtimeBytecodeHash}`);
-  console.log(`Manifest: ${manifestPath}`);
+  console.log(`Deployment CSV: ${registryPath}`);
 }
 
 main().catch((err) => {

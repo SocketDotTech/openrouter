@@ -1,6 +1,5 @@
-import { existsSync, readFileSync } from 'fs';
-import { mkdir, readFile, writeFile } from 'fs/promises';
-import { dirname, resolve } from 'path';
+import { readFile, writeFile } from 'fs/promises';
+import { resolve } from 'path';
 import {
   CHAIN_IDS,
   allowanceHolderForChain,
@@ -8,9 +7,9 @@ import {
 } from '../e2e/config';
 import type { AllowanceHolderVariant } from '../e2e/config';
 import {
-  allowanceHolderManifestPath,
-  type AllowanceHolderDeploymentManifest,
-} from './allowanceHolderDeployment';
+  findDeploymentRegistryRow,
+  upsertDeploymentRegistryRow,
+} from './deploymentRegistry';
 
 const OPENROUTER_ALLOWANCE_HOLDER_SOURCE = resolve(
   process.cwd(),
@@ -42,6 +41,7 @@ export const OPENROUTER_NETWORK_CHAIN_IDS: Record<string, number> = {
   scroll: CHAIN_IDS.SCROLL,
   hyperEvm: CHAIN_IDS.HYPEREVM,
   plasma: CHAIN_IDS.PLASMA,
+  tempo: CHAIN_IDS.TEMPO,
   monad: CHAIN_IDS.MONAD,
   linea: CHAIN_IDS.LINEA,
   mantle: CHAIN_IDS.MANTLE,
@@ -53,7 +53,6 @@ export const OPENROUTER_NETWORK_CHAIN_IDS: Record<string, number> = {
   blast: CHAIN_IDS.BLAST,
   soneium: CHAIN_IDS.SONEIUM,
   sei: CHAIN_IDS.SEI,
-  tempo: CHAIN_IDS.TEMPO,
   arbitrumSepolia: 421614,
   optimismSepolia: 11155420,
 };
@@ -87,12 +86,18 @@ export const OPENROUTER_DEPLOY_NETWORKS = [
   'sei',
 ] as const;
 
+export function networkForChainId(chainId: number): string | undefined {
+  return Object.entries(OPENROUTER_NETWORK_CHAIN_IDS).find(
+    ([network, networkChainId]) =>
+      network !== 'hardhat' && networkChainId === chainId,
+  )?.[0];
+}
+
 export interface OpenRouterBuildConfig {
   network: string;
   chainId: number;
   allowanceHolder: string;
-  allowanceHolderConfigSource: 'env' | 'deployment_manifest' | 'static_config';
-  allowanceHolderDeploymentManifest?: string;
+  allowanceHolderConfigSource: 'env' | 'deployment_registry' | 'static_config';
   allowanceHolderVariant: AllowanceHolderVariant;
   evmVersion: AllowanceHolderVariant;
 }
@@ -111,42 +116,10 @@ function envAllowanceHolderForChain(chainId: number): string | undefined {
   return undefined;
 }
 
-function readAllowanceHolderDeploymentManifest(
-  chainId: number,
-):
-  | {
-      manifest: AllowanceHolderDeploymentManifest;
-      manifestPath: string;
-    }
-  | undefined {
-  const manifestPath = allowanceHolderManifestPath(chainId);
-  if (!existsSync(manifestPath)) {
-    return undefined;
-  }
-
-  const manifest = JSON.parse(
-    readFileSync(manifestPath, 'utf8'),
-  ) as AllowanceHolderDeploymentManifest;
-  if (!ADDR_HEX_RE.test(manifest.allowanceHolder)) {
-    throw new Error(
-      `Invalid AllowanceHolder address in ${manifestPath}: ${manifest.allowanceHolder}`,
-    );
-  }
-
-  if (manifest.variant !== 'cancun' && manifest.variant !== 'shanghai') {
-    throw new Error(
-      `Invalid AllowanceHolder variant in ${manifestPath}: ${manifest.variant}`,
-    );
-  }
-
-  return { manifest, manifestPath };
-}
-
 function resolveAllowanceHolderForOpenRouter(chainId: number): {
   address: string;
   variant: AllowanceHolderVariant;
   source: OpenRouterBuildConfig['allowanceHolderConfigSource'];
-  manifestPath?: string;
 } {
   const envAddress = envAllowanceHolderForChain(chainId);
   if (envAddress) {
@@ -157,13 +130,18 @@ function resolveAllowanceHolderForOpenRouter(chainId: number): {
     };
   }
 
-  const manifest = readAllowanceHolderDeploymentManifest(chainId);
-  if (manifest) {
+  const registryRow = findDeploymentRegistryRow(chainId);
+  if (registryRow?.allowanceHolderAddress) {
+    if (!ADDR_HEX_RE.test(registryRow.allowanceHolderAddress)) {
+      throw new Error(
+        `Invalid AllowanceHolder address in deployments.csv for chain ${chainId}: ${registryRow.allowanceHolderAddress}`,
+      );
+    }
+
     return {
-      address: manifest.manifest.allowanceHolder,
-      variant: manifest.manifest.variant,
-      source: 'deployment_manifest',
-      manifestPath: manifest.manifestPath,
+      address: registryRow.allowanceHolderAddress,
+      variant: registryRow.variant,
+      source: 'deployment_registry',
     };
   }
 
@@ -238,7 +216,6 @@ export function resolveOpenRouterBuildConfig(
     chainId,
     allowanceHolder,
     allowanceHolderConfigSource: resolvedAllowanceHolder.source,
-    allowanceHolderDeploymentManifest: resolvedAllowanceHolder.manifestPath,
     allowanceHolderVariant,
     evmVersion: allowanceHolderVariant,
   };
@@ -264,33 +241,14 @@ export async function patchOpenRouterAllowanceHolderConstant(
   }
 }
 
-export function openRouterBuildManifestPath(chainId: number): string {
-  return resolve(
-    process.cwd(),
-    'deployments',
-    'openrouter-build',
-    `${chainId}.json`,
-  );
-}
-
-export async function writeOpenRouterBuildManifest(
+export async function writeOpenRouterBuildRegistry(
   config: OpenRouterBuildConfig,
 ): Promise<string> {
-  const filePath = openRouterBuildManifestPath(config.chainId);
-  await mkdir(dirname(filePath), { recursive: true });
-  await writeFile(
-    filePath,
-    `${JSON.stringify(
-      {
-        ...config,
-        allowanceHolderSource: OPENROUTER_ALLOWANCE_HOLDER_SOURCE,
-        updatedAt: new Date().toISOString(),
-      },
-      null,
-      2,
-    )}\n`,
-  );
-  return filePath;
+  return upsertDeploymentRegistryRow({
+    chainId: config.chainId,
+    variant: config.evmVersion,
+    allowanceHolderAddress: config.allowanceHolder,
+  });
 }
 
 export async function assertOpenRouterForkCompatibility(
@@ -324,12 +282,12 @@ export async function assertOpenRouterForkCompatibility(
 
 export async function prepareOpenRouterBuild(
   network: string,
-): Promise<{ config: OpenRouterBuildConfig; manifestPath: string }> {
+): Promise<{ config: OpenRouterBuildConfig; registryPath: string }> {
   const config = resolveOpenRouterBuildConfig(network);
   await assertOpenRouterForkCompatibility(config);
   await patchOpenRouterAllowanceHolderConstant(config.allowanceHolder);
-  const manifestPath = await writeOpenRouterBuildManifest(config);
-  return { config, manifestPath };
+  const registryPath = await writeOpenRouterBuildRegistry(config);
+  return { config, registryPath };
 }
 
 export function openRouterBuildProfileKey(

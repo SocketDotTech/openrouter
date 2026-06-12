@@ -1,11 +1,17 @@
 # Compiler files
 cache/
 out/
+verification/**/cache/
+verification/**/out/
 
 # Ignores development broadcast logs
 !/broadcast
 /broadcast/*/31337/
 /broadcast/**/dry-run/
+deployments/allowance-holder/logs/
+deployments/allowance-holder/verify/
+deployments/openrouter/logs/
+deployments/openrouter/verify/
 
 # Docs
 docs/
