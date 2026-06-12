@@ -12,6 +12,7 @@ deployments/allowance-holder/logs/
 deployments/allowance-holder/verify/
 deployments/openrouter/logs/
 deployments/openrouter/verify/
+deployments/verify/
 
 # Docs
 docs/

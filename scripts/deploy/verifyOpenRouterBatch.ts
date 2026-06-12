@@ -20,6 +20,81 @@ interface OpenRouterDeploymentRecord {
 }
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
+const SOURCIFY_CHAIN_IDS = new Set([5042]);
+
+function rpcEnvName(network: string): string {
+  return `${network.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase()}_RPC`;
+}
+
+function verifyWithHardhat(record: OpenRouterDeploymentRecord): {
+  status: number | null;
+  output: string;
+} {
+  const result = spawnSync(
+    'npx',
+    [
+      'hardhat',
+      'verify',
+      '--network',
+      record.network,
+      record.openRouter,
+    ],
+    {
+      env: {
+        ...process.env,
+        OPENROUTER_EVM_VERSION: record.variant,
+      },
+      encoding: 'utf8',
+    },
+  );
+
+  return {
+    status: result.status,
+    output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
+  };
+}
+
+function verifyWithSourcify(record: OpenRouterDeploymentRecord): {
+  status: number | null;
+  output: string;
+} {
+  const args = [
+    'verify-contract',
+    '--chain',
+    String(record.chainId),
+    '--verifier',
+    'sourcify',
+    '--verifier-url',
+    process.env.SOURCIFY_SERVER_URL ?? 'https://sourcify.dev/server',
+    '--skip-is-verified-check',
+    '--compiler-version',
+    '0.8.34',
+    '--num-of-optimizations',
+    '2000',
+    '--evm-version',
+    record.variant,
+    '--watch',
+    record.openRouter,
+    'src/OpenRouter.sol:OpenRouter',
+  ];
+  const rpcUrl = process.env[rpcEnvName(record.network)] ?? process.env.ETH_RPC_URL;
+  if (rpcUrl) {
+    args.push('--rpc-url', rpcUrl);
+  }
+
+  const result = spawnSync(
+    'forge',
+    args,
+    {
+      encoding: 'utf8',
+    },
+  );
+
+  return {
+    status: result.status,
+    output: `${result.stdout ?? ''}${result.stderr ?? ''}`,
+  };
+}
 
 function readDeploymentRecords(): OpenRouterDeploymentRecord[] {
   return readDeploymentRegistrySync()
@@ -74,25 +149,10 @@ function main() {
 
   for (const record of records) {
     console.log(`Verifying ${record.network} (${record.chainId})`);
-    const result = spawnSync(
-      'npx',
-      [
-        'hardhat',
-        'verify',
-        '--network',
-        record.network,
-        record.openRouter,
-      ],
-      {
-        env: {
-          ...process.env,
-          OPENROUTER_EVM_VERSION: record.variant,
-        },
-        encoding: 'utf8',
-      },
-    );
-
-    const output = `${result.stdout ?? ''}${result.stderr ?? ''}`;
+    const result = SOURCIFY_CHAIN_IDS.has(record.chainId)
+      ? verifyWithSourcify(record)
+      : verifyWithHardhat(record);
+    const output = result.output;
     writeFileSync(join(verifyDir, `${record.network}.log`), output);
 
     let status = 'ok';

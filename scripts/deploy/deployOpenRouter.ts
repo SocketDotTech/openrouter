@@ -167,7 +167,11 @@ async function main() {
   console.log(`OpenRouter:  ${routerAddress}`);
   console.log(`Deployment CSV: ${registryPath}`);
 
-  if (chainId !== 31337) {
+  if (networkName === 'arc') {
+    console.log(
+      'Skipping post-deploy Hardhat verification for arc; run `npm run verify:openrouter -- arc` to submit via Sourcify.',
+    );
+  } else if (chainId !== 31337) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
     try {

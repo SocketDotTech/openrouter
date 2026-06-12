@@ -23,6 +23,8 @@ export const CHAIN_IDS = {
   BASE: 8453,
   /** HyperEVM (Hyperliquid). */
   HYPEREVM: 999,
+  /** Arc mainnet. */
+  ARC: 5042,
   /** Tempo mainnet — AllowanceHolder only; OpenRouter not deployed (deposit-only chain). */
   TEMPO: 4217,
   /** MegaETH mainnet — Relay USDM → Base USDC e2e. */
@@ -150,6 +152,7 @@ export const OPEN_ROUTER_CHAIN_IDS: readonly number[] = [
   CHAIN_IDS.BERACHAIN,
   CHAIN_IDS.SCROLL,
   CHAIN_IDS.HYPEREVM,
+  CHAIN_IDS.ARC,
   CHAIN_IDS.PLASMA,
   CHAIN_IDS.MONAD,
   CHAIN_IDS.LINEA,

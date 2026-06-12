@@ -166,6 +166,11 @@ const config: HardhatUserConfig = {
       chainId: 999,
       accounts,
     },
+    arc: {
+      url: process.env.ARC_RPC ?? '',
+      chainId: 5042,
+      accounts,
+    },
     plasma: {
       url: process.env.PLASMA_RPC ?? 'https://rpc.plasma.to',
       chainId: 9745,

@@ -58,6 +58,7 @@ const EXPLORERS_BY_CHAIN_ID = new Map<number, ExplorerConfig>([
   [143, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=143' }],
   [1329, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=1329' }],
   [4326, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=4326' }],
+  [5042, { verifier: 'sourcify', chainArg: '5042' }],
   [9745, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=9745' }],
   [98866, { verifier: 'sourcify', chainArg: '98866' }],
   [4217, { verifier: 'sourcify', chainArg: '4217' }],
@@ -103,13 +104,33 @@ function isVerified(output: string): boolean {
   );
 }
 
-function verifierArgs(config: ExplorerConfig, apiKey: string): string[] {
+function rpcEnvName(network: string): string {
+  return `${network.replace(/([a-z])([A-Z])/g, '$1_$2').toUpperCase()}_RPC`;
+}
+
+function verifierArgs(
+  config: ExplorerConfig,
+  apiKey: string,
+  network: string,
+): string[] {
   const args = [
     '--chain',
     config.chainArg,
     '--verifier',
     config.verifier,
   ];
+
+  if (config.verifier === 'sourcify') {
+    args.push(
+      '--verifier-url',
+      process.env.SOURCIFY_SERVER_URL ?? 'https://sourcify.dev/server',
+      '--skip-is-verified-check',
+    );
+    const rpcUrl = process.env[rpcEnvName(network)] ?? process.env.ETH_RPC_URL;
+    if (rpcUrl) {
+      args.push('--rpc-url', rpcUrl);
+    }
+  }
 
   if (config.verifier === 'custom') {
     args.push('--verifier-url', config.verifierUrl, '--verifier-api-key', apiKey);
@@ -168,7 +189,7 @@ function main() {
         'verify-contract',
         '--root',
         SOURCE_ROOT,
-        ...verifierArgs(explorer, apiKey),
+        ...verifierArgs(explorer, apiKey, record.network),
         '--compiler-version',
         '0.8.25',
         '--num-of-optimizations',
