@@ -7,6 +7,7 @@
  * Optional env:
  *   OWNER_ADDRESS         — assert BungeeReceiver owner() matches
  *   SOLVER_SIGNER_ADDRESS — assert BungeeReceiver SOLVER_SIGNER() matches
+ *   CHAINS=base,arbitrum  — comma-separated hardhat network names to limit scope
  */
 
 import {
@@ -19,9 +20,33 @@ import {
   writeReceiverDeploymentRegistryForNetwork,
 } from './receiverDeployCore';
 
+function parseChainFilter(): Set<string> | null {
+  const raw = process.env.CHAINS?.trim();
+  if (!raw) {
+    return null;
+  }
+
+  return new Set(
+    raw
+      .split(',')
+      .map((name) => name.trim().toLowerCase())
+      .filter(Boolean),
+  );
+}
+
 async function main() {
   const expectedOwner = process.env.OWNER_ADDRESS?.trim();
   const expectedSolverSigner = process.env.SOLVER_SIGNER_ADDRESS?.trim();
+  const chainFilter = parseChainFilter();
+  const networks = chainFilter
+    ? RECEIVER_DEPLOY_NETWORKS.filter((n) =>
+        chainFilter.has(n.name.toLowerCase()),
+      )
+    : [...RECEIVER_DEPLOY_NETWORKS];
+
+  if (networks.length === 0) {
+    throw new Error('No networks matched CHAINS filter');
+  }
 
   console.log(`Expected BungeeReceiver:   ${BUNGEE_RECEIVER_EXPECTED_ADDRESS}`);
   console.log(`Expected CalldataExecutor: ${CALLDATA_EXECUTOR_EXPECTED_ADDRESS}`);
@@ -39,7 +64,7 @@ async function main() {
   let mismatches = 0;
   let errors = 0;
 
-  for (const network of RECEIVER_DEPLOY_NETWORKS) {
+  for (const network of networks) {
     const status = await getReceiverChainStatus(network);
 
     if (status.error) {

@@ -20,10 +20,10 @@ export const OPEN_ROUTER_CREATE3_SALT_TEXT = 'OpenRouter50cfe7:4030514';
 export const ALLOWANCE_HOLDER_CREATE3_SALT_TEXT =
   'AllowanceHolder50c4e7:5981577';
 
-/** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
+/** CREATE3 salt label used by receiver/executor deployment. */
 export const BUNGEE_RECEIVER_CREATE3_SALT_TEXT = 'BungeeReceiver';
 
-/** CREATE3 salt label used by `deployReceiverAndExecutor.ts`. */
+/** CREATE3 salt label used by receiver/executor deployment. */
 export const CALLDATA_EXECUTOR_CREATE3_SALT_TEXT = 'CalldataExecutor';
 
 /** Keccak256 salt for deterministic OpenRouter CREATE3 deployments. */
