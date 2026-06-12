@@ -11,7 +11,7 @@ library AuthenticationLib {
     /// @param messageHash hash of the message
     /// @param signature 65-byte (r,s,v) signature over `personal_sign(messageHash)`
     /// @return signer address recovered from the signature
-    function authenticate(bytes32 messageHash, bytes memory signature) internal pure returns (address) {
+    function authenticate(bytes32 messageHash, bytes calldata signature) internal pure returns (address) {
         bytes32 ethSignedMessageHash = getEthSignedMessageHash(messageHash);
         return recoverSigner(ethSignedMessageHash, signature);
     }
@@ -22,18 +22,18 @@ library AuthenticationLib {
     }
 
     /// @notice ecrecover wrapper
-    function recoverSigner(bytes32 _ethSignedMessageHash, bytes memory _signature) internal pure returns (address) {
+    function recoverSigner(bytes32 _ethSignedMessageHash, bytes calldata _signature) internal pure returns (address) {
         (bytes32 r, bytes32 s, uint8 v) = splitSignature(_signature);
         return ecrecover(_ethSignedMessageHash, v, r, s);
     }
 
     /// @notice splits a 65-byte signature into r, s, v
-    function splitSignature(bytes memory sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
+    function splitSignature(bytes calldata sig) internal pure returns (bytes32 r, bytes32 s, uint8 v) {
         require(sig.length == 65, "invalid signature length");
         assembly {
-            r := mload(add(sig, 32))
-            s := mload(add(sig, 64))
-            v := byte(0, mload(add(sig, 96)))
+            r := calldataload(sig.offset)
+            s := calldataload(add(sig.offset, 32))
+            v := byte(0, calldataload(add(sig.offset, 64)))
         }
     }
 }

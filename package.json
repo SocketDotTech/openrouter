@@ -17,6 +17,11 @@
     "check:allowance-holder": "hardhat run scripts/deploy/checkAllowanceHolderDeployment.ts",
     "verify:allowance-holder": "ts-node scripts/deploy/verifyAllowanceHolderBatch.ts",
     "check:receiver": "hardhat run scripts/deploy/checkReceiverDeployment.ts",
+    "check:receiver:all": "hardhat run scripts/deploy/checkReceiverAllChains.ts",
+    "check:calldata-executor": "hardhat run scripts/deploy/checkCalldataExecutorDeployment.ts",
+    "check:calldata-executor:all": "hardhat run scripts/deploy/checkCalldataExecutorAllChains.ts",
+    "check:deployer-balances": "hardhat run scripts/deploy/checkDeployerBalances.ts",
+    "deploy:receiver-executor:all": "hardhat run scripts/deploy/deployReceiverAllChains.ts",
     "check:across-manipulator": "hardhat run scripts/deploy/checkAcrossManipulatorDeployment.ts",
     "typechain": "hardhat typechain",
     "slither": "bash scripts/docker-slither.sh"
