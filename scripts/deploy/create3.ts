@@ -55,6 +55,14 @@ export const ACROSS_MANIPULATOR_CREATE3_SALT = keccak256(
   toUtf8Bytes(ACROSS_MANIPULATOR_CREATE3_SALT_TEXT),
 );
 
+/** CREATE3 salt label used by `deployCelerExecutor.ts`. */
+export const CELER_EXECUTOR_CREATE3_SALT_TEXT = 'CelerExecutor';
+
+/** Keccak256 salt for deterministic CelerExecutor CREATE3 deployments. */
+export const CELER_EXECUTOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(CELER_EXECUTOR_CREATE3_SALT_TEXT),
+);
+
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 const CREATE3_PROXY_INIT_CODE_HASH = keccak256(
   '0x67363d3d37363d34f03d5260086018f3',
