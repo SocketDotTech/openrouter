@@ -157,6 +157,16 @@ contract RFQVaultExecutor is Ownable {
         return SOLVER_SIGNER;
     }
 
+    /// @notice Mark a quoteId as used to block any further fulfil for this quote.
+    /// @dev Permissionless — no financial incentive exists to grief a fulfil.
+    ///      Called by the solver on the destination chain before initiating an
+    ///      origin-chain refund, preventing race conditions where an in-flight
+    ///      fulfil relay lands after the refund is already processed.
+    ///      Reverts with InvalidQuoteId if the quoteId was already used.
+    function markForRefund(bytes32 quoteId) external {
+        _markQuoteId(quoteId);
+    }
+
     function rescueFunds(address token_, address rescueTo_, uint256 amount_) external onlyOwner {
         RescueFundsLib.rescueFunds(token_, rescueTo_, amount_);
     }
