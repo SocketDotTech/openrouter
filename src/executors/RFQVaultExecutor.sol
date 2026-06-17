@@ -153,6 +153,10 @@ contract RFQVaultExecutor is Ownable {
         SOLVER_SIGNER = _solverSigner;
     }
 
+    function solverSigner() external view returns (address) {
+        return SOLVER_SIGNER;
+    }
+
     function rescueFunds(address token_, address rescueTo_, uint256 amount_) external onlyOwner {
         RescueFundsLib.rescueFunds(token_, rescueTo_, amount_);
     }

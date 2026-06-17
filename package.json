@@ -11,6 +11,7 @@
     "deploy:allowance-holder": "hardhat run scripts/deploy/deployAllowanceHolder.ts --network",
     "deploy:receiver-executor": "hardhat run scripts/deploy/deployReceiverAllChains.ts",
     "deploy:across-manipulator": "hardhat run scripts/deploy/deployAcrossERC20AmountManipulator.ts --network",
+    "deploy:rfq-vault-executor": "hardhat run scripts/deploy/deployRFQVaultExecutor.ts --network",
     "check:openrouter": "hardhat run scripts/deploy/checkOpenRouterDeployment.ts",
     "verify:openrouter": "ts-node scripts/deploy/verifyOpenRouterBatch.ts",
     "check:allowance-holder": "hardhat run scripts/deploy/checkAllowanceHolderDeployment.ts",
