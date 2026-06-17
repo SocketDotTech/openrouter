@@ -34,6 +34,7 @@ contract RFQVaultExecutor is Ownable {
 
     mapping(bytes32 quoteId => uint256 isUsed) public quoteIdUsed;
     mapping(uint256 nonce => uint256 isUsed) public nonceUsed;
+    mapping(bytes32 quoteId => uint256 isMarked) public isMarkedForRefund;
 
     event NativeDeposited(bytes32 indexed quoteId, uint256 amount);
     event Fulfilled(bytes32 indexed quoteId, address token, uint256 amount, address receiver);
@@ -165,6 +166,7 @@ contract RFQVaultExecutor is Ownable {
     ///      Reverts with InvalidQuoteId if the quoteId was already used.
     function markForRefund(bytes32 quoteId) external {
         _markQuoteId(quoteId);
+        isMarkedForRefund[quoteId] = 1;
     }
 
     function rescueFunds(address token_, address rescueTo_, uint256 amount_) external onlyOwner {
