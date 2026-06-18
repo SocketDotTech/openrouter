@@ -18,13 +18,11 @@ import hre, { ethers } from 'hardhat';
 import {
   CREATE_X_FACTORY,
   Create3ABI,
-  OPEN_ROUTER_EXPECTED_ADDRESS,
   RFQ_VAULT_EXECUTOR_CREATE3_SALT,
   RFQ_VAULT_EXECUTOR_CREATE3_SALT_TEXT,
   decodeCreate3DeploymentFromTxReceipt,
   hasContractBytecode,
 } from './create3';
-import { findDeploymentRegistryRow } from './deploymentRegistry';
 import { writeRFQVaultExecutorAddress } from './rfqVaultExecutorAddresses';
 
 // =============================================================================
@@ -58,25 +56,13 @@ function resolveSolverSignerAddress(deployerAddress: string): string {
   return deployerAddress;
 }
 
-function resolveOpenRouterAddress(chainId: number): string {
-  const row = findDeploymentRegistryRow(chainId);
-  const registryAddress = row?.openRouterAddress?.trim();
-  if (registryAddress && ADDR_HEX_RE.test(registryAddress)) {
-    return registryAddress;
-  }
-
-  return OPEN_ROUTER_EXPECTED_ADDRESS;
-}
-
 async function getRFQVaultExecutorInitcode(params: {
   owner: string;
-  openRouter: string;
   solverSigner: string;
 }): Promise<string> {
   const factory = await ethers.getContractFactory('RFQVaultExecutor');
   const deployTransaction = await factory.getDeployTransaction(
     params.owner,
-    params.openRouter,
     params.solverSigner,
   );
 
@@ -90,34 +76,25 @@ async function getRFQVaultExecutorInitcode(params: {
 async function assertRFQVaultExecutorDeployment(params: {
   address: string;
   owner: string;
-  openRouter: string;
   solverSigner: string;
 }): Promise<void> {
   const contract = new ethers.Contract(
     params.address,
     [
       'function owner() view returns (address)',
-      'function OPEN_ROUTER() view returns (address)',
       'function solverSigner() view returns (address)',
     ],
     ethers.provider,
   );
 
-  const [owner, openRouter, solverSigner] = await Promise.all([
+  const [owner, solverSigner] = await Promise.all([
     contract.owner() as Promise<string>,
-    contract.OPEN_ROUTER() as Promise<string>,
     contract.solverSigner() as Promise<string>,
   ]);
 
   if (owner.toLowerCase() !== params.owner.toLowerCase()) {
     throw new Error(
       `RFQVaultExecutor owner mismatch: expected ${params.owner}, got ${owner}`,
-    );
-  }
-
-  if (openRouter.toLowerCase() !== params.openRouter.toLowerCase()) {
-    throw new Error(
-      `RFQVaultExecutor OPEN_ROUTER mismatch: expected ${params.openRouter}, got ${openRouter}`,
     );
   }
 
@@ -159,17 +136,14 @@ async function main() {
   console.log('');
 
   const owner = resolveOwnerAddress(deployer.address);
-  const openRouter = resolveOpenRouterAddress(chainId);
   const solverSigner = resolveSolverSignerAddress(deployer.address);
 
   console.log('Owner:        ', owner);
-  console.log('OpenRouter:   ', openRouter);
   console.log('SolverSigner: ', solverSigner);
   console.log('');
 
   const initcode = await getRFQVaultExecutorInitcode({
     owner,
-    openRouter,
     solverSigner,
   });
 
@@ -192,7 +166,6 @@ async function main() {
     await assertRFQVaultExecutorDeployment({
       address: expectedAddress,
       owner,
-      openRouter,
       solverSigner,
     });
     await persistRFQVaultExecutorAddress({
@@ -227,7 +200,6 @@ async function main() {
   await assertRFQVaultExecutorDeployment({
     address: executorAddress,
     owner,
-    openRouter,
     solverSigner,
   });
 
@@ -244,7 +216,7 @@ async function main() {
 
     await hre.run('verify:verify', {
       address: executorAddress,
-      constructorArguments: [owner, openRouter, solverSigner],
+      constructorArguments: [owner, solverSigner],
     });
   }
 }

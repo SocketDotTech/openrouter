@@ -20,7 +20,6 @@ contract RFQVaultExecutorTest is Test {
 
     uint256 internal constant SOLVER_PRIVATE_KEY = 0xA11CE;
     address internal solverSigner;
-    address internal openRouter;
 
     bytes32 internal constant QUOTE_ID = keccak256("quote-1");
     uint256 internal constant NONCE = 1;
@@ -35,9 +34,8 @@ contract RFQVaultExecutorTest is Test {
 
     function setUp() public {
         solverSigner = vm.addr(SOLVER_PRIVATE_KEY);
-        openRouter = address(new OpenRouterStub());
 
-        vault = new RFQVaultExecutor(OWNER, openRouter, solverSigner);
+        vault = new RFQVaultExecutor(OWNER, solverSigner);
         token = new MockERC20("Input", "IN");
         outputToken = new MockERC20("Output", "OUT");
         swapTarget = new MockSwap();
@@ -48,25 +46,27 @@ contract RFQVaultExecutorTest is Test {
         vm.label(address(outputToken), "outputToken");
         vm.label(address(swapTarget), "swapTarget");
         vm.label(address(actionTarget), "actionTarget");
-        vm.label(openRouter, "openRouter");
         vm.label(RECEIVER, "receiver");
         vm.label(solverSigner, "solverSigner");
     }
 
     function test_receiveNative_emitsEvent() public {
-        vm.deal(openRouter, AMOUNT);
+        CallerStub caller = new CallerStub();
+        vm.deal(address(caller), AMOUNT);
 
         vm.expectEmit(true, false, false, true, address(vault));
         emit RFQVaultExecutor.NativeDeposited(QUOTE_ID, AMOUNT);
 
-        OpenRouterStub(openRouter).sendNativeFromBalance(address(vault), QUOTE_ID, AMOUNT);
+        caller.sendNativeFromBalance(address(vault), QUOTE_ID, AMOUNT);
     }
 
-    function test_receiveNative_revertsIfNotOpenRouter() public {
+    function test_receiveNative_permissionless() public {
         CallerStub otherCaller = new CallerStub();
         vm.deal(address(otherCaller), AMOUNT);
 
-        vm.expectRevert(RFQVaultExecutor.CallerNotOpenRouter.selector);
+        vm.expectEmit(true, false, false, true, address(vault));
+        emit RFQVaultExecutor.NativeDeposited(QUOTE_ID, AMOUNT);
+
         otherCaller.sendNativeFromBalance(address(vault), QUOTE_ID, AMOUNT);
     }
 
@@ -75,7 +75,7 @@ contract RFQVaultExecutorTest is Test {
 
         bytes memory signature = _signFulfil(QUOTE_ID, NONCE, address(token), AMOUNT, RECEIVER);
 
-        vm.expectEmit(true, false, false, true, address(vault));
+        vm.expectEmit(false, false, false, true, address(vault));
         emit RFQVaultExecutor.Fulfilled(QUOTE_ID, address(token), AMOUNT, RECEIVER);
 
         vault.fulfil(QUOTE_ID, NONCE, address(token), AMOUNT, RECEIVER, signature);
@@ -587,7 +587,8 @@ contract RFQVaultExecutorTest is Test {
         RFQVaultExecutor.Action memory swapAction,
         address receiver
     ) internal view returns (bytes memory) {
-        bytes32 messageHash = _hashSwapAndFulfil(
+        bytes32 messageHash = _hashSwapAndFulfilAt(
+            address(vault),
             quoteId,
             nonce,
             approvalToken,
@@ -659,8 +660,33 @@ contract RFQVaultExecutorTest is Test {
         RFQVaultExecutor.Action memory swapAction,
         address receiver
     ) internal view returns (bytes32 hash) {
+        return _hashSwapAndFulfilAt(
+            address(vault),
+            quoteId,
+            nonce,
+            approvalToken,
+            approvalSpender,
+            approvalAmount,
+            outputToken_,
+            minOutput,
+            swapAction,
+            receiver
+        );
+    }
+
+    function _hashSwapAndFulfilAt(
+        address vaultAddress,
+        bytes32 quoteId,
+        uint256 nonce,
+        address approvalToken,
+        address approvalSpender,
+        uint256 approvalAmount,
+        address outputToken_,
+        uint256 minOutput,
+        RFQVaultExecutor.Action memory swapAction,
+        address receiver
+    ) internal view returns (bytes32 hash) {
         bytes32 dataHash = keccak256(swapAction.data);
-        address vaultAddress = address(vault);
 
         assembly {
             let ptr := mload(0x40)
@@ -728,12 +754,6 @@ contract MockActionTarget {
 
     function revertAlways() external pure {
         revert("fail");
-    }
-}
-
-contract OpenRouterStub {
-    function sendNativeFromBalance(address vault, bytes32 quoteId, uint256 amount) external {
-        RFQVaultExecutor(payable(vault)).receiveNative{value: amount}(quoteId);
     }
 }
 

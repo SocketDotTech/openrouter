@@ -9,7 +9,7 @@ import {AuthenticationLib} from "../common/lib/AuthenticationLib.sol";
 import {CurrencyLib} from "../common/lib/CurrencyLib.sol";
 
 /// @title RFQVaultExecutor
-/// @notice Solver-controlled vault that receives funds from OpenRouter and releases them via signed fulfil/refund flows.
+/// @notice Solver-controlled vault that receives deposits and releases funds via signed fulfil/refund flows.
 contract RFQVaultExecutor is Ownable {
     struct Action {
         address target;
@@ -18,7 +18,6 @@ contract RFQVaultExecutor is Ownable {
     }
 
     error ActionFailed(uint256 index);
-    error CallerNotOpenRouter();
     error InvalidQuoteId();
     error InvalidNonce();
     error InvalidSigner();
@@ -28,30 +27,49 @@ contract RFQVaultExecutor is Ownable {
     uint256 internal constant REFUND_DISCRIMINATOR = 2;
     uint256 internal constant SWAP_AND_FULFIL_DISCRIMINATOR = 3;
 
-    address public immutable OPEN_ROUTER;
-
     address internal SOLVER_SIGNER;
 
     mapping(bytes32 quoteId => uint256 isUsed) public quoteIdUsed;
     mapping(uint256 nonce => uint256 isUsed) public nonceUsed;
     mapping(bytes32 quoteId => uint256 isMarked) public isMarkedForRefund;
 
-    event NativeDeposited(bytes32 indexed quoteId, uint256 amount);
-    event Fulfilled(bytes32 indexed quoteId, address token, uint256 amount, address receiver);
-    event Refunded(bytes32 indexed quoteId, address token, uint256 amount, address receiver);
+    event NativeDeposited(bytes32 quoteId, uint256 amount);
+    event ERC20Deposited(bytes32 quoteId, address token, uint256 amount);
+    event Fulfilled(
+        bytes32 quoteId,
+        address token,
+        uint256 amount,
+        address receiver
+    );
+    event Refunded(
+        bytes32 quoteId,
+        address token,
+        uint256 amount,
+        address receiver
+    );
 
-    constructor(address _owner, address _openRouter, address _solverSigner) Ownable(_owner) {
-        OPEN_ROUTER = _openRouter;
+    constructor(address _owner, address _solverSigner) Ownable(_owner) {
         SOLVER_SIGNER = _solverSigner;
     }
 
-    /// @notice Accept native deposits from OpenRouter and emit a correlating event.
+    /// @notice Accept native deposits and emit a correlating event.
     function receiveNative(bytes32 quoteId) external payable {
-        if (msg.sender != OPEN_ROUTER) {
-            revert CallerNotOpenRouter();
-        }
-
         emit NativeDeposited(quoteId, msg.value);
+    }
+
+    /// @notice Pull ERC20 tokens from the caller into the vault and emit a correlating event.
+    function receiveERC20(
+        bytes32 quoteId,
+        address token,
+        uint256 amount
+    ) external {
+        SafeTransferLib.safeTransferFrom(
+            token,
+            msg.sender,
+            address(this),
+            amount
+        );
+        emit ERC20Deposited(quoteId, token, amount);
     }
 
     /// @notice Transfer vault funds to a receiver for a signed quote.
@@ -63,7 +81,14 @@ contract RFQVaultExecutor is Ownable {
         address receiver,
         bytes calldata signature
     ) external {
-        bytes32 messageHash = _hashFulfilOrRefund(FULFIL_DISCRIMINATOR, quoteId, nonce, token, amount, receiver);
+        bytes32 messageHash = _hashFulfilOrRefund(
+            FULFIL_DISCRIMINATOR,
+            quoteId,
+            nonce,
+            token,
+            amount,
+            receiver
+        );
         _verifyAndMarkQuoteId(messageHash, signature, quoteId);
 
         CurrencyLib.transfer(token, receiver, amount);
@@ -97,17 +122,26 @@ contract RFQVaultExecutor is Ownable {
         _verifyAndMarkQuoteId(messageHash, signature, quoteId);
 
         if (approvalToken != address(0)) {
-            SafeTransferLib.safeApproveWithRetry(approvalToken, approvalSpender, approvalAmount);
+            SafeTransferLib.safeApproveWithRetry(
+                approvalToken,
+                approvalSpender,
+                approvalAmount
+            );
         }
 
-        uint256 beforeBalance = CurrencyLib.balanceOf(outputToken, address(this));
+        uint256 beforeBalance = CurrencyLib.balanceOf(
+            outputToken,
+            address(this)
+        );
         if (!_performAction(swapAction)) {
             revert ActionFailed(0);
         }
 
         uint256 swapOutput;
         unchecked {
-            swapOutput = CurrencyLib.balanceOf(outputToken, address(this)) - beforeBalance;
+            swapOutput =
+                CurrencyLib.balanceOf(outputToken, address(this)) -
+                beforeBalance;
         }
 
         if (swapOutput < minOutput) {
@@ -119,12 +153,18 @@ contract RFQVaultExecutor is Ownable {
     }
 
     /// @notice Execute arbitrary signed actions unrelated to quote fulfilment.
-    function performActions(uint256 nonce, Action[] calldata actions, bytes calldata signature) external {
-        bytes32 messageHash = keccak256(abi.encode(block.chainid, address(this), nonce, actions));
+    function performActions(
+        uint256 nonce,
+        Action[] calldata actions,
+        bytes calldata signature
+    ) external {
+        bytes32 messageHash = keccak256(
+            abi.encode(block.chainid, address(this), nonce, actions)
+        );
         _verifyAndMarkNonce(messageHash, signature, nonce);
 
         uint256 actionsLength = actions.length;
-        for (uint256 i = 0; i < actionsLength;) {
+        for (uint256 i = 0; i < actionsLength; ) {
             if (!_performAction(actions[i])) {
                 revert ActionFailed(i);
             }
@@ -143,7 +183,14 @@ contract RFQVaultExecutor is Ownable {
         address receiver,
         bytes calldata signature
     ) external {
-        bytes32 messageHash = _hashFulfilOrRefund(REFUND_DISCRIMINATOR, quoteId, nonce, token, amount, receiver);
+        bytes32 messageHash = _hashFulfilOrRefund(
+            REFUND_DISCRIMINATOR,
+            quoteId,
+            nonce,
+            token,
+            amount,
+            receiver
+        );
         _verifyAndMarkQuoteId(messageHash, signature, quoteId);
 
         CurrencyLib.transfer(token, receiver, amount);
@@ -169,7 +216,11 @@ contract RFQVaultExecutor is Ownable {
         isMarkedForRefund[quoteId] = 1;
     }
 
-    function rescueFunds(address token_, address rescueTo_, uint256 amount_) external onlyOwner {
+    function rescueFunds(
+        address token_,
+        address rescueTo_,
+        uint256 amount_
+    ) external onlyOwner {
         RescueFundsLib.rescueFunds(token_, rescueTo_, amount_);
     }
 
@@ -233,7 +284,9 @@ contract RFQVaultExecutor is Ownable {
         }
     }
 
-    function _keccak256CalldataBytes(bytes calldata data) internal pure returns (bytes32 hash) {
+    function _keccak256CalldataBytes(
+        bytes calldata data
+    ) internal pure returns (bytes32 hash) {
         assembly {
             let ptr := mload(0x40)
             let len := data.length
@@ -243,7 +296,11 @@ contract RFQVaultExecutor is Ownable {
         }
     }
 
-    function _verifyAndMarkQuoteId(bytes32 messageHash, bytes calldata signature, bytes32 quoteId) internal {
+    function _verifyAndMarkQuoteId(
+        bytes32 messageHash,
+        bytes calldata signature,
+        bytes32 quoteId
+    ) internal {
         address signer = SOLVER_SIGNER;
         if (signer != AuthenticationLib.authenticate(messageHash, signature)) {
             assembly {
@@ -254,7 +311,11 @@ contract RFQVaultExecutor is Ownable {
         _markQuoteId(quoteId);
     }
 
-    function _verifyAndMarkNonce(bytes32 messageHash, bytes calldata signature, uint256 nonce) internal {
+    function _verifyAndMarkNonce(
+        bytes32 messageHash,
+        bytes calldata signature,
+        uint256 nonce
+    ) internal {
         address signer = SOLVER_SIGNER;
         if (signer != AuthenticationLib.authenticate(messageHash, signature)) {
             assembly {
@@ -296,7 +357,9 @@ contract RFQVaultExecutor is Ownable {
     }
 
     /// @dev Does not revert on failure. Caller should check the return value.
-    function _performAction(Action calldata action) internal returns (bool success) {
+    function _performAction(
+        Action calldata action
+    ) internal returns (bool success) {
         assembly {
             let actionDataLength := calldataload(add(action, 0x60))
 
