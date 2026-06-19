@@ -8,10 +8,10 @@
  *
  * Required env vars:
  *   DEPLOYER_PRIVATE_KEY — deployer wallet private key
+ *   SOLVER_SIGNER_ADDRESS — solver signer for fulfil/refund signatures
  *
  * Optional env vars:
  *   OWNER_ADDRESS — RFQVaultExecutor owner; defaults to DEFAULT_OWNER_ADDRESS or deployer
- *   SOLVER_SIGNER_ADDRESS — solver signer for fulfil/refund signatures; defaults to deployer
  */
 
 import hre, { ethers } from 'hardhat';
@@ -33,6 +33,7 @@ import { writeRFQVaultExecutorAddress } from './rfqVaultExecutorAddresses';
 const DEFAULT_OWNER_ADDRESS = '0x0E1B5AB67aF1c99F8c7Ebc71f41f75D4D6211e53';
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
+const ZERO_ADDRESS = '0x0000000000000000000000000000000000000000';
 
 function resolveOwnerAddress(deployerAddress: string): string {
   const envOwner = process.env.OWNER_ADDRESS?.trim();
@@ -47,13 +48,21 @@ function resolveOwnerAddress(deployerAddress: string): string {
   return deployerAddress;
 }
 
-function resolveSolverSignerAddress(deployerAddress: string): string {
+function resolveSolverSignerAddress(): string {
   const envSolverSigner = process.env.SOLVER_SIGNER_ADDRESS?.trim();
-  if (envSolverSigner && ADDR_HEX_RE.test(envSolverSigner)) {
-    return envSolverSigner;
+  if (!envSolverSigner) {
+    throw new Error('SOLVER_SIGNER_ADDRESS is required');
   }
 
-  return deployerAddress;
+  if (!ADDR_HEX_RE.test(envSolverSigner)) {
+    throw new Error(`Invalid SOLVER_SIGNER_ADDRESS: ${envSolverSigner}`);
+  }
+
+  if (envSolverSigner.toLowerCase() === ZERO_ADDRESS) {
+    throw new Error('SOLVER_SIGNER_ADDRESS cannot be zero');
+  }
+
+  return envSolverSigner;
 }
 
 async function getRFQVaultExecutorInitcode(params: {
@@ -136,7 +145,7 @@ async function main() {
   console.log('');
 
   const owner = resolveOwnerAddress(deployer.address);
-  const solverSigner = resolveSolverSignerAddress(deployer.address);
+  const solverSigner = resolveSolverSignerAddress();
 
   console.log('Owner:        ', owner);
   console.log('SolverSigner: ', solverSigner);
