@@ -132,6 +132,15 @@ contract RFQVaultExecutorTest is Test {
         vault.fulfil(QUOTE_ID, NONCE, address(token), AMOUNT, RECEIVER, signature);
     }
 
+    function test_fulfil_revertsIfMalformedSignature() public {
+        token.mint(address(vault), AMOUNT);
+
+        bytes memory signature = new bytes(64);
+
+        vm.expectRevert(RFQVaultExecutor.InvalidSigner.selector);
+        vault.fulfil(QUOTE_ID, NONCE, address(token), AMOUNT, RECEIVER, signature);
+    }
+
     function test_swapAndFulfil_erc20() public {
         token.mint(address(vault), AMOUNT);
         outputToken.mint(address(swapTarget), SWAP_OUTPUT);

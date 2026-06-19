@@ -5,7 +5,6 @@ import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
 
 import {Ownable} from "../common/utils/Ownable.sol";
 import {RescueFundsLib} from "../common/lib/RescueFundsLib.sol";
-import {AuthenticationLib} from "../common/lib/AuthenticationLib.sol";
 import {CurrencyLib} from "../common/lib/CurrencyLib.sol";
 
 /// @title RFQVaultExecutor
@@ -246,7 +245,6 @@ contract RFQVaultExecutor is Ownable {
             mstore(add(ptr, 0xc0), amount)
             mstore(add(ptr, 0xe0), receiver)
             hash := keccak256(ptr, 0x100)
-            mstore(0x40, add(ptr, 0x100))
         }
     }
 
@@ -261,10 +259,12 @@ contract RFQVaultExecutor is Ownable {
         Action calldata swapAction,
         address receiver
     ) internal view returns (bytes32 hash) {
-        bytes32 dataHash = _keccak256CalldataBytes(swapAction.data);
-
         assembly {
             let ptr := mload(0x40)
+            let dataLength := calldataload(add(swapAction, 0x60))
+            calldatacopy(ptr, add(swapAction, 0x80), dataLength)
+            let dataHash := keccak256(ptr, dataLength)
+
             mstore(ptr, chainid())
             mstore(add(ptr, 0x20), address())
             mstore(add(ptr, 0x40), SWAP_AND_FULFIL_DISCRIMINATOR)
@@ -280,19 +280,6 @@ contract RFQVaultExecutor is Ownable {
             mstore(add(ptr, 0x180), dataHash)
             mstore(add(ptr, 0x1a0), receiver)
             hash := keccak256(ptr, 0x1c0)
-            mstore(0x40, add(ptr, 0x1c0))
-        }
-    }
-
-    function _keccak256CalldataBytes(
-        bytes calldata data
-    ) internal pure returns (bytes32 hash) {
-        assembly {
-            let ptr := mload(0x40)
-            let len := data.length
-            calldatacopy(ptr, data.offset, len)
-            hash := keccak256(ptr, len)
-            mstore(0x40, add(ptr, and(add(len, 0x1f), not(0x1f))))
         }
     }
 
@@ -302,7 +289,7 @@ contract RFQVaultExecutor is Ownable {
         bytes32 quoteId
     ) internal {
         address signer = SOLVER_SIGNER;
-        if (signer != AuthenticationLib.authenticate(messageHash, signature)) {
+        if (signer != _authenticate(messageHash, signature)) {
             assembly {
                 mstore(0x00, 0x815e1d64)
                 revert(0x1c, 0x04)
@@ -317,13 +304,43 @@ contract RFQVaultExecutor is Ownable {
         uint256 nonce
     ) internal {
         address signer = SOLVER_SIGNER;
-        if (signer != AuthenticationLib.authenticate(messageHash, signature)) {
+        if (signer != _authenticate(messageHash, signature)) {
             assembly {
                 mstore(0x00, 0x815e1d64)
                 revert(0x1c, 0x04)
             }
         }
         _markNonce(nonce);
+    }
+
+    function _authenticate(
+        bytes32 messageHash,
+        bytes calldata signature
+    ) internal view returns (address signer) {
+        assembly {
+            if iszero(eq(signature.length, 0x41)) {
+                mstore(0x00, 0x815e1d64)
+                revert(0x1c, 0x04)
+            }
+
+            let ptr := mload(0x40)
+            mstore(
+                ptr,
+                0x19457468657265756d205369676e6564204d6573736167653a0a333200000000
+            )
+            mstore(add(ptr, 0x1c), messageHash)
+            let digest := keccak256(ptr, 0x3c)
+
+            mstore(ptr, digest)
+            mstore(add(ptr, 0x20), byte(0, calldataload(add(signature.offset, 0x40))))
+            mstore(add(ptr, 0x40), calldataload(signature.offset))
+            mstore(add(ptr, 0x60), calldataload(add(signature.offset, 0x20)))
+
+            signer := mul(
+                mload(ptr),
+                staticcall(gas(), 0x01, ptr, 0x80, ptr, 0x20)
+            )
+        }
     }
 
     function _markQuoteId(bytes32 quoteId) internal {
@@ -366,7 +383,7 @@ contract RFQVaultExecutor is Ownable {
             let freeMemPtr := mload(0x40)
             calldatacopy(
                 freeMemPtr,
-                add(add(action, 0x20), calldataload(add(action, 0x40))),
+                add(action, 0x80),
                 actionDataLength
             )
 
