@@ -17,14 +17,17 @@ contract RFQVaultExecutor is Ownable {
     }
 
     error ActionFailed(uint256 index);
-    error InvalidQuoteId();
-    error InvalidNonce();
-    error InvalidSigner();
+    error InvalidQuoteId(); // 0x140dcdb5
+    error InvalidNonce(); // 0x756688fe
+    error InvalidSigner(); // 0x815e1d64
     error SwapOutputInsufficient();
+    error InvalidSolverSigner();
+    error InvalidOwner();
 
     uint256 internal constant FULFIL_DISCRIMINATOR = 1;
     uint256 internal constant REFUND_DISCRIMINATOR = 2;
     uint256 internal constant SWAP_AND_FULFIL_DISCRIMINATOR = 3;
+    uint256 internal constant MARK_FOR_REFUND_DISCRIMINATOR = 4;
 
     address internal SOLVER_SIGNER;
 
@@ -48,6 +51,8 @@ contract RFQVaultExecutor is Ownable {
     );
 
     constructor(address _owner, address _solverSigner) Ownable(_owner) {
+        if (_owner == address(0)) revert InvalidOwner();
+        if (_solverSigner == address(0)) revert InvalidSolverSigner();
         SOLVER_SIGNER = _solverSigner;
     }
 
@@ -197,6 +202,7 @@ contract RFQVaultExecutor is Ownable {
     }
 
     function setSolverSigner(address _solverSigner) external onlyOwner {
+        if (_solverSigner == address(0)) revert InvalidSolverSigner();
         SOLVER_SIGNER = _solverSigner;
     }
 
@@ -205,13 +211,17 @@ contract RFQVaultExecutor is Ownable {
     }
 
     /// @notice Mark a quoteId as used to block any further fulfil for this quote.
-    /// @dev Permissionless — no financial incentive exists to grief a fulfil.
-    ///      Called by the solver on the destination chain before initiating an
-    ///      origin-chain refund, preventing race conditions where an in-flight
-    ///      fulfil relay lands after the refund is already processed.
+    /// @dev Called with a solver signature on the destination chain before
+    ///      initiating an origin-chain refund, preventing race conditions where
+    ///      an in-flight fulfil relay lands after the refund is already processed.
     ///      Reverts with InvalidQuoteId if the quoteId was already used.
-    function markForRefund(bytes32 quoteId) external {
-        _markQuoteId(quoteId);
+    function markForRefund(
+        bytes32 quoteId,
+        uint256 nonce,
+        bytes calldata signature
+    ) external {
+        bytes32 messageHash = _hashMarkForRefund(quoteId, nonce);
+        _verifyAndMarkQuoteId(messageHash, signature, quoteId);
         isMarkedForRefund[quoteId] = 1;
     }
 
@@ -280,6 +290,22 @@ contract RFQVaultExecutor is Ownable {
             mstore(add(ptr, 0x180), dataHash)
             mstore(add(ptr, 0x1a0), receiver)
             hash := keccak256(ptr, 0x1c0)
+        }
+    }
+
+    /// @dev Fixed-size mark-for-refund hash without abi.encode overhead.
+    function _hashMarkForRefund(
+        bytes32 quoteId,
+        uint256 nonce
+    ) internal view returns (bytes32 hash) {
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, chainid())
+            mstore(add(ptr, 0x20), address())
+            mstore(add(ptr, 0x40), MARK_FOR_REFUND_DISCRIMINATOR)
+            mstore(add(ptr, 0x60), quoteId)
+            mstore(add(ptr, 0x80), nonce)
+            hash := keccak256(ptr, 0xa0)
         }
     }
 

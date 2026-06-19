@@ -12,6 +12,7 @@ contract RFQVaultExecutorTest is Test {
     uint256 internal constant FULFIL_DISCRIMINATOR = 1;
     uint256 internal constant REFUND_DISCRIMINATOR = 2;
     uint256 internal constant SWAP_AND_FULFIL_DISCRIMINATOR = 3;
+    uint256 internal constant MARK_FOR_REFUND_DISCRIMINATOR = 4;
 
     address internal constant NATIVE_TOKEN = CurrencyLib.NATIVE_TOKEN_ADDRESS;
     address internal constant OWNER = address(0x2222);
@@ -425,6 +426,80 @@ contract RFQVaultExecutorTest is Test {
         vault.refund(QUOTE_ID, NONCE, address(token), AMOUNT, RECEIVER, signature);
     }
 
+    function test_markForRefund_marksQuoteId() public {
+        bytes memory signature = _signMarkForRefund(QUOTE_ID, NONCE);
+
+        vault.markForRefund(QUOTE_ID, NONCE, signature);
+
+        assertEq(vault.quoteIdUsed(QUOTE_ID), 1);
+        assertEq(vault.isMarkedForRefund(QUOTE_ID), 1);
+    }
+
+    function test_markForRefund_blocksFulfilRefundAndSwapAndFulfil() public {
+        bytes memory markSignature = _signMarkForRefund(QUOTE_ID, NONCE);
+        vault.markForRefund(QUOTE_ID, NONCE, markSignature);
+
+        token.mint(address(vault), AMOUNT * 2);
+        outputToken.mint(address(swapTarget), SWAP_OUTPUT);
+
+        bytes memory fulfilSig = _signFulfil(QUOTE_ID, NONCE + 1, address(token), AMOUNT, RECEIVER);
+        vm.expectRevert(RFQVaultExecutor.InvalidQuoteId.selector);
+        vault.fulfil(QUOTE_ID, NONCE + 1, address(token), AMOUNT, RECEIVER, fulfilSig);
+
+        bytes memory refundSig = _signRefund(QUOTE_ID, NONCE + 2, address(token), AMOUNT, RECEIVER);
+        vm.expectRevert(RFQVaultExecutor.InvalidQuoteId.selector);
+        vault.refund(QUOTE_ID, NONCE + 2, address(token), AMOUNT, RECEIVER, refundSig);
+
+        RFQVaultExecutor.Action memory swapAction = RFQVaultExecutor.Action({
+            target: address(swapTarget),
+            value: 0,
+            data: abi.encodeCall(
+                MockSwap.swapToVault,
+                (address(token), address(outputToken), AMOUNT, SWAP_OUTPUT, address(vault))
+            )
+        });
+
+        bytes memory swapSig = _signSwapAndFulfil(
+            QUOTE_ID,
+            NONCE + 3,
+            address(token),
+            address(swapTarget),
+            AMOUNT,
+            address(outputToken),
+            SWAP_OUTPUT,
+            swapAction,
+            RECEIVER
+        );
+
+        vm.expectRevert(RFQVaultExecutor.InvalidQuoteId.selector);
+        vault.swapAndFulfil(
+            QUOTE_ID,
+            NONCE + 3,
+            address(token),
+            address(swapTarget),
+            AMOUNT,
+            address(outputToken),
+            SWAP_OUTPUT,
+            swapAction,
+            RECEIVER,
+            swapSig
+        );
+    }
+
+    function test_markForRefund_revertsIfInvalidSigner() public {
+        bytes memory signature = _signMarkForRefundWithKey(0xBEEF, QUOTE_ID, NONCE);
+
+        vm.expectRevert(RFQVaultExecutor.InvalidSigner.selector);
+        vault.markForRefund(QUOTE_ID, NONCE, signature);
+    }
+
+    function test_markForRefund_revertsIfSignatureIsForRefund() public {
+        bytes memory signature = _signRefund(QUOTE_ID, NONCE, address(token), AMOUNT, RECEIVER);
+
+        vm.expectRevert(RFQVaultExecutor.InvalidSigner.selector);
+        vault.markForRefund(QUOTE_ID, NONCE, signature);
+    }
+
     function test_performActions_executesAction() public {
         RFQVaultExecutor.Action[] memory actions = new RFQVaultExecutor.Action[](1);
         actions[0] = RFQVaultExecutor.Action({
@@ -628,6 +703,19 @@ contract RFQVaultExecutorTest is Test {
         return _signMessage(privateKey, messageHash);
     }
 
+    function _signMarkForRefund(bytes32 quoteId, uint256 nonce) internal view returns (bytes memory) {
+        return _signMarkForRefundWithKey(SOLVER_PRIVATE_KEY, quoteId, nonce);
+    }
+
+    function _signMarkForRefundWithKey(
+        uint256 privateKey,
+        bytes32 quoteId,
+        uint256 nonce
+    ) internal view returns (bytes memory) {
+        bytes32 messageHash = _hashMarkForRefund(quoteId, nonce);
+        return _signMessage(privateKey, messageHash);
+    }
+
     function _signMessage(uint256 privateKey, bytes32 messageHash) internal pure returns (bytes memory) {
         bytes32 ethSigned = AuthenticationLib.getEthSignedMessageHash(messageHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, ethSigned);
@@ -715,6 +803,23 @@ contract RFQVaultExecutorTest is Test {
             mstore(add(ptr, 0x1a0), receiver)
             hash := keccak256(ptr, 0x1c0)
             mstore(0x40, add(ptr, 0x1c0))
+        }
+    }
+
+    function _hashMarkForRefund(
+        bytes32 quoteId,
+        uint256 nonce
+    ) internal view returns (bytes32 hash) {
+        address vaultAddress = address(vault);
+        assembly {
+            let ptr := mload(0x40)
+            mstore(ptr, chainid())
+            mstore(add(ptr, 0x20), vaultAddress)
+            mstore(add(ptr, 0x40), MARK_FOR_REFUND_DISCRIMINATOR)
+            mstore(add(ptr, 0x60), quoteId)
+            mstore(add(ptr, 0x80), nonce)
+            hash := keccak256(ptr, 0xa0)
+            mstore(0x40, add(ptr, 0xa0))
         }
     }
 }
