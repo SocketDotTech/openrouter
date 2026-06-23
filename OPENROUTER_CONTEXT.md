@@ -131,6 +131,22 @@ Deployment helpers:
 - `scripts/deploy/deployOpenRouterByBuildProfile.ts` batches router deploys by `(EVM version, AllowanceHolder address)`, compiles once per profile, then deploys matching networks in parallel with `--no-compile`.
 - OpenRouter currently uses Cancun `mcopy` in `src/OpenRouter.sol` and `src/common/lib/BytesSpliceLib.sol`; the patched deploy wrapper refuses Shanghai/no-Cancun OpenRouter builds until those copies are made fork-compatible.
 
+## CctpClaimExecutor (destination CCTP v2 claim)
+
+Contract: [`src/executors/CctpClaimExecutor.sol`](src/executors/CctpClaimExecutor.sol)
+
+- CREATE3 salt: `CctpClaimExecutor` (see [`scripts/deploy/create3.ts`](scripts/deploy/create3.ts))
+- Expected address (canonical CreateX): `0x49845419e8146d9b6f5461DAD7f57BaB34b70168` on all deployed chains
+- Deploy: `scripts/deploy/deployCctpClaimExecutor.ts` (single chain) or `deployCctpClaimExecutorAllChains.ts`
+- Required env: `DEPLOYER_PRIVATE_KEY`, `SOLVER_SIGNER_ADDRESS` (must match transmitter `SignerService` / `BungeeReceiver.SOLVER_SIGNER`)
+- Source `depositForBurn` must set `mintRecipient` and `destinationCaller` to the claim executor
+- Transmitter signs and calls `claim(message, attestation, recipient, feeTaker, quotedRelayFee, signature)`; relay fee is collected in USDC on destination
+
+Sync deployed address into:
+
+- `bungee-backend/src/modules/router/routers/cctp-v2/cctp-v2.config.ts` → `CCTP_CLAIM_EXECUTOR_ADDRESSES`
+- `new-bungee-transmitter/src/shared/cctp-v2/constants.ts` → `CCTP_CLAIM_EXECUTOR_ADDRESSES`
+
 ## Gotchas
 
 - ERC-20 inputs must be submitted through 0x AllowanceHolder, not directly to the router, or `_msgSender() == user` fails.

@@ -71,6 +71,14 @@ export const RFQ_VAULT_EXECUTOR_CREATE3_SALT = keccak256(
   toUtf8Bytes(RFQ_VAULT_EXECUTOR_CREATE3_SALT_TEXT),
 );
 
+/** CREATE3 salt label used by `deployCctpClaimExecutor.ts`. */
+export const CCTP_CLAIM_EXECUTOR_CREATE3_SALT_TEXT = 'CctpClaimExecutor';
+
+/** Keccak256 salt for deterministic CctpClaimExecutor CREATE3 deployments. */
+export const CCTP_CLAIM_EXECUTOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(CCTP_CLAIM_EXECUTOR_CREATE3_SALT_TEXT),
+);
+
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 const CREATE3_PROXY_INIT_CODE_HASH = keccak256(
   '0x67363d3d37363d34f03d5260086018f3',

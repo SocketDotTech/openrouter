@@ -1,0 +1,76 @@
+import { mkdir, readFile, writeFile } from 'fs/promises';
+import { dirname, resolve } from 'path';
+
+export type CctpClaimExecutorDeployments = {
+  CctpClaimExecutor: string;
+};
+
+export function cctpClaimExecutorAddressesPath(
+  network: string,
+  stage = 'prod',
+): string {
+  return resolve(
+    process.cwd(),
+    'deployments',
+    stage,
+    'addresses',
+    `${network}.json`,
+  );
+}
+
+export async function readCctpClaimExecutorAddress(
+  network: string,
+  stage = 'prod',
+): Promise<string | undefined> {
+  const filePath = cctpClaimExecutorAddressesPath(network, stage);
+
+  try {
+    const raw = await readFile(filePath, 'utf8');
+    const deployments = JSON.parse(raw) as Partial<CctpClaimExecutorDeployments>;
+    const address = deployments.CctpClaimExecutor?.trim();
+
+    if (!address) {
+      return undefined;
+    }
+
+    return address;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === 'ENOENT') {
+      return undefined;
+    }
+
+    throw err;
+  }
+}
+
+/**
+ * Persists CctpClaimExecutor address for a network.
+ */
+export async function writeCctpClaimExecutorAddress(
+  network: string,
+  address: string,
+  stage = 'prod',
+): Promise<string> {
+  const filePath = cctpClaimExecutorAddressesPath(network, stage);
+  let deployments: Partial<CctpClaimExecutorDeployments> = {};
+
+  try {
+    const raw = await readFile(filePath, 'utf8');
+    deployments = JSON.parse(raw) as Partial<CctpClaimExecutorDeployments>;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') {
+      throw err;
+    }
+  }
+
+  deployments.CctpClaimExecutor = address;
+
+  await mkdir(dirname(filePath), { recursive: true });
+  await writeFile(
+    filePath,
+    `${JSON.stringify(deployments, null, 2)}\n`,
+    'utf8',
+  );
+
+  return filePath;
+}

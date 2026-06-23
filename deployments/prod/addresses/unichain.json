@@ -1,3 +1,4 @@
 {
-  "RFQVaultExecutor": "0x97caCa78AC2a94c67643d07843F85AFAa44a3ea5"
+  "RFQVaultExecutor": "0x97caCa78AC2a94c67643d07843F85AFAa44a3ea5",
+  "CctpClaimExecutor": "0x49845419e8146d9b6f5461DAD7f57BaB34b70168"
 }
