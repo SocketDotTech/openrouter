@@ -1,9 +1,10 @@
 // SPDX-License-Identifier: GPL-3.0-only
 pragma solidity 0.8.34;
 
+import {SafeTransferLib} from "solady/src/utils/SafeTransferLib.sol";
+
 import {AccessControl} from "../common/utils/AccessControl.sol";
 import {AuthenticationLib} from "../common/lib/AuthenticationLib.sol";
-import {CurrencyLib} from "../common/lib/CurrencyLib.sol";
 import {RescueFundsLib} from "../common/lib/RescueFundsLib.sol";
 import {RESCUE_ROLE} from "../common/AccessRoles.sol";
 import {IMessageTransmitter} from "../interfaces/IMessageTransmitter.sol";
@@ -13,23 +14,10 @@ import {IMessageTransmitter} from "../interfaces/IMessageTransmitter.sol";
 ///         mints USDC via Circle MessageTransmitter, deducts a relay fee, and forwards net USDC.
 /// @dev Source burns must set `mintRecipient` and `destinationCaller` to this contract.
 ///      Claim execution is gated by a SOLVER_SIGNER ECDSA signature over all claim parameters.
+///      Replay protection is delegated to Circle MessageTransmitter `usedNonces`.
 contract CctpClaimExecutor is AccessControl {
     error InvalidSigner();
     error ZeroAddress();
-    error MessageAlreadyClaimed();
-    error InsufficientMintedAmount();
-    error ReceiveMessageFailed();
-
-    /// @dev Byte offset of the bytes32 nonce in a CCTP v2 message header.
-    uint256 internal constant MESSAGE_NONCE_BYTE_OFFSET = 12;
-
-    event CctpClaimExecuted(
-        bytes32 indexed messageNonce,
-        address indexed recipient,
-        address indexed feeTaker,
-        uint256 relayFee,
-        uint256 netAmount
-    );
 
     event SolverSignerUpdated(address indexed newSigner);
 
@@ -37,16 +25,23 @@ contract CctpClaimExecutor is AccessControl {
     address public immutable USDC;
     address public SOLVER_SIGNER;
 
-    mapping(bytes32 => bool) public messageNonceClaimed;
-
     /**
      * @param _owner Admin; also granted RESCUE_ROLE.
      * @param _messageTransmitter Circle CCTP v2 MessageTransmitter on this chain.
      * @param _solverSigner Transmitter/backend signer that authorises claim calls.
      * @param _usdc Native Circle USDC on this chain (minted by receiveMessage).
      */
-    constructor(address _owner, address _messageTransmitter, address _solverSigner, address _usdc) AccessControl(_owner) {
-        if (_messageTransmitter == address(0) || _solverSigner == address(0) || _usdc == address(0)) {
+    constructor(
+        address _owner,
+        address _messageTransmitter,
+        address _solverSigner,
+        address _usdc
+    ) AccessControl(_owner) {
+        if (
+            _messageTransmitter == address(0) ||
+            _solverSigner == address(0) ||
+            _usdc == address(0)
+        ) {
             revert ZeroAddress();
         }
 
@@ -86,69 +81,51 @@ contract CctpClaimExecutor is AccessControl {
         uint256 quotedRelayFee,
         bytes calldata signature
     ) external {
-        if (recipient == address(0) || feeTaker == address(0)) {
-            revert ZeroAddress();
+        if (
+            SOLVER_SIGNER !=
+            AuthenticationLib.authenticate(
+                keccak256(
+                    abi.encode(
+                        block.chainid,
+                        address(this),
+                        message,
+                        attestation,
+                        recipient,
+                        feeTaker,
+                        quotedRelayFee
+                    )
+                ),
+                signature
+            )
+        ) {
+            revert InvalidSigner();
         }
 
-        _verifySignature(
-            keccak256(
-                abi.encode(
-                    block.chainid,
-                    address(this),
-                    message,
-                    attestation,
-                    recipient,
-                    feeTaker,
-                    quotedRelayFee
-                )
-            ),
-            signature
-        );
+        uint256 balanceBefore = SafeTransferLib.balanceOf(USDC, address(this));
 
-        bytes32 messageNonce = _extractMessageNonce(message);
-        if (messageNonceClaimed[messageNonce]) {
-            revert MessageAlreadyClaimed();
+        MESSAGE_TRANSMITTER.receiveMessage(message, attestation);
+
+        uint256 mintedAmount = SafeTransferLib.balanceOf(USDC, address(this)) -
+            balanceBefore;
+
+        unchecked {
+            SafeTransferLib.safeTransfer(USDC, feeTaker, quotedRelayFee);
+            SafeTransferLib.safeTransfer(
+                USDC,
+                recipient,
+                mintedAmount - quotedRelayFee
+            );
         }
-        messageNonceClaimed[messageNonce] = true;
-
-        uint256 balanceBefore = CurrencyLib.balanceOf(USDC, address(this));
-
-        bool success = MESSAGE_TRANSMITTER.receiveMessage(message, attestation);
-        if (!success) {
-            revert ReceiveMessageFailed();
-        }
-
-        uint256 mintedAmount = CurrencyLib.balanceOf(USDC, address(this)) - balanceBefore;
-        if (mintedAmount < quotedRelayFee) {
-            revert InsufficientMintedAmount();
-        }
-
-        uint256 netAmount = mintedAmount - quotedRelayFee;
-
-        CurrencyLib.transfer(USDC, feeTaker, quotedRelayFee);
-        CurrencyLib.transfer(USDC, recipient, netAmount);
-
-        emit CctpClaimExecuted(messageNonce, recipient, feeTaker, quotedRelayFee, netAmount);
     }
 
     /**
      * @notice Rescue funds locked in the contract by mistake.
      */
-    function rescueFunds(address token, address rescueTo, uint256 amount) external onlyRole(RESCUE_ROLE) {
+    function rescueFunds(
+        address token,
+        address rescueTo,
+        uint256 amount
+    ) external onlyRole(RESCUE_ROLE) {
         RescueFundsLib.rescueFunds(token, rescueTo, amount);
-    }
-
-    function _verifySignature(bytes32 messageHash, bytes calldata signature) internal view {
-        if (SOLVER_SIGNER != AuthenticationLib.authenticate(messageHash, signature)) {
-            revert InvalidSigner();
-        }
-    }
-
-    function _extractMessageNonce(bytes calldata message) internal pure returns (bytes32 messageNonce) {
-        require(message.length >= MESSAGE_NONCE_BYTE_OFFSET + 32, "invalid message length");
-
-        assembly {
-            messageNonce := calldataload(add(message.offset, MESSAGE_NONCE_BYTE_OFFSET))
-        }
     }
 }

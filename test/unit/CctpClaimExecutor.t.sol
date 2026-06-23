@@ -33,7 +33,7 @@ contract CctpClaimExecutorTest is Test {
         transmitter = new MockMessageTransmitter(address(usdc));
         executor = new CctpClaimExecutor(OWNER, address(transmitter), solverSigner, address(usdc));
 
-        message = _buildMessage(bytes32(uint256(42)));
+        message = hex"abcd";
         attestation = hex"abcd";
 
         vm.label(address(executor), "executor");
@@ -49,20 +49,10 @@ contract CctpClaimExecutorTest is Test {
 
         bytes memory signature = _signClaim(message, attestation, RECIPIENT, FEE_TAKER, RELAY_FEE);
 
-        vm.expectEmit(true, true, true, true, address(executor));
-        emit CctpClaimExecutor.CctpClaimExecuted(
-            bytes32(uint256(42)),
-            RECIPIENT,
-            FEE_TAKER,
-            RELAY_FEE,
-            MINT_AMOUNT - RELAY_FEE
-        );
-
         executor.claim(message, attestation, RECIPIENT, FEE_TAKER, RELAY_FEE, signature);
 
         assertEq(usdc.balanceOf(FEE_TAKER), RELAY_FEE);
         assertEq(usdc.balanceOf(RECIPIENT), MINT_AMOUNT - RELAY_FEE);
-        assertTrue(executor.messageNonceClaimed(bytes32(uint256(42))));
     }
 
     function test_claim_revertsIfInvalidSigner() public {
@@ -88,32 +78,6 @@ contract CctpClaimExecutorTest is Test {
 
         vm.expectRevert(CctpClaimExecutor.InvalidSigner.selector);
         executor.claim(message, attestation, RECIPIENT, FEE_TAKER, RELAY_FEE, signature);
-    }
-
-    function test_claim_revertsOnReplay() public {
-        transmitter.setMintAmount(MINT_AMOUNT);
-
-        bytes memory signature = _signClaim(message, attestation, RECIPIENT, FEE_TAKER, RELAY_FEE);
-        executor.claim(message, attestation, RECIPIENT, FEE_TAKER, RELAY_FEE, signature);
-
-        vm.expectRevert(CctpClaimExecutor.MessageAlreadyClaimed.selector);
-        executor.claim(message, attestation, RECIPIENT, FEE_TAKER, RELAY_FEE, signature);
-    }
-
-    function test_claim_revertsIfInsufficientMint() public {
-        transmitter.setMintAmount(RELAY_FEE - 1);
-
-        bytes memory signature = _signClaim(message, attestation, RECIPIENT, FEE_TAKER, RELAY_FEE);
-
-        vm.expectRevert(CctpClaimExecutor.InsufficientMintedAmount.selector);
-        executor.claim(message, attestation, RECIPIENT, FEE_TAKER, RELAY_FEE, signature);
-    }
-
-    function test_claim_revertsIfZeroRecipient() public {
-        bytes memory signature = _signClaim(message, attestation, address(0), FEE_TAKER, RELAY_FEE);
-
-        vm.expectRevert(CctpClaimExecutor.ZeroAddress.selector);
-        executor.claim(message, attestation, address(0), FEE_TAKER, RELAY_FEE, signature);
     }
 
     function test_rescueFunds_onlyOwner() public {
@@ -172,14 +136,6 @@ contract CctpClaimExecutorTest is Test {
         bytes32 ethSigned = AuthenticationLib.getEthSignedMessageHash(messageHash);
         (uint8 v, bytes32 r, bytes32 s) = vm.sign(privateKey, ethSigned);
         return abi.encodePacked(r, s, v);
-    }
-
-    function _buildMessage(bytes32 nonce) internal pure returns (bytes memory) {
-        bytes memory header = new bytes(44);
-        assembly {
-            mstore(add(add(header, 0x20), 12), nonce)
-        }
-        return header;
     }
 }
 

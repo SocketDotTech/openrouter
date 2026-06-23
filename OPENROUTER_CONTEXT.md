@@ -135,12 +135,13 @@ Deployment helpers:
 
 Contract: [`src/executors/CctpClaimExecutor.sol`](src/executors/CctpClaimExecutor.sol)
 
-- CREATE3 salt: `CctpClaimExecutor` (see [`scripts/deploy/create3.ts`](scripts/deploy/create3.ts))
-- Expected address (canonical CreateX): `0x49845419e8146d9b6f5461DAD7f57BaB34b70168` on all deployed chains
+- CREATE3 salt: `CctpClaimExecutorV2` (see [`scripts/deploy/create3.ts`](scripts/deploy/create3.ts))
+- Expected address (canonical CreateX): `0x424a31A57F7C63918eCaA2Fac38016A8af5A6eC2` on all deployed chains
 - Deploy: `scripts/deploy/deployCctpClaimExecutor.ts` (single chain) or `deployCctpClaimExecutorAllChains.ts`
 - Required env: `DEPLOYER_PRIVATE_KEY`, `SOLVER_SIGNER_ADDRESS` (must match transmitter `SignerService` / `BungeeReceiver.SOLVER_SIGNER`)
 - Source `depositForBurn` must set `mintRecipient` and `destinationCaller` to the claim executor
 - Transmitter signs and calls `claim(message, attestation, recipient, feeTaker, quotedRelayFee, signature)`; relay fee is collected in USDC on destination
+- Replay protection is on Circle `MessageTransmitter.usedNonces` (no local nonce map); fee split uses minted balance delta minus `quotedRelayFee`
 
 Sync deployed address into:
 
