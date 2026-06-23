@@ -55,6 +55,34 @@ export const ACROSS_MANIPULATOR_CREATE3_SALT = keccak256(
   toUtf8Bytes(ACROSS_MANIPULATOR_CREATE3_SALT_TEXT),
 );
 
+/** CREATE3 salt label used by `deployCelerExecutor.ts`. */
+export const CELER_EXECUTOR_CREATE3_SALT_TEXT = 'CelerExecutor';
+
+/** Keccak256 salt for deterministic CelerExecutor CREATE3 deployments. */
+export const CELER_EXECUTOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(CELER_EXECUTOR_CREATE3_SALT_TEXT),
+);
+
+/** CREATE3 salt label used by `deployRFQVaultExecutor.ts`. */
+export const RFQ_VAULT_EXECUTOR_CREATE3_SALT_TEXT = 'RFQVaultExecutor';
+
+/** Keccak256 salt for deterministic RFQVaultExecutor CREATE3 deployments. */
+export const RFQ_VAULT_EXECUTOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(RFQ_VAULT_EXECUTOR_CREATE3_SALT_TEXT),
+);
+
+/** CREATE3 salt label used by `deployCctpClaimExecutor.ts`. */
+export const CCTP_CLAIM_EXECUTOR_CREATE3_SALT_TEXT = 'CctpClaimExecutorV2';
+
+/** Keccak256 salt for deterministic CctpClaimExecutor CREATE3 deployments. */
+export const CCTP_CLAIM_EXECUTOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(CCTP_CLAIM_EXECUTOR_CREATE3_SALT_TEXT),
+);
+
+/** CctpClaimExecutor V2 CREATE3 address for salt `CctpClaimExecutorV2` via canonical CreateX. */
+export const CCTP_CLAIM_EXECUTOR_V2_EXPECTED_ADDRESS =
+  '0x424a31A57F7C63918eCaA2Fac38016A8af5A6eC2';
+
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 const CREATE3_PROXY_INIT_CODE_HASH = keccak256(
   '0x67363d3d37363d34f03d5260086018f3',

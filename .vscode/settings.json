@@ -3,5 +3,17 @@
   "editor.codeActionsOnSave": {
     "source.fixAll.eslint": "explicit",
     "source.organizeImports": "explicit"
+  },
+  "solidity.compileUsingRemoteVersion": "v0.8.34+commit.983a4840b335a15d1418326d7fa830a1252c0848",
+  "solidity.packageDefaultDependenciesContractsDirectory": "src",
+  "solidity.packageDefaultDependenciesDirectory": "lib",
+  "solidity.monoRepoSupport": false,
+  "solidity.remappings": [
+    "forge-std/=lib/forge-std/src/",
+    "solady/=lib/solady/"
+  ],
+  "[solidity]": {
+    "editor.tabSize": 4,
+    "editor.defaultFormatter": "JuanBlanco.solidity"
   }
 }
