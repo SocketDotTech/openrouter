@@ -1,0 +1,12 @@
+{
+  "SuiRFQVaultPackage": "0x4479fe1d936051823526e9a0c890c3d582001d28c6d57ce26d7bb9159a8c5638",
+  "SuiRFQVault": "0xae8664656a8a5644cc8d7f7c4d1fcf7c5123bdb093a588be46aba55e06f71e6c",
+  "SuiRFQVaultUpgradeCap": "0x7675e98b7034e816ca3ce4e48fa140fd109d75ec354a74f38b8dbf7e5c540ae2",
+  "SuiRFQVaultPublishTx": "2gpj3tNCDfrWqZdmdVs5v9Czp8P3nS8RKmbMgZYDoJfx",
+  "SuiRFQVaultUpgradeCapTransferTx": "5MEH4NLVbZNzSptnABSrpMrSmpqYmipM9uBDVbECRhVj",
+  "SuiRFQVaultCreateTx": "Ha4PwcktQhbEYpGSFJ7PCZNpFFH7bVkQadEdz79QbqoW",
+  "SuiRFQVaultOwner": "0xe1947e77f5eaffdecf67a4447220c66a76278b7e1e04b353c59ba5939fc29a07",
+  "SuiRFQVaultSolverPublicKey": "0x026afa8274da660478f59aa43f38527ccf05ada96080a2b431d6c2dd76593fbf9e",
+  "SuiRFQVaultDomain": "SOCKET_RFQ_VAULT_SUI_MAINNET",
+  "SuiRFQVaultNetworkAlias": "mainnet"
+}

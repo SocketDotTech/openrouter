@@ -31,6 +31,7 @@ node_modules
 /cache-hh
 /artifacts-tron
 /cache_hardhat-tron
+sui/**/build/
 
 .DS_Store
 .cursor/rules/

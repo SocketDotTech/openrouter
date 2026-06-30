@@ -8,10 +8,7 @@ module rfq_vault::vault {
     use sui::coin::{Self, Coin};
     use sui::ecdsa_k1;
     use sui::event;
-    use sui::object::{Self, UID};
     use sui::table::{Self, Table};
-    use sui::transfer;
-    use sui::tx_context::{Self, TxContext};
 
     const ACTION_FULFIL: u64 = 1;
     const ACTION_REFUND: u64 = 2;
