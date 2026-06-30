@@ -1,4 +1,5 @@
 import { spawnSync } from 'child_process';
+import { config as dotenvConfig } from 'dotenv';
 import { mkdtemp, readFile, rm, writeFile, mkdir } from 'fs/promises';
 import { dirname, resolve } from 'path';
 import { tmpdir } from 'os';
@@ -13,6 +14,8 @@ import {
   SUI_RFQ_VAULT_SOLVER_PUBLIC_KEY,
   SUI_RFQ_VAULT_VERIFY_SOURCE,
 } from './rfqVaultDeploymentConfig';
+
+dotenvConfig({ path: resolve(__dirname, '../../.env') });
 
 type SuiObjectChange = {
   type?: string;
@@ -48,6 +51,7 @@ type DeploymentRecord = {
   SuiRFQVault: string;
   SuiRFQVaultUpgradeCap?: string;
   SuiRFQVaultPublishTx?: string;
+  SuiRFQVaultUpgradeCapTransferTx?: string;
   SuiRFQVaultCreateTx?: string;
   SuiRFQVaultOwner: string;
   SuiRFQVaultSolverPublicKey: string;
@@ -57,6 +61,7 @@ type DeploymentRecord = {
 
 const REPO_ROOT = resolve(__dirname, '../..');
 const DEPLOYER_ALIAS = 'rfq-vault-deployer';
+const TEMP_ENV_ALIAS_PREFIX = 'rfqvault_';
 const SUI_ADDRESS_RE = /^0x[a-fA-F0-9]{64}$/;
 const HEX_RE = /^0x[a-fA-F0-9]*$/;
 const DEPLOYER_SCHEMES = new Set(['ed25519', 'secp256k1', 'secp256r1']);
@@ -164,9 +169,13 @@ function childEnv(configDir: string): NodeJS.ProcessEnv {
 }
 
 function redact(value: string, redactions: readonly string[]): string {
-  return redactions.reduce(
+  const withExplicitRedactions = redactions.reduce(
     (acc, secret) => (secret ? acc.split(secret).join('[redacted]') : acc),
     value,
+  );
+  return withExplicitRedactions.replace(
+    /secret recovery phrase\s*:\s*\[[^\]]*]/gi,
+    'secret recovery phrase : [redacted]',
   );
 }
 
@@ -175,6 +184,7 @@ function runSui(args: string[], params: {
   env?: NodeJS.ProcessEnv;
   label: string;
   redactions?: readonly string[];
+  suppressFailureOutput?: boolean;
 }): string {
   console.log(`[sui] ${params.label}`);
   const result = spawnSync('sui', args, {
@@ -189,6 +199,11 @@ function runSui(args: string[], params: {
   }
 
   if (result.status !== 0) {
+    if (params.suppressFailureOutput) {
+      throw new Error(
+        `${params.label} failed; rerun the same Sui CLI step manually for full output if needed`,
+      );
+    }
     const output = redact(
       [result.stdout, result.stderr].filter(Boolean).join('\n'),
       redactions,
@@ -242,6 +257,10 @@ function deploymentsPath(stage: string): string {
   return resolve(REPO_ROOT, 'deployments', stage, 'addresses', 'sui.json');
 }
 
+function tempEnvAlias(networkAlias: string): string {
+  return `${TEMP_ENV_ALIAS_PREFIX}${networkAlias.replace(/[^A-Za-z0-9_]/g, '_')}`;
+}
+
 async function persistDeployment(
   stage: string,
   record: DeploymentRecord,
@@ -273,6 +292,7 @@ async function main() {
   const packagePath = resolve(REPO_ROOT, config.packagePath);
   const configDir = await mkdtemp(resolve(tmpdir(), 'sui-rfq-vault-deploy-'));
   const clientConfig = resolve(configDir, 'client.yaml');
+  const deployNetworkAlias = tempEnvAlias(config.networkAlias);
   const env = childEnv(configDir);
 
   try {
@@ -287,7 +307,7 @@ async function main() {
         '-y',
         'new-env',
         '--alias',
-        config.networkAlias,
+        deployNetworkAlias,
         '--rpc',
         config.rpcUrl,
       ],
@@ -316,7 +336,7 @@ async function main() {
         clientConfig,
         'switch',
         '--env',
-        config.networkAlias,
+        deployNetworkAlias,
       ],
       { env, label: 'select Sui env' },
     );
@@ -350,6 +370,26 @@ async function main() {
       publishResult,
       '0x2::package::UpgradeCap',
     );
+    let upgradeCapTransferDigest: string | undefined;
+    if (upgradeCapId) {
+      const upgradeCapTransferResult = runSuiJson<SuiCommandResult>(
+        [
+          'client',
+          '--client.config',
+          clientConfig,
+          '--json',
+          'transfer',
+          '--to',
+          config.ownerAddress,
+          '--object-id',
+          upgradeCapId,
+          '--gas-budget',
+          config.gasBudget,
+        ],
+        { env, label: 'transfer RFQ vault package UpgradeCap to owner' },
+      );
+      upgradeCapTransferDigest = upgradeCapTransferResult.digest;
+    }
 
     const createVaultResult = runSuiJson<SuiCommandResult>(
       [
@@ -380,6 +420,19 @@ async function main() {
       );
     }
 
+    const filePath = await persistDeployment(config.stage, {
+      SuiRFQVaultPackage: packageId,
+      SuiRFQVault: vaultId,
+      SuiRFQVaultUpgradeCap: upgradeCapId,
+      SuiRFQVaultPublishTx: publishResult.digest,
+      SuiRFQVaultUpgradeCapTransferTx: upgradeCapTransferDigest,
+      SuiRFQVaultCreateTx: createVaultResult.digest,
+      SuiRFQVaultOwner: config.ownerAddress,
+      SuiRFQVaultSolverPublicKey: config.solverPublicKey,
+      SuiRFQVaultDomain: config.domain,
+      SuiRFQVaultNetworkAlias: config.networkAlias,
+    });
+
     if (config.verifySource) {
       runSui(
         [
@@ -389,25 +442,11 @@ async function main() {
           '--json',
           'verify-source',
           packagePath,
-          '--address-override',
-          packageId,
           '--verify-deps',
         ],
         { env, label: 'verify published source' },
       );
     }
-
-    const filePath = await persistDeployment(config.stage, {
-      SuiRFQVaultPackage: packageId,
-      SuiRFQVault: vaultId,
-      SuiRFQVaultUpgradeCap: upgradeCapId,
-      SuiRFQVaultPublishTx: publishResult.digest,
-      SuiRFQVaultCreateTx: createVaultResult.digest,
-      SuiRFQVaultOwner: config.ownerAddress,
-      SuiRFQVaultSolverPublicKey: config.solverPublicKey,
-      SuiRFQVaultDomain: config.domain,
-      SuiRFQVaultNetworkAlias: config.networkAlias,
-    });
 
     console.log('');
     console.log('Sui RFQ vault deployed');
