@@ -33,3 +33,4 @@ node_modules
 /cache_hardhat-tron
 
 .DS_Store
+.cursor/rules/
