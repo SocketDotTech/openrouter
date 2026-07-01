@@ -14,6 +14,10 @@
     "deploy:cctp-claim-executor:all": "ts-node scripts/deploy/deployCctpClaimExecutorAllChains.ts",
     "deploy:rfq-vault-executor:all": "ts-node scripts/deploy/deployRFQVaultExecutorAllChains.ts",
     "deploy:rfq-vault-executor": "hardhat run scripts/deploy/deployRFQVaultExecutor.ts --network",
+    "deploy:sui-rfq-vault": "ts-node scripts/sui/deployRfqVault.ts",
+    "sui:rfq-vault:kms-solver": "ts-node scripts/sui/printKmsSolverKey.ts",
+    "sui:rfq-vault:build": "sui move build --path sui/rfq-vault",
+    "sui:rfq-vault:test": "sui move test --path sui/rfq-vault",
     "check:openrouter": "hardhat run scripts/deploy/checkOpenRouterDeployment.ts",
     "verify:openrouter": "ts-node scripts/deploy/verifyOpenRouterBatch.ts",
     "check:allowance-holder": "hardhat run scripts/deploy/checkAllowanceHolderDeployment.ts",
@@ -27,6 +31,7 @@
     "slither": "bash scripts/docker-slither.sh"
   },
   "devDependencies": {
+    "@noble/hashes": "^1.4.0",
     "@arbitrum/sdk": "^4.0.5",
     "@nomicfoundation/hardhat-foundry": "^1.1.2",
     "@nomicfoundation/hardhat-toolbox": "^5.0.0",
