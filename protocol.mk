@@ -1,7 +1,7 @@
 .PHONY: deploy-openrouter deploy-openrouter-cancun deploy-openrouter-shanghai deploy-allowance-holder deploy-across-manipulator check-openrouter check-allowance-holder check-across-manipulator
 
-OPENROUTER_NETWORKS = ethereum polygon base optimism arbitrum bsc worldchain sonic ink avalanche unichain berachain scroll hyperEvm plasma monad linea mantle gnosis katana mode megaeth plume blast soneium sei
-ALLOWANCE_HOLDER_NETWORKS = ethereum polygon base optimism arbitrum bsc worldchain sonic ink avalanche unichain berachain scroll hyperEvm plasma monad linea mantle gnosis katana mode megaeth plume blast soneium sei tempo
+OPENROUTER_NETWORKS = ethereum polygon base optimism arbitrum bsc worldchain sonic ink avalanche unichain berachain scroll hyperEvm plasma monad linea mantle gnosis katana mode megaeth robinhood plume blast soneium sei
+ALLOWANCE_HOLDER_NETWORKS = ethereum polygon base optimism arbitrum bsc worldchain sonic ink avalanche unichain berachain scroll hyperEvm plasma monad linea mantle gnosis katana mode megaeth robinhood plume blast soneium sei tempo
 
 # Chains supported by both Across (bungee-backend) and OpenRouter (protocol.mk).
 ACROSS_MANIPULATOR_NETWORKS = ethereum polygon base optimism arbitrum bsc worldchain ink unichain scroll hyperEvm plasma monad linea tempo mode
