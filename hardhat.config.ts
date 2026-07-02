@@ -146,6 +146,11 @@ const config: HardhatUserConfig = {
       chainId: 4326,
       accounts,
     },
+    robinhood: {
+      url: process.env.ROBINHOOD_RPC ?? '',
+      chainId: 4663,
+      accounts,
+    },
     plume: {
       url: process.env.PLUME_RPC ?? 'https://rpc.plume.org',
       chainId: 98866,
@@ -262,6 +267,7 @@ const config: HardhatUserConfig = {
       sei: explorerApiKey(process.env.SEI_ETHERSCAN_KEY),
       soneium: explorerApiKey(process.env.SONEIUM_ETHERSCAN_KEY),
       megaeth: explorerApiKey(process.env.MEGAETH_ETHERSCAN_KEY),
+      robinhood: explorerApiKey(process.env.ROBINHOOD_ETHERSCAN_KEY),
       plume: explorerApiKey(process.env.PLUME_ETHERSCAN_KEY),
       ethereal: explorerApiKey(process.env.ETHEREAL_ETHERSCAN_KEY),
       katana: explorerApiKey(process.env.KATANA_ETHERSCAN_KEY),
@@ -445,6 +451,14 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: 'https://api.etherscan.io/v2/api?chainid=4326',
           browserURL: 'https://mega.etherscan.io',
+        },
+      },
+      {
+        network: 'robinhood',
+        chainId: 4663,
+        urls: {
+          apiURL: 'https://robinhoodchain.blockscout.com/api',
+          browserURL: 'https://robinhoodchain.blockscout.com',
         },
       },
       {

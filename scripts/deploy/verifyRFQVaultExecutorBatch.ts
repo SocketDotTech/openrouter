@@ -50,6 +50,7 @@ const EXPLORERS_BY_CHAIN_ID = new Map<number, ExplorerConfig>([
   [999, { verifier: 'etherscan', chainArg: '999' }],
   [1868, { verifier: 'custom', chainArg: '1868', verifierUrl: 'https://soneium.blockscout.com/api' }],
   [4326, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=4326' }],
+  [4663, { verifier: 'custom', chainArg: '4663', verifierUrl: 'https://robinhoodchain.blockscout.com/api' }],
   [5000, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=5000' }],
   [5042, { verifier: 'sourcify', chainArg: '5042' }],
   [8453, { verifier: 'etherscan', chainArg: '8453' }],
