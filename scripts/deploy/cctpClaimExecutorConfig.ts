@@ -88,6 +88,11 @@ export const CCTP_CLAIM_EXECUTOR_CHAIN_CONFIG: Record<number, CctpClaimExecutorC
     messageTransmitter: CCTP_MESSAGE_TRANSMITTER,
     usdcAddress: '0x754704Bc059F8C67012fEd69BC8A327a5aafb603',
   },
+  [CHAIN_IDS.ARC]: {
+    chainId: CHAIN_IDS.ARC,
+    messageTransmitter: CCTP_MESSAGE_TRANSMITTER,
+    usdcAddress: '0x3600000000000000000000000000000000000000',
+  },
 };
 
 export const CCTP_CLAIM_EXECUTOR_CHAIN_IDS = Object.keys(CCTP_CLAIM_EXECUTOR_CHAIN_CONFIG).map(

@@ -235,18 +235,30 @@ async function main() {
     address: executorAddress,
   });
 
-  if (chainId !== 31337) {
+  if (networkName === 'arc') {
+    console.log(
+      'Skipping post-deploy Hardhat verification for arc; run `npm run verify:cctp-claim-executor -- arc` to submit via Sourcify.',
+    );
+  } else if (chainId !== 31337) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
-    await hre.run('verify:verify', {
-      address: executorAddress,
-      constructorArguments: [
-        owner,
-        chainConfig.messageTransmitter,
-        solverSigner,
-        chainConfig.usdcAddress,
-      ],
-    });
+    try {
+      await hre.run('verify:verify', {
+        address: executorAddress,
+        constructorArguments: [
+          owner,
+          chainConfig.messageTransmitter,
+          solverSigner,
+          chainConfig.usdcAddress,
+        ],
+      });
+      console.log('Contract verified on block explorer');
+    } catch (err) {
+      console.warn(
+        'Contract verification failed (deployment succeeded):',
+        err instanceof Error ? err.message : err,
+      );
+    }
   }
 }
 

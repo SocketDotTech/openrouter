@@ -45,6 +45,8 @@ export const CHAIN_IDS = {
   /** Plume mainnet — Relay WPLUME → Base USDC e2e. */
   PLUME: 98866,
   KATANA: 747474,
+  /** Ethereal mainnet — deposit-only destination chain for EtherealExecutor. */
+  ETHEREAL: 5064014,
 } as const;
 
 /** Base URL for explorer transaction pages: `${prefix}${txHash}`. */

@@ -83,6 +83,22 @@ export const CCTP_CLAIM_EXECUTOR_CREATE3_SALT = keccak256(
 export const CCTP_CLAIM_EXECUTOR_V2_EXPECTED_ADDRESS =
   '0x424a31A57F7C63918eCaA2Fac38016A8af5A6eC2';
 
+/** CREATE3 salt label used by `deployEtherealExecutor.ts`. */
+export const ETHEREAL_EXECUTOR_CREATE3_SALT_TEXT = 'EtherealExecutor';
+
+/** Keccak256 salt for deterministic EtherealExecutor CREATE3 deployments. */
+export const ETHEREAL_EXECUTOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(ETHEREAL_EXECUTOR_CREATE3_SALT_TEXT),
+);
+
+/** CREATE3 salt label used by `deployHypercoreExecutor.ts`. */
+export const HYPERCORE_EXECUTOR_CREATE3_SALT_TEXT = 'HypercoreDepositExecutor';
+
+/** Keccak256 salt for deterministic HypercoreDepositExecutor CREATE3 deployments. */
+export const HYPERCORE_EXECUTOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(HYPERCORE_EXECUTOR_CREATE3_SALT_TEXT),
+);
+
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
 const CREATE3_PROXY_INIT_CODE_HASH = keccak256(
   '0x67363d3d37363d34f03d5260086018f3',
