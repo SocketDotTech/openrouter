@@ -118,7 +118,7 @@ variant, CREATE3 salt, initcode hash when known, and runtime bytecode hash for:
 ```text
 ethereum polygon base optimism arbitrum bsc worldchain sonic ink avalanche
 unichain berachain scroll hyperEvm plasma monad linea gnosis katana mode
-megaeth plume blast soneium sei tempo
+megaeth robinhood plume blast soneium sei tempo
 ```
 
 The Cancun OpenRouter was deployed with CREATE3 on all configured OpenRouter
@@ -140,7 +140,7 @@ CREATE3 salt, initcode hash when known, and runtime bytecode hash for:
 ```text
 ethereum polygon base optimism arbitrum bsc worldchain sonic ink avalanche
 unichain berachain scroll hyperEvm plasma monad linea gnosis katana mode
-megaeth plume blast soneium sei
+megaeth robinhood plume blast soneium sei
 ```
 
 ## Commands

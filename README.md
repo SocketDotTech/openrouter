@@ -148,6 +148,7 @@ OpenRouter is deployed at **`0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a`** (CREA
 | Sei | 1329 |
 | Plume | 98866 |
 | Katana | 747474 |
+| Robinhood | 4663 |
 
 **AllowanceHolder** (users approve this contract, not OpenRouter):
 

@@ -76,13 +76,16 @@ async function main() {
   console.log(`AcrossERC20AmountManipulator:  ${manipulatorAddress}`);
 
   const chainId = (await ethers.provider.getNetwork()).chainId;
-  if (chainId !== 31337n) {
+  const skipVerify = process.env.SKIP_VERIFY?.trim().toLowerCase() === 'true';
+  if (chainId !== 31337n && !skipVerify) {
     await new Promise((resolve) => setTimeout(resolve, 5000));
 
     await hre.run('verify:verify', {
       address: manipulatorAddress,
       constructorArguments: [],
     });
+  } else if (skipVerify) {
+    console.log('Skipping block explorer verification (SKIP_VERIFY=true)');
   }
 }
 

@@ -1,0 +1,6 @@
+[package]
+name = "RfqVault"
+edition = "2024.beta"
+
+[addresses]
+rfq_vault = "0x0"
