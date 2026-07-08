@@ -40,6 +40,7 @@ export const RECEIVER_DEPLOY_NETWORKS: readonly ReceiverDeployNetwork[] = [
   { name: 'blast', chainId: CHAIN_IDS.BLAST, rpcEnvKey: 'BLAST_RPC', rpcFallback: 'https://blastl2-mainnet.public.blastapi.io' },
   { name: 'soneium', chainId: CHAIN_IDS.SONEIUM, rpcEnvKey: 'SONEIUM_RPC', rpcFallback: 'https://soneium.drpc.org' },
   { name: 'sei', chainId: CHAIN_IDS.SEI, rpcEnvKey: 'SEI_RPC', rpcFallback: 'https://evm-rpc.sei-apis.com' },
+  { name: 'citrea', chainId: CHAIN_IDS.CITREA, rpcEnvKey: 'CITREA_RPC', rpcFallback: 'https://rpc.mainnet.citrea.xyz' },
 ] as const;
 
 /** bungee-backend uses `*_RPC_URL` naming; poc-openrouter uses `*_RPC`. */
@@ -72,6 +73,7 @@ const RPC_ENV_ALIASES: Partial<Record<string, readonly string[]>> = {
   MONAD_RPC: ['MONAD_RPC_URL'],
   MEGAETH_RPC: ['MEGAETH_RPC_URL'],
   ROBINHOOD_RPC: ['ROBINHOOD_RPC_URL'],
+  CITREA_RPC: ['CITREA_RPC_URL'],
 };
 
 function stripEnvQuotes(value: string): string {

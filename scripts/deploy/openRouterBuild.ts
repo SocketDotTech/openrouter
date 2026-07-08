@@ -55,6 +55,7 @@ export const OPENROUTER_NETWORK_CHAIN_IDS: Record<string, number> = {
   blast: CHAIN_IDS.BLAST,
   soneium: CHAIN_IDS.SONEIUM,
   sei: CHAIN_IDS.SEI,
+  citrea: CHAIN_IDS.CITREA,
   arbitrumSepolia: 421614,
   optimismSepolia: 11155420,
 };
@@ -88,6 +89,7 @@ export const OPENROUTER_DEPLOY_NETWORKS = [
   'blast',
   'soneium',
   'sei',
+  'citrea',
 ] as const;
 
 export function networkForChainId(chainId: number): string | undefined {

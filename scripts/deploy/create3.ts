@@ -92,6 +92,10 @@ const CREATE3_PROXY_INIT_CODE_HASH = keccak256(
 export const OPEN_ROUTER_EXPECTED_ADDRESS =
   '0x50cFe7c1938dB66A1a6D2e86D36F39FBef3d5c4a';
 
+/** Observed AllowanceHolder CREATE3 address for salt `AllowanceHolder50c4e7:5981577` via canonical CreateX. */
+export const ALLOWANCE_HOLDER_EXPECTED_ADDRESS =
+  '0x50c4E75a512F2A14A7b304787Adf79C4531A5909';
+
 /** Observed AcrossERC20AmountManipulator CREATE3 address on all deployed mainnets. */
 export const ACROSS_MANIPULATOR_EXPECTED_ADDRESS =
   '0x05481b7163c376ab4cb0ebc7d17f2cf7651042ee';
@@ -169,6 +173,40 @@ export function resolveOpenRouterAddress(): string {
 /** Returns true when `code` looks like a deployed contract (non-empty bytecode). */
 export function hasContractBytecode(code: string): boolean {
   return code !== '0x' && code.length > 2;
+}
+
+/**
+ * Ensures `actual` equals the canonical CREATE3 address for `label`.
+ * Used as a final guard before broadcasting CREATE3 deployments.
+ */
+export function assertAddressMatchesExpected(params: {
+  label: string;
+  actual: string;
+  expected: string;
+}): void {
+  if (params.actual.toLowerCase() !== params.expected.toLowerCase()) {
+    throw new Error(
+      [
+        `${params.label} address mismatch.`,
+        `computed=${params.actual}`,
+        `expected=${params.expected}`,
+      ].join(' '),
+    );
+  }
+}
+
+/**
+ * Verifies the canonical CreateX factory is deployed on the target chain.
+ */
+export async function assertCreateXFactoryDeployed(
+  provider: Provider,
+): Promise<void> {
+  const bytecode = await provider.getCode(CREATE_X_FACTORY);
+  if (!hasContractBytecode(bytecode)) {
+    throw new Error(
+      `CreateX factory not deployed at ${CREATE_X_FACTORY} on this chain`,
+    );
+  }
 }
 
 /**

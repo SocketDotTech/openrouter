@@ -63,6 +63,7 @@ const EXPLORERS_BY_CHAIN_ID = new Map<number, ExplorerConfig>([
   [9745, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=9745' }],
   [98866, { verifier: 'sourcify', chainArg: '98866' }],
   [4217, { verifier: 'sourcify', chainArg: '4217' }],
+  [4114, { verifier: 'custom', chainArg: '4114', verifierUrl: 'https://explorer.mainnet.citrea.xyz/api' }],
 ]);
 
 function readDeploymentRecords(): AllowanceHolderDeploymentRecord[] {

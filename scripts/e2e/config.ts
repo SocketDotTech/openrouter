@@ -47,6 +47,8 @@ export const CHAIN_IDS = {
   /** Plume mainnet — Relay WPLUME → Base USDC e2e. */
   PLUME: 98866,
   KATANA: 747474,
+  /** Citrea mainnet — Bitcoin L2 zkEVM (Pectra; deploy with cancun variant/bytecode). */
+  CITREA: 4114,
 } as const;
 
 /** Base URL for explorer transaction pages: `${prefix}${txHash}`. */
@@ -79,6 +81,7 @@ export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
   [CHAIN_IDS.SEI]: 'https://seitrace.com/tx/',
   [CHAIN_IDS.PLUME]: 'https://explorer.plume.org/tx/',
   [CHAIN_IDS.KATANA]: 'https://explorer.katanarpc.com/tx/',
+  [CHAIN_IDS.CITREA]: 'https://explorer.mainnet.citrea.xyz/tx/',
 };
 
 // ─── Contract addresses ───────────────────────────────────────────────────────
@@ -97,6 +100,7 @@ const ALLOWANCE_HOLDER_VARIANT_BY_CHAIN_ID: Record<
   number,
   AllowanceHolderVariant
 > = {
+  [CHAIN_IDS.CITREA]: 'cancun',
 };
 
 /**
@@ -427,6 +431,7 @@ export const RPC = {
   SEI: process.env.SEI_RPC ?? 'https://evm-rpc.sei-apis.com',
   PLUME: process.env.PLUME_RPC ?? 'https://rpc.plume.org',
   KATANA: process.env.KATANA_RPC ?? 'https://rpc.katana.network',
+  CITREA: process.env.CITREA_RPC ?? 'https://rpc.mainnet.citrea.xyz',
 } as const;
 
 // ─── API keys ─────────────────────────────────────────────────────────────────

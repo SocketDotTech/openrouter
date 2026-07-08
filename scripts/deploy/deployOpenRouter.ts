@@ -6,19 +6,28 @@
  *
  * Required env vars:
  *   DEPLOYER_PRIVATE_KEY — deployer wallet private key
+ *
+ * AllowanceHolder must already be deployed at the canonical CREATE3 address
+ * (`0x50c4E75a512F2A14A7b304787Adf79C4531A5909`) before OpenRouter deploy.
  */
 
 import hre from 'hardhat';
 import { ethers } from 'hardhat';
 import { allowanceHolderVariantForChain } from '../e2e/config';
 import {
+  ALLOWANCE_HOLDER_EXPECTED_ADDRESS,
   CREATE_X_FACTORY,
   Create3ABI,
   OPEN_ROUTER_CREATE3_SALT,
   OPEN_ROUTER_CREATE3_SALT_TEXT,
+  OPEN_ROUTER_EXPECTED_ADDRESS,
+  assertAddressMatchesExpected,
+  assertCreateXFactoryDeployed,
   decodeCreate3DeploymentFromTxReceipt,
   getOpenRouterDeploymentStatus,
 } from './create3';
+import { getAllowanceHolderDeploymentStatus } from './allowanceHolderDeployment';
+import { confirmCreate3Deployment } from './deployConfirm';
 import { upsertDeploymentRegistryRow } from './deploymentRegistry';
 
 type OpenRouterDeploymentStatus = 'deployed' | 'already_deployed';
@@ -67,6 +76,8 @@ async function main() {
   console.log('Chain ID:  ', chainId);
   console.log('');
 
+  await assertCreateXFactoryDeployed(ethers.provider);
+
   const existing = await getOpenRouterDeploymentStatus({
     provider: ethers.provider,
   });
@@ -90,6 +101,30 @@ async function main() {
     return;
   }
 
+  assertAddressMatchesExpected({
+    label: 'OpenRouter',
+    actual: existing.address,
+    expected: OPEN_ROUTER_EXPECTED_ADDRESS,
+  });
+
+  const allowanceHolder = await getAllowanceHolderDeploymentStatus({
+    provider: ethers.provider,
+    chainId,
+  });
+  if (!allowanceHolder.deployed) {
+    throw new Error(
+      [
+        'AllowanceHolder must be deployed before OpenRouter.',
+        `expected=${allowanceHolder.address}`,
+      ].join(' '),
+    );
+  }
+  assertAddressMatchesExpected({
+    label: 'AllowanceHolder prerequisite',
+    actual: allowanceHolder.address,
+    expected: ALLOWANCE_HOLDER_EXPECTED_ADDRESS,
+  });
+
   const create3Factory = new ethers.Contract(
     CREATE_X_FACTORY,
     Create3ABI,
@@ -111,6 +146,21 @@ async function main() {
       `CREATE3 staticCall returned ${deployAddress}, expected ${existing.address}`,
     );
   }
+
+  const openRouterVariant = resolveOpenRouterVariant(chainId);
+  await confirmCreate3Deployment({
+    contractLabel: 'OpenRouter',
+    networkName,
+    chainId,
+    deployerAddress: deployer.address,
+    expectedAddress: OPEN_ROUTER_EXPECTED_ADDRESS,
+    create3Address: deployAddress,
+    extraLines: [
+      `Hardhat EVM:      ${openRouterVariant}`,
+      `AllowanceHolder:  ${allowanceHolder.address}`,
+      `CREATE3 salt:     ${OPEN_ROUTER_CREATE3_SALT}`,
+    ],
+  });
 
   console.log('Deploying OpenRouter via CREATE3...');
   const create3Deployment = await create3Factory.deployCreate3(

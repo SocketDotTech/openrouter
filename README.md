@@ -13,6 +13,8 @@ There is no backend signature verification, nonce, or deadline on this contract.
 | [`OPENROUTER.md`](OPENROUTER.md) | Contract API, flags, modular packing, structured vs generic routes |
 | [`OPENROUTER_CONTEXT.md`](OPENROUTER_CONTEXT.md) | Integration context, PoCs, backend ABI pointers |
 | [`OPENROUTER_ASSUMPTIONS.md`](OPENROUTER_ASSUMPTIONS.md) | Operational and business assumptions for the unchecked router |
+| [`NEW_CHAIN_DEPLOYMENT_RUNBOOK.md`](NEW_CHAIN_DEPLOYMENT_RUNBOOK.md) | **New chain:** AH + OpenRouter CREATE3 deploy, dry run, verify, backend sync |
+| [`ALLOWANCE_HOLDER_DEPLOYMENT.md`](ALLOWANCE_HOLDER_DEPLOYMENT.md) | AllowanceHolder bytecode, salts, verification details |
 | [`AGENTS.md`](AGENTS.md) | Agent/contributor notes (backend encoder paths) |
 
 ## Repository layout
@@ -91,7 +93,9 @@ OpenRouter deploys should go through `scripts/deploy/deployOpenRouterPatched.ts`
 
 For multi-chain deploys, use `npm run deploy:openrouter:batch -- ...` or the Make targets. The batch deployer groups networks by build profile `(EVM version, AllowanceHolder address)`, compiles once per profile, then deploys matching networks in parallel with `--no-compile`. Use `make deploy-openrouter-cancun` to deploy only Cancun profiles.
 
-Detailed runbook: [`ALLOWANCE_HOLDER_DEPLOYMENT.md`](ALLOWANCE_HOLDER_DEPLOYMENT.md).
+**New chain (step-by-step):** [`NEW_CHAIN_DEPLOYMENT_RUNBOOK.md`](NEW_CHAIN_DEPLOYMENT_RUNBOOK.md) — prerequisites, repo wiring, dry run, AH → OR deploy order, cross-chain bytecode checks, backend sync.
+
+Detailed AllowanceHolder reference: [`ALLOWANCE_HOLDER_DEPLOYMENT.md`](ALLOWANCE_HOLDER_DEPLOYMENT.md).
 
 Modular route packing helpers: [`scripts/e2e/utils/modularActionsBuilder/`](scripts/e2e/utils/modularActionsBuilder/).
 

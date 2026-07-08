@@ -192,6 +192,11 @@ const config: HardhatUserConfig = {
       chainId: 4217,
       accounts,
     },
+    citrea: {
+      url: process.env.CITREA_RPC ?? 'https://rpc.mainnet.citrea.xyz',
+      chainId: 4114,
+      accounts,
+    },
     // testnets
     arbitrumSepolia: {
       url:
@@ -275,6 +280,7 @@ const config: HardhatUserConfig = {
       plasma: explorerApiKey(process.env.PLASMA_ETHERSCAN_KEY),
       monad: explorerApiKey(process.env.MONAD_ETHERSCAN_KEY),
       tempo: explorerApiKey(process.env.TEMPO_ETHERSCAN_KEY),
+      citrea: explorerApiKey(process.env.CITREA_ETHERSCAN_KEY),
       arbitrumSepolia: explorerApiKey(
         process.env.ARBITRUM_ETHERSCAN_KEY,
         process.env.ARBISCAN_API_KEY,
@@ -516,6 +522,14 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: 'https://explore.mainnet.tempo.xyz/api',
           browserURL: 'https://explore.mainnet.tempo.xyz',
+        },
+      },
+      {
+        network: 'citrea',
+        chainId: 4114,
+        urls: {
+          apiURL: 'https://explorer.mainnet.citrea.xyz/api',
+          browserURL: 'https://citreascan.com',
         },
       },
       {

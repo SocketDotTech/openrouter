@@ -1,5 +1,7 @@
 # AllowanceHolder Deployment Runbook
 
+> **Deploying to a new chain?** Start with [`NEW_CHAIN_DEPLOYMENT_RUNBOOK.md`](NEW_CHAIN_DEPLOYMENT_RUNBOOK.md) for the full AllowanceHolder + OpenRouter CREATE3 workflow, dry run, and backend sync.
+
 This repo can deploy Socket-owned AllowanceHolder instances instead of relying
 on 0x's deployed addresses.
 

@@ -20,14 +20,18 @@
  *   ALLOWANCE_HOLDER_SHANGHAI_INITCODE_HASH - optional expected Shanghai initcode hash
  *
  * The configured AllowanceHolder address must match the CreateX-computed
- * CREATE3 address.
+ * CREATE3 address and the canonical Socket address
+ * (`0x50c4E75a512F2A14A7b304787Adf79C4531A5909`).
  */
 
 import hre from 'hardhat';
 import { ethers } from 'hardhat';
 import {
+  ALLOWANCE_HOLDER_EXPECTED_ADDRESS,
   CREATE_X_FACTORY,
   Create3ABI,
+  assertAddressMatchesExpected,
+  assertCreateXFactoryDeployed,
   decodeCreate3DeploymentFromTxReceipt,
 } from './create3';
 import {
@@ -35,6 +39,7 @@ import {
   resolveAllowanceHolderDeploymentBytecode,
   writeAllowanceHolderDeploymentRegistry,
 } from './allowanceHolderDeployment';
+import { confirmCreate3Deployment } from './deployConfirm';
 
 async function main() {
   const [deployer] = await ethers.getSigners();
@@ -45,6 +50,8 @@ async function main() {
   console.log('Network:  ', networkName);
   console.log('Chain ID: ', chainId);
   console.log('');
+
+  await assertCreateXFactoryDeployed(ethers.provider);
 
   const existing = await getAllowanceHolderDeploymentStatus({
     provider: ethers.provider,
@@ -83,6 +90,11 @@ async function main() {
   }
 
   console.log('Expected AllowanceHolder:', existing.address);
+  assertAddressMatchesExpected({
+    label: 'AllowanceHolder',
+    actual: existing.address,
+    expected: ALLOWANCE_HOLDER_EXPECTED_ADDRESS,
+  });
 
   const create3Factory = new ethers.Contract(
     CREATE_X_FACTORY,
@@ -101,6 +113,20 @@ async function main() {
       `CREATE3 staticCall returned ${deployAddress}, expected ${existing.address}`,
     );
   }
+
+  await confirmCreate3Deployment({
+    contractLabel: 'AllowanceHolder',
+    networkName,
+    chainId,
+    deployerAddress: deployer.address,
+    expectedAddress: ALLOWANCE_HOLDER_EXPECTED_ADDRESS,
+    create3Address: deployAddress,
+    extraLines: [
+      `Variant:          ${deployment.variant}`,
+      `Initcode hash:    ${deployment.initcodeHash}`,
+      `CREATE3 salt:     ${existing.create3Salt}`,
+    ],
+  });
 
   console.log('Deploying AllowanceHolder via CREATE3...');
   const create3Deployment = await create3Factory.deployCreate3(

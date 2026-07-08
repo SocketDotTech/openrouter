@@ -121,6 +121,7 @@ Resolve at runtime with `allowanceHolderForChain(chainId)` in e2e scripts. On-ch
 
 Deployment helpers:
 
+- **New chain (AH + OpenRouter CREATE3):** follow [`NEW_CHAIN_DEPLOYMENT_RUNBOOK.md`](NEW_CHAIN_DEPLOYMENT_RUNBOOK.md) end-to-end; run dry run before broadcast.
 - 0x has two AllowanceHolder hardfork variants: Cancun/EIP-1153 uses transient `tload/tstore`; Shanghai/no-TLOAD uses the storage-backed `AllowanceHolderOld` pattern.
 - `scripts/deploy/checkAllowanceHolderDeployment.ts` checks bytecode at the configured holder address and upserts the chain row in `deployments.csv`.
 - `scripts/deploy/deployAllowanceHolder.ts` deploys holder bytecode from `ALLOWANCE_HOLDER_CANCUN_DEPLOYMENT_BYTECODE` or `ALLOWANCE_HOLDER_SHANGHAI_DEPLOYMENT_BYTECODE`, checks optional initcode hashes, and uses CreateX CREATE3 with salt text `AllowanceHolder50c4e7:5981577`.
