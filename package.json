@@ -14,6 +14,8 @@
     "deploy:cctp-claim-executor:all": "ts-node scripts/deploy/deployCctpClaimExecutorAllChains.ts",
     "deploy:rfq-vault-executor:all": "ts-node scripts/deploy/deployRFQVaultExecutorAllChains.ts",
     "deploy:rfq-vault-executor": "hardhat run scripts/deploy/deployRFQVaultExecutor.ts --network",
+    "deploy:ethereal-executor": "hardhat run scripts/deploy/deployEtherealExecutor.ts --network",
+    "deploy:hypercore-executor": "hardhat run scripts/deploy/deployHypercoreExecutor.ts --network",
     "deploy:sui-rfq-vault": "ts-node scripts/sui/deployRfqVault.ts",
     "fund:sui-rfq-vault": "ts-node scripts/sui/fundRfqVault.ts",
     "sui:rfq-vault:kms-solver": "ts-node scripts/sui/printKmsSolverKey.ts",
