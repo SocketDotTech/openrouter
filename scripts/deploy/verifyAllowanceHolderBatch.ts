@@ -25,7 +25,7 @@ interface AllowanceHolderDeploymentRecord {
 
 type ExplorerConfig =
   | { verifier: 'etherscan'; chainArg: string }
-  | { verifier: 'custom'; chainArg: string; verifierUrl: string }
+  | { verifier: 'custom'; chainArg: string; verifierUrl: string; apiKeyOptional?: boolean }
   | { verifier: 'sourcify'; chainArg: string };
 
 const ADDR_HEX_RE = /^0x[a-fA-F0-9]{40}$/;
@@ -63,6 +63,7 @@ const EXPLORERS_BY_CHAIN_ID = new Map<number, ExplorerConfig>([
   [9745, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=9745' }],
   [98866, { verifier: 'sourcify', chainArg: '98866' }],
   [4217, { verifier: 'sourcify', chainArg: '4217' }],
+  [4153, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://explorer.risechain.com/api', apiKeyOptional: true }],
 ]);
 
 function readDeploymentRecords(): AllowanceHolderDeploymentRecord[] {
@@ -134,12 +135,18 @@ function verifierArgs(
   }
 
   if (config.verifier === 'custom') {
-    args.push('--verifier-url', config.verifierUrl, '--verifier-api-key', apiKey);
+    args.push('--verifier-url', config.verifierUrl);
+    if (apiKey) {
+      args.push('--verifier-api-key', apiKey);
+    }
   } else if (config.verifier === 'etherscan') {
     args.push('--etherscan-api-key', apiKey);
   }
 
-  if (config.verifier === 'custom' && config.chainArg === '1') {
+  if (
+    config.verifier === 'custom' &&
+    (config.chainArg === '1' || config.apiKeyOptional)
+  ) {
     args.push('--skip-is-verified-check');
   }
 
@@ -179,7 +186,11 @@ function main() {
       );
       continue;
     }
-    if (explorer.verifier !== 'sourcify' && !apiKey) {
+    if (
+      explorer.verifier !== 'sourcify' &&
+      !apiKey &&
+      !(explorer.verifier === 'custom' && explorer.apiKeyOptional)
+    ) {
       throw new Error('ETHERSCAN_API_KEY is required for non-Sourcify verification');
     }
 

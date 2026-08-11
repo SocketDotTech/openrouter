@@ -27,6 +27,8 @@ export const CHAIN_IDS = {
   ARC: 5042,
   /** Tempo mainnet — AllowanceHolder only; OpenRouter not deployed (deposit-only chain). */
   TEMPO: 4217,
+  /** RISE mainnet. */
+  RISE: 4153,
   /** Robinhood mainnet. */
   ROBINHOOD: 4663,
   /** MegaETH mainnet — Relay USDM → Base USDC e2e. */
@@ -68,6 +70,7 @@ export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
   [CHAIN_IDS.TEMPO]: 'https://explore.mainnet.tempo.xyz/tx/',
   [CHAIN_IDS.ROBINHOOD]: 'https://robinhoodchain.blockscout.com/tx/',
   [CHAIN_IDS.MEGAETH]: 'https://mega.etherscan.io/tx/',
+  [CHAIN_IDS.RISE]: 'https://explorer.risechain.com/tx/',
   [CHAIN_IDS.ARBITRUM]: 'https://arbiscan.io/tx/',
   [CHAIN_IDS.LINEA]: 'https://lineascan.build/tx/',
   [CHAIN_IDS.INK]: 'https://explorer.inkonchain.com/tx/',
@@ -166,6 +169,7 @@ export const OPEN_ROUTER_CHAIN_IDS: readonly number[] = [
   CHAIN_IDS.KATANA,
   CHAIN_IDS.MODE,
   CHAIN_IDS.MEGAETH,
+  CHAIN_IDS.RISE,
   CHAIN_IDS.ROBINHOOD,
   CHAIN_IDS.PLUME,
   CHAIN_IDS.BLAST,

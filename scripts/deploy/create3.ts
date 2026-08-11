@@ -55,6 +55,14 @@ export const ACROSS_MANIPULATOR_CREATE3_SALT = keccak256(
   toUtf8Bytes(ACROSS_MANIPULATOR_CREATE3_SALT_TEXT),
 );
 
+/** CREATE3 salt label used by `deployMathManipulator.ts`. */
+export const MATH_MANIPULATOR_CREATE3_SALT_TEXT = 'MathManipulator';
+
+/** Keccak256 salt for deterministic MathManipulator CREATE3 deployments. */
+export const MATH_MANIPULATOR_CREATE3_SALT = keccak256(
+  toUtf8Bytes(MATH_MANIPULATOR_CREATE3_SALT_TEXT),
+);
+
 /** CREATE3 salt label used by `deployCelerExecutor.ts`. */
 export const CELER_EXECUTOR_CREATE3_SALT_TEXT = 'CelerExecutor';
 
@@ -111,6 +119,10 @@ export const OPEN_ROUTER_EXPECTED_ADDRESS =
 /** Observed AcrossERC20AmountManipulator CREATE3 address on all deployed mainnets. */
 export const ACROSS_MANIPULATOR_EXPECTED_ADDRESS =
   '0x05481b7163c376ab4cb0ebc7d17f2cf7651042ee';
+
+/** MathManipulator CREATE3 address for salt `MathManipulator` via canonical CreateX. */
+export const MATH_MANIPULATOR_EXPECTED_ADDRESS =
+  '0x3c3d4F3D636C06bcEb3bCc71EafE36486Ef40581';
 
 /**
  * BungeeReceiver CREATE3 address for salt `BungeeReceiver` via canonical CreateX.

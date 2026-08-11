@@ -146,6 +146,11 @@ const config: HardhatUserConfig = {
       chainId: 4326,
       accounts,
     },
+    rise: {
+      url: process.env.RISE_RPC ?? 'https://rpc.risechain.com/',
+      chainId: 4153,
+      accounts,
+    },
     robinhood: {
       url: process.env.ROBINHOOD_RPC ?? '',
       chainId: 4663,
@@ -267,6 +272,7 @@ const config: HardhatUserConfig = {
       sei: explorerApiKey(process.env.SEI_ETHERSCAN_KEY),
       soneium: explorerApiKey(process.env.SONEIUM_ETHERSCAN_KEY),
       megaeth: explorerApiKey(process.env.MEGAETH_ETHERSCAN_KEY),
+      rise: process.env.RISE_ETHERSCAN_KEY ?? 'blockscout',
       robinhood: explorerApiKey(process.env.ROBINHOOD_ETHERSCAN_KEY),
       plume: explorerApiKey(process.env.PLUME_ETHERSCAN_KEY),
       ethereal: explorerApiKey(process.env.ETHEREAL_ETHERSCAN_KEY),
@@ -451,6 +457,14 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: 'https://api.etherscan.io/v2/api?chainid=4326',
           browserURL: 'https://mega.etherscan.io',
+        },
+      },
+      {
+        network: 'rise',
+        chainId: 4153,
+        urls: {
+          apiURL: 'https://explorer.risechain.com/api',
+          browserURL: 'https://explorer.risechain.com',
         },
       },
       {

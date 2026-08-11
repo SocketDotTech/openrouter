@@ -11,6 +11,7 @@
     "deploy:allowance-holder": "hardhat run scripts/deploy/deployAllowanceHolder.ts --network",
     "deploy:receiver-executor": "hardhat run scripts/deploy/deployReceiverAllChains.ts",
     "deploy:across-manipulator": "hardhat run scripts/deploy/deployAcrossERC20AmountManipulator.ts --network",
+    "deploy:math-manipulator": "hardhat run scripts/deploy/deployMathManipulator.ts --network",
     "deploy:cctp-claim-executor:all": "ts-node scripts/deploy/deployCctpClaimExecutorAllChains.ts",
     "deploy:rfq-vault-executor:all": "ts-node scripts/deploy/deployRFQVaultExecutorAllChains.ts",
     "deploy:rfq-vault-executor": "hardhat run scripts/deploy/deployRFQVaultExecutor.ts --network",
