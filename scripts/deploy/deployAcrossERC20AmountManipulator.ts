@@ -17,7 +17,7 @@ import {
   decodeCreate3DeploymentFromTxReceipt,
   getAcrossManipulatorDeploymentStatus,
 } from './create3';
-import { confirm } from '../utils';
+import { writeManipulatorAddress } from './manipulatorAddresses';
 
 async function main() {
   const [deployer] = await ethers.getSigners();
@@ -34,6 +34,12 @@ async function main() {
     console.log(
       `AcrossERC20AmountManipulator already deployed on ${networkName} at ${existing.address}`,
     );
+    const filePath = await writeManipulatorAddress(
+      networkName,
+      'AcrossERC20AmountManipulator',
+      existing.address,
+    );
+    console.log('Deployment JSON:', filePath);
     return;
   }
 
@@ -74,6 +80,12 @@ async function main() {
 
   console.log('\n=== Deployment Summary ===');
   console.log(`AcrossERC20AmountManipulator:  ${manipulatorAddress}`);
+  const filePath = await writeManipulatorAddress(
+    networkName,
+    'AcrossERC20AmountManipulator',
+    manipulatorAddress,
+  );
+  console.log('Deployment JSON:', filePath);
 
   const chainId = (await ethers.provider.getNetwork()).chainId;
   const skipVerify = process.env.SKIP_VERIFY?.trim().toLowerCase() === 'true';

@@ -35,6 +35,7 @@ export const RECEIVER_DEPLOY_NETWORKS: readonly ReceiverDeployNetwork[] = [
   { name: 'katana', chainId: CHAIN_IDS.KATANA, rpcEnvKey: 'KATANA_RPC', rpcFallback: 'https://rpc.katana.network' },
   { name: 'mode', chainId: CHAIN_IDS.MODE, rpcEnvKey: 'MODE_RPC', rpcFallback: 'https://1rpc.io/mode' },
   { name: 'megaeth', chainId: CHAIN_IDS.MEGAETH, rpcEnvKey: 'MEGAETH_RPC', rpcFallback: 'https://rpc.megaeth.xyz' },
+  { name: 'rise', chainId: CHAIN_IDS.RISE, rpcEnvKey: 'RISE_RPC', rpcFallback: 'https://rpc.risechain.com/' },
   { name: 'robinhood', chainId: CHAIN_IDS.ROBINHOOD, rpcEnvKey: 'ROBINHOOD_RPC', rpcFallback: '' },
   { name: 'plume', chainId: CHAIN_IDS.PLUME, rpcEnvKey: 'PLUME_RPC', rpcFallback: 'https://rpc.plume.org' },
   { name: 'blast', chainId: CHAIN_IDS.BLAST, rpcEnvKey: 'BLAST_RPC', rpcFallback: 'https://blastl2-mainnet.public.blastapi.io' },
@@ -71,6 +72,7 @@ const RPC_ENV_ALIASES: Partial<Record<string, readonly string[]>> = {
   PLASMA_RPC: ['PLASMA_RPC_URL'],
   MONAD_RPC: ['MONAD_RPC_URL'],
   MEGAETH_RPC: ['MEGAETH_RPC_URL'],
+  RISE_RPC: ['RISE_RPC_URL'],
   ROBINHOOD_RPC: ['ROBINHOOD_RPC_URL'],
 };
 
