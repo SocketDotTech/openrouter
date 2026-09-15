@@ -1,8 +1,8 @@
 import { spawnSync } from 'child_process';
 import { config as dotenvConfig } from 'dotenv';
 import { mkdtemp, rm } from 'fs/promises';
-import { resolve } from 'path';
 import { tmpdir } from 'os';
+import { resolve } from 'path';
 
 import {
   SUI_RFQ_VAULT_GAS_BUDGET,
@@ -18,7 +18,7 @@ const TEMP_ENV_ALIAS_PREFIX = 'rfqvault_fund_';
 const DEPLOYER_SCHEMES = new Set(['ed25519', 'secp256k1', 'secp256r1']);
 
 // Edit these constants for manual funding runs.
-const FUND_AMOUNT = '10';
+const FUND_AMOUNT = '5843';
 const FUND_TOKEN_DECIMALS = 6;
 const FUND_TOKEN_TYPE =
   '0x44f838219cf67b058f3b37907b655f226153c18e33dfcd0da559a844fea9b1c1::usdsui::USDSUI';
