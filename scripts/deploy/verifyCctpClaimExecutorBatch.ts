@@ -63,6 +63,7 @@ const EXPLORERS_BY_CHAIN_ID = new Map<number, ExplorerConfig>([
   [57073, { verifier: 'custom', chainArg: '57073', verifierUrl: 'https://explorer.inkonchain.com/api' }],
   [59144, { verifier: 'etherscan', chainArg: '59144' }],
   [5042, { verifier: 'sourcify', chainArg: '5042' }],
+  [1776, { verifier: 'custom', chainArg: '1776', verifierUrl: 'https://blockscout.injective.network/api' }],
 ]);
 
 function isAlreadyVerified(output: string): boolean {

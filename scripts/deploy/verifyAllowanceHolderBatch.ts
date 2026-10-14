@@ -60,6 +60,7 @@ const EXPLORERS_BY_CHAIN_ID = new Map<number, ExplorerConfig>([
   [4326, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=4326' }],
   [4663, { verifier: 'custom', chainArg: '4663', verifierUrl: 'https://robinhoodchain.blockscout.com/api' }],
   [5042, { verifier: 'sourcify', chainArg: '5042' }],
+  [1776, { verifier: 'custom', chainArg: '1776', verifierUrl: 'https://blockscout.injective.network/api' }],
   [9745, { verifier: 'custom', chainArg: '1', verifierUrl: 'https://api.etherscan.io/v2/api?chainid=9745' }],
   [98866, { verifier: 'sourcify', chainArg: '98866' }],
   [4217, { verifier: 'sourcify', chainArg: '4217' }],
