@@ -25,6 +25,8 @@ export const CHAIN_IDS = {
   HYPEREVM: 999,
   /** Arc mainnet. */
   ARC: 5042,
+  /** Injective EVM mainnet. */
+  INJECTIVE: 1776,
   /** Tempo mainnet — AllowanceHolder only; OpenRouter not deployed (deposit-only chain). */
   TEMPO: 4217,
   /** RISE mainnet. */
@@ -161,6 +163,7 @@ export const OPEN_ROUTER_CHAIN_IDS: readonly number[] = [
   CHAIN_IDS.SCROLL,
   CHAIN_IDS.HYPEREVM,
   CHAIN_IDS.ARC,
+  CHAIN_IDS.INJECTIVE,
   CHAIN_IDS.PLASMA,
   CHAIN_IDS.MONAD,
   CHAIN_IDS.LINEA,

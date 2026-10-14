@@ -181,6 +181,11 @@ const config: HardhatUserConfig = {
       chainId: 5042,
       accounts,
     },
+    injective: {
+      url: process.env.INJECTIVE_RPC ?? 'https://sentry.evm-rpc.injective.network',
+      chainId: 1776,
+      accounts,
+    },
     plasma: {
       url: process.env.PLASMA_RPC ?? 'https://rpc.plasma.to',
       chainId: 9745,
@@ -274,6 +279,7 @@ const config: HardhatUserConfig = {
       megaeth: explorerApiKey(process.env.MEGAETH_ETHERSCAN_KEY),
       rise: process.env.RISE_ETHERSCAN_KEY ?? 'blockscout',
       robinhood: explorerApiKey(process.env.ROBINHOOD_ETHERSCAN_KEY),
+      injective: process.env.INJECTIVE_ETHERSCAN_KEY ?? 'blockscout',
       plume: explorerApiKey(process.env.PLUME_ETHERSCAN_KEY),
       ethereal: explorerApiKey(process.env.ETHEREAL_ETHERSCAN_KEY),
       katana: explorerApiKey(process.env.KATANA_ETHERSCAN_KEY),
@@ -473,6 +479,14 @@ const config: HardhatUserConfig = {
         urls: {
           apiURL: 'https://robinhoodchain.blockscout.com/api',
           browserURL: 'https://robinhoodchain.blockscout.com',
+        },
+      },
+      {
+        network: 'injective',
+        chainId: 1776,
+        urls: {
+          apiURL: 'https://blockscout.injective.network/api',
+          browserURL: 'https://blockscout.injective.network',
         },
       },
       {
