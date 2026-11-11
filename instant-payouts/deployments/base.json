@@ -1,0 +1,60 @@
+{
+  "contract": "InstantPayouts",
+  "network": "Base",
+  "chainId": 8453,
+  "address": "0xA734D3837f0eb87Bca3cDF7C3dfE70422F2877Dd",
+  "transactionHash": "0x24eae0889d4c543f479db3d0491ea8e4b425e5461e2d5a14b67d115c838da454",
+  "deployedAtBlock": 53451956,
+  "blockHash": "0xd5d87668f1f0c2776266a3a382923facb15d32a190f6513e37a467cc07a7ddbc",
+  "deployer": "0x0E1B5AB67aF1c99F8c7Ebc71f41f75D4D6211e53",
+  "initialOwner": "0x0E1B5AB67aF1c99F8c7Ebc71f41f75D4D6211e53",
+  "payoutSigner": "0x9486019cb42bBB69313f5cd0BC69625b9192e2e0",
+  "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "compiler": "0.8.30+commit.73712a01",
+  "evmVersion": "cancun",
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "bytecodeHash": "ipfs",
+  "sourceBaselineCommit": "1b7d04441cb6dc6ba968f48f7049841721964afc",
+  "sourceState": "Uncommitted feat/instant-payouts additions at deployment; source hash identifies exact contract.",
+  "contractSourceSha256": "5a48e782bf11d40f648ebb13d3ec3cbe9b7304e43e42efc4f3cc6803a6f31054",
+  "creationCodeKeccak256": "0xce954d29c58604cb60352de4e717e508d16bbee0d2f210677a275ee2a52302a7",
+  "initcodeKeccak256": "0x6a63cdb2e7bed8d3184d1f0ebd839c976841fc808c70af4ef053f345e51c6ed0",
+  "runtimeCodeKeccak256": "0xf092410e8d7eef58e1b4c692d9b92307114229748570489d650a6cc8450cc4d2",
+  "deploymentChecks": [
+    "Successful canonical receipt",
+    "Creation transaction sender, nonce, chain and initcode",
+    "Compiled runtime comparison with immutable slots",
+    "Initial owner",
+    "Immutable payout signer",
+    "Native Base USDC",
+    "EIP-712 domain"
+  ],
+  "sourceVerification": {
+    "status": "VERIFIED",
+    "verifier": "etherscan",
+    "compiler": "v0.8.30+commit.73712a01",
+    "checkedAt": "2026-11-03T08:11:10.946Z",
+    "url": "https://basescan.org/address/0xA734D3837f0eb87Bca3cDF7C3dfE70422F2877Dd#code"
+  },
+  "explorerUrl": "https://basescan.org/address/0xA734D3837f0eb87Bca3cDF7C3dfE70422F2877Dd",
+  "notes": [
+    "No customer payout or funding transfer was performed.",
+    "Backend settlement integration and automated Lighter funding are not activated.",
+    "Owner token rescue bypasses the payout-ID guard by approved design.",
+    "Custom contract has no independent security audit."
+  ],
+  "additionalSourceVerification": {
+    "verifier": "sourcify",
+    "apiVersion": 2,
+    "status": "VERIFIED",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "match": "exact_match",
+    "verificationId": "2aecca02-31da-4a99-bbb8-0c5f0f89f402",
+    "checkedAt": "2026-11-03T08:15:35.971Z",
+    "url": "https://repo.sourcify.dev/8453/0xA734D3837f0eb87Bca3cDF7C3dfE70422F2877Dd"
+  }
+}

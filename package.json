@@ -32,7 +32,10 @@
     "check:deployer-balances": "hardhat run scripts/deploy/checkDeployerBalances.ts",
     "check:across-manipulator": "hardhat run scripts/deploy/checkAcrossManipulatorDeployment.ts",
     "typechain": "hardhat typechain",
-    "slither": "bash scripts/docker-slither.sh"
+    "slither": "bash scripts/docker-slither.sh",
+    "deploy:instant-payouts": "ts-node scripts/deploy/deployInstantPayouts.ts",
+    "instant-payouts:authorization": "ts-node scripts/deploy/instantPayoutAuthorization.ts",
+    "check:instant-payouts:scripts": "ts-node scripts/deploy/instantPayouts.test.ts"
   },
   "devDependencies": {
     "@noble/hashes": "^1.4.0",
