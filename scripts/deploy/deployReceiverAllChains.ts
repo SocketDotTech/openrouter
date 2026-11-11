@@ -18,7 +18,7 @@
  */
 
 import { Wallet, formatEther } from 'ethers';
-import { RECEIVER_DEPLOY_NETWORKS, ReceiverDeployNetwork } from './networks';
+import { ReceiverDeployNetwork, selectReceiverDeployNetworks } from './networks';
 import {
   createNetworkProvider,
   deployReceiverOnNetwork,
@@ -182,11 +182,7 @@ async function main() {
   const solverSigner = resolveSolverSignerAddress(wallet.address);
   const minBalanceWei = BigInt(process.env.MIN_BALANCE_WEI?.trim() || '1000000000000000');
   const dryRun = process.env.DRY_RUN?.trim().toLowerCase() === 'true';
-  const chainFilter = parseChainFilter();
-
-  const networks = chainFilter
-    ? RECEIVER_DEPLOY_NETWORKS.filter((n) => chainFilter.has(n.name.toLowerCase()))
-    : [...RECEIVER_DEPLOY_NETWORKS];
+  const networks = selectReceiverDeployNetworks(parseChainFilter());
 
   if (networks.length === 0) {
     throw new Error('No networks matched CHAINS filter');

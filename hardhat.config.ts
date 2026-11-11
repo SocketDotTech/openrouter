@@ -176,6 +176,11 @@ const config: HardhatUserConfig = {
       chainId: 999,
       accounts,
     },
+    elysium: {
+      url: process.env.ELYSIUM_RPC ?? '',
+      chainId: 99901,
+      accounts,
+    },
     arc: {
       url: process.env.ARC_RPC ?? '',
       chainId: 5042,

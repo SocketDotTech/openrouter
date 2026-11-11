@@ -14,7 +14,7 @@ import {
   BUNGEE_RECEIVER_EXPECTED_ADDRESS,
   CALLDATA_EXECUTOR_EXPECTED_ADDRESS,
 } from './create3';
-import { RECEIVER_DEPLOY_NETWORKS } from './networks';
+import { selectReceiverDeployNetworks } from './networks';
 import {
   getReceiverChainStatus,
   writeReceiverDeploymentRegistryForNetwork,
@@ -37,12 +37,7 @@ function parseChainFilter(): Set<string> | null {
 async function main() {
   const expectedOwner = process.env.OWNER_ADDRESS?.trim();
   const expectedSolverSigner = process.env.SOLVER_SIGNER_ADDRESS?.trim();
-  const chainFilter = parseChainFilter();
-  const networks = chainFilter
-    ? RECEIVER_DEPLOY_NETWORKS.filter((n) =>
-        chainFilter.has(n.name.toLowerCase()),
-      )
-    : [...RECEIVER_DEPLOY_NETWORKS];
+  const networks = selectReceiverDeployNetworks(parseChainFilter());
 
   if (networks.length === 0) {
     throw new Error('No networks matched CHAINS filter');

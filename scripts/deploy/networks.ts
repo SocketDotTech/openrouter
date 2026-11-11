@@ -44,6 +44,23 @@ export const RECEIVER_DEPLOY_NETWORKS: readonly ReceiverDeployNetwork[] = [
   { name: 'sei', chainId: CHAIN_IDS.SEI, rpcEnvKey: 'SEI_RPC', rpcFallback: 'https://evm-rpc.sei-apis.com' },
 ] as const;
 
+const ELYSIUM_DEPLOY_NETWORK: ReceiverDeployNetwork = {
+  name: 'elysium',
+  chainId: CHAIN_IDS.ELYSIUM,
+  rpcEnvKey: 'ELYSIUM_RPC',
+  rpcFallback: '',
+};
+
+/** Elysium deployments require an explicit CHAINS selection. */
+export function selectReceiverDeployNetworks(
+  chainFilter: ReadonlySet<string> | null,
+): readonly ReceiverDeployNetwork[] {
+  if (!chainFilter) return RECEIVER_DEPLOY_NETWORKS;
+  return [...RECEIVER_DEPLOY_NETWORKS, ELYSIUM_DEPLOY_NETWORK].filter((network) =>
+    chainFilter.has(network.name.toLowerCase()),
+  );
+}
+
 /** bungee-backend uses `*_RPC_URL` naming; poc-openrouter uses `*_RPC`. */
 const RPC_ENV_ALIASES: Partial<Record<string, readonly string[]>> = {
   ETHEREUM_RPC: ['ETHEREUM_RPC_URL'],
