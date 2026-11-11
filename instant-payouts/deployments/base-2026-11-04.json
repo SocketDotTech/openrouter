@@ -1,0 +1,69 @@
+{
+  "contract": "InstantPayouts",
+  "network": "Base",
+  "chainId": 8453,
+  "address": "0x6Dd462E3b4b197cC163955C6F00e8FF1876665b8",
+  "transactionHash": "0x2d01def440c4c7c48460b538b64725146ff45c274ca6b53fc6d5d3e90b4e3467",
+  "deployedAtBlock": 53500124,
+  "blockHash": "0x99d1724df5a702c2640658f5f4788cd2f6217046b221448d7bb4e3e60257a1d6",
+  "deployer": "0x0E1B5AB67aF1c99F8c7Ebc71f41f75D4D6211e53",
+  "deployerNonce": 1343,
+  "initialOwner": "0x0E1B5AB67aF1c99F8c7Ebc71f41f75D4D6211e53",
+  "initialPayoutSigner": "0x9486019cb42bBB69313f5cd0BC69625b9192e2e0",
+  "usdc": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+  "compiler": "0.8.30+commit.73712a01",
+  "evmVersion": "cancun",
+  "optimizer": {
+    "enabled": true,
+    "runs": 200
+  },
+  "bytecodeHash": "ipfs",
+  "sourceBaselineCommit": "1b7d04441cb6dc6ba968f48f7049841721964afc",
+  "sourceState": "Uncommitted codex/instant-funded-contract-payouts changes at deployment; source hash identifies the exact contract.",
+  "contractSourceSha256": "9a200fd3a2b34e5a4bbe6c0e9574e4d5f1edfa9d5b347599c6ee1e2ac74b0693",
+  "artifactSha256": "581c9b2cff6cc54f49e070a0bd7974717ad6258f00f059c549097d7b4f411ba6",
+  "creationCodeKeccak256": "0xc14ece626dead32040e932f0903fc5a3ed73f13fefab7487bb188d16e97eecd8",
+  "initcodeKeccak256": "0xdfe87f1556ac4b6b2832effd4c49b147af3ebea56ea8fcb9c014bee63e518e82",
+  "runtimeCodeKeccak256": "0x53818a6ab02d8cbf7a4df404260773ebb3d2ab4a6b8c2686ba75866934152c00",
+  "gasUsed": "1044101",
+  "deploymentChecks": [
+    "Successful canonical receipt",
+    "Creation transaction sender, nonce, chain and initcode",
+    "Compiled runtime comparison with immutable slots",
+    "Initial owner",
+    "Initial mutable payout signer",
+    "Native Base USDC",
+    "EIP-712 domain"
+  ],
+  "finality": "Mined receipt checked; finality is not asserted.",
+  "sourceVerification": {
+    "status": "VERIFIED",
+    "verifier": "sourcify",
+    "apiVersion": 2,
+    "compiler": "v0.8.30+commit.73712a01",
+    "creationMatch": "exact_match",
+    "runtimeMatch": "exact_match",
+    "match": "exact_match",
+    "verificationId": "c770b00e-d3d6-4348-a153-595f1004cd49",
+    "requestSha256": "277313944c8a95039d21ebd51ab8a33b2245365ecf23af82a10d276f4887d5aa",
+    "checkedAt": "2026-11-04T10:53:52.867Z",
+    "url": "https://repo.sourcify.dev/8453/0x6Dd462E3b4b197cC163955C6F00e8FF1876665b8"
+  },
+  "explorerUrl": "https://basescan.org/address/0x6Dd462E3b4b197cC163955C6F00e8FF1876665b8",
+  "features": {
+    "mutablePayoutSigner": true,
+    "signerEpoch": false,
+    "nativeRescue": true,
+    "nativeReceive": true
+  },
+  "notes": [
+    "The owner can change the nonzero payout signer without changing paid IDs.",
+    "Selecting an old signer restores its unused, unexpired authorizations; there is no signing epoch.",
+    "Treasury funding is manual; automatic Lighter funding is outside this scope.",
+    "No customer payout or treasury funding transfer was performed as part of deployment qualification.",
+    "This deployment does not activate backend settlement integration.",
+    "Owner token rescue bypasses the payout-ID guard by approved design.",
+    "The custom contract has no independent security audit.",
+    "The prior immutable-signer deployment record remains in base.json."
+  ]
+}
