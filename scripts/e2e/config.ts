@@ -23,6 +23,8 @@ export const CHAIN_IDS = {
   BASE: 8453,
   /** HyperEVM (Hyperliquid). */
   HYPEREVM: 999,
+  /** Elysium mainnet. */
+  ELYSIUM: 99901,
   /** Arc mainnet. */
   ARC: 5042,
   /** Injective EVM mainnet. */
@@ -69,6 +71,7 @@ export const BLOCK_EXPLORER_TX_PREFIX: Record<number, string> = {
   [CHAIN_IDS.MANTLE]: 'https://mantlescan.xyz/tx/',
   [CHAIN_IDS.BASE]: 'https://basescan.org/tx/',
   [CHAIN_IDS.HYPEREVM]: 'https://hyperevmscan.io/tx/',
+  [CHAIN_IDS.ELYSIUM]: 'https://elysium.kinetiq.xyz/explorer/tx/',
   [CHAIN_IDS.TEMPO]: 'https://explore.mainnet.tempo.xyz/tx/',
   [CHAIN_IDS.ROBINHOOD]: 'https://robinhoodchain.blockscout.com/tx/',
   [CHAIN_IDS.MEGAETH]: 'https://mega.etherscan.io/tx/',
@@ -162,6 +165,7 @@ export const OPEN_ROUTER_CHAIN_IDS: readonly number[] = [
   CHAIN_IDS.BERACHAIN,
   CHAIN_IDS.SCROLL,
   CHAIN_IDS.HYPEREVM,
+  CHAIN_IDS.ELYSIUM,
   CHAIN_IDS.ARC,
   CHAIN_IDS.INJECTIVE,
   CHAIN_IDS.PLASMA,
@@ -420,6 +424,7 @@ export const RPC = {
   MANTLE: process.env.MANTLE_RPC ?? 'https://rpc.mantle.xyz',
   BASE: process.env.BASE_RPC ?? 'https://mainnet.base.org',
   HYPEREVM: process.env.HYPEREVM_RPC ?? 'https://rpc.hyperliquid.xyz/evm',
+  ELYSIUM: process.env.ELYSIUM_RPC ?? '',
   TEMPO: process.env.TEMPO_RPC ?? 'https://rpc.mainnet.tempo.xyz',
   ROBINHOOD: process.env.ROBINHOOD_RPC ?? '',
   MEGAETH: process.env.MEGAETH_RPC ?? 'https://rpc.megaeth.xyz',

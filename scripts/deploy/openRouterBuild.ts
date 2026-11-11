@@ -40,6 +40,7 @@ export const OPENROUTER_NETWORK_CHAIN_IDS: Record<string, number> = {
   berachain: CHAIN_IDS.BERACHAIN,
   scroll: CHAIN_IDS.SCROLL,
   hyperEvm: CHAIN_IDS.HYPEREVM,
+  elysium: CHAIN_IDS.ELYSIUM,
   arc: CHAIN_IDS.ARC,
   injective: CHAIN_IDS.INJECTIVE,
   plasma: CHAIN_IDS.PLASMA,

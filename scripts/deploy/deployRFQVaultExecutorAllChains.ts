@@ -38,9 +38,9 @@ import {
   hasContractBytecode,
 } from './create3';
 import {
-  RECEIVER_DEPLOY_NETWORKS,
   ReceiverDeployNetwork,
   resolveRpcUrl,
+  selectReceiverDeployNetworks,
 } from './networks';
 import { getDeploymentTransactionOverrides } from './transactionOverrides';
 import { writeRFQVaultExecutorAddress } from './rfqVaultExecutorAddresses';
@@ -349,12 +349,7 @@ async function main() {
   const owner = resolveAddressEnv('OWNER_ADDRESS');
   const solverSigner = resolveAddressEnv('SOLVER_SIGNER_ADDRESS');
   const dryRun = process.env.DRY_RUN?.trim().toLowerCase() === 'true';
-  const chainFilter = parseChainFilter();
-  const networks = chainFilter
-    ? RECEIVER_DEPLOY_NETWORKS.filter((n) =>
-        chainFilter.has(n.name.toLowerCase()),
-      )
-    : [...RECEIVER_DEPLOY_NETWORKS];
+  const networks = selectReceiverDeployNetworks(parseChainFilter());
 
   if (networks.length === 0) {
     throw new Error('No networks matched CHAINS filter');
