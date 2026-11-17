@@ -16,15 +16,26 @@ import {
 
 const FIXTURE_SWAP = address("5oEzAP4izB65uRm2yDAEf9oALGwHpWkDfyKb8zBY3euC");
 const TEST_SOLVER = new SigningKey(toBeHex(7, 32));
+const TEST_TIME = 1_800_000_000n;
 
-function sign(vault: Address, quoteId: string, action: SettlementAction, key = TEST_SOLVER) {
-  const digest = actionDigest({ program: RFQ_PROGRAM, vault, quoteId, nonce: 1n, action });
+function sign(
+  vault: Address,
+  quoteId: string,
+  action: SettlementAction,
+  validUntil = TEST_TIME + 1n,
+  key = TEST_SOLVER,
+) {
+  const nonce = 1n;
+  const digest = actionDigest({ program: RFQ_PROGRAM, vault, quoteId, nonce, validUntil, action });
   const { r, s, yParity } = key.sign(settlementDigest(digest));
-  return concat([r, s, toBeHex(yParity, 1)]);
+  return { nonce, validUntil, signature: concat([r, s, toBeHex(yParity, 1)]) };
 }
 
 function localBank() {
   const svm = new LiteSVM();
+  const clock = svm.getClock();
+  clock.unixTimestamp = TEST_TIME;
+  svm.setClock(clock);
   const program = fileURLToPath(new URL("../target/deploy/solana_rfq_vault.so", import.meta.url));
   svm.addProgramFromFile(RFQ_PROGRAM, program);
   const addressEncoder = getAddressEncoder();
@@ -128,9 +139,12 @@ test("Solana v1 pays once or marks the destination before refunding the origin",
 
   const fill = { kind: "fulfil", recipient: receiver.address, amount: 80n } as const;
   const paid = {
-    quoteId: paidQuote, nonce: 1n, recipient: fill.recipient, amount: fill.amount,
-    signature: sign(destination.vault, paidQuote, fill),
+    quoteId: paidQuote, recipient: fill.recipient, amount: fill.amount,
+    ...sign(destination.vault, paidQuote, fill),
   };
+  const expiredFill = { ...paid, ...sign(destination.vault, paidQuote, fill, TEST_TIME), payer: payer.address };
+  await send(payer, [await fulfil(destination, expiredFill)], /AuthorizationExpired/);
+  await send(payer, [await fulfil(destination, { ...expiredFill, validUntil: paid.validUntil })], /InvalidSignature/);
   await send(payer, [await fulfil(destination, { ...paid, payer: payer.address, amount: 81n })], /InvalidSignature/);
   assert.equal(svm.getAccount(await deriveQuoteState(destination, paidQuote)).exists, false);
   assert.equal(balance(destination.vaultUsdc), 500n);
@@ -138,23 +152,32 @@ test("Solana v1 pays once or marks the destination before refunding the origin",
   await send(payer, [await fulfil(destination, { ...paid, payer: payer.address })]);
   await send(secondPayer, [await fulfil(destination, { ...paid, payer: secondPayer.address })], /already in use/);
   await send(secondPayer, [await markForRefund(destination, {
-    quoteId: paidQuote, nonce: 1n, payer: secondPayer.address,
-    signature: sign(destination.vault, paidQuote, { kind: "markForRefund" }),
+    quoteId: paidQuote, payer: secondPayer.address,
+    ...sign(destination.vault, paidQuote, { kind: "markForRefund" }),
   })], /already in use/);
 
-  const cancelled = { quoteId: cancelledQuote, nonce: 1n, payer: payer.address };
+  const cancelled = { quoteId: cancelledQuote, payer: payer.address };
+  const mark = { kind: "markForRefund" } as const;
   await send(payer, [await markForRefund(destination, {
-    ...cancelled, signature: sign(destination.vault, cancelledQuote, { kind: "markForRefund" }),
+    ...cancelled, ...sign(destination.vault, cancelledQuote, mark, TEST_TIME - 1n),
+  })], /AuthorizationExpired/);
+  assert.equal(svm.getAccount(await deriveQuoteState(destination, cancelledQuote)).exists, false);
+  await send(payer, [await markForRefund(destination, {
+    ...cancelled, ...sign(destination.vault, cancelledQuote, mark),
   })]);
   await send(payer, [await fulfil(destination, {
     ...cancelled, recipient: fill.recipient, amount: fill.amount,
-    signature: sign(destination.vault, cancelledQuote, fill),
+    ...sign(destination.vault, cancelledQuote, fill),
   })], /already in use/);
   const originRefund = { kind: "refund", recipient: sourceOwner.address, amount: 100n } as const;
   const refundPayment = {
     ...cancelled, recipient: originRefund.recipient, amount: originRefund.amount,
-    signature: sign(source.vault, cancelledQuote, originRefund),
+    ...sign(source.vault, cancelledQuote, originRefund),
   };
+  await send(payer, [await refund(source, {
+    ...refundPayment, ...sign(source.vault, cancelledQuote, originRefund, TEST_TIME),
+  })], /AuthorizationExpired/);
+  assert.equal(svm.getAccount(await deriveQuoteState(source, cancelledQuote)).exists, false);
   await send(payer, [await refund(source, refundPayment)]);
   await send(secondPayer, [await refund(source, { ...refundPayment, payer: secondPayer.address })], /already in use/);
 
@@ -180,14 +203,13 @@ test("Solana v1 pays once or marks the destination before refunding the origin",
   assert.equal(balance(destination.vaultUsdc), 410n);
 
   const rotateQuote = toBeHex(5, 32);
-  const mark = { kind: "markForRefund" } as const;
-  const markParams = { payer: secondPayer.address, quoteId: rotateQuote, nonce: 1n };
+  const markParams = { payer: secondPayer.address, quoteId: rotateQuote };
   await send(secondPayer, [await markForRefund(destination, {
-    ...markParams, signature: sign(destination.vault, rotateQuote, mark),
+    ...markParams, ...sign(destination.vault, rotateQuote, mark),
   })], /InvalidSignature/);
   assert.equal(svm.getAccount(await deriveQuoteState(destination, rotateQuote)).exists, false);
   await send(secondPayer, [await markForRefund(destination, {
-    ...markParams, signature: sign(destination.vault, rotateQuote, mark, rotatedKey),
+    ...markParams, ...sign(destination.vault, rotateQuote, mark, TEST_TIME + 1n, rotatedKey),
   })]);
   assert.equal(bank.accountData(await deriveQuoteState(destination, rotateQuote))[8], 4);
 });
@@ -251,12 +273,16 @@ test("Solana v1 swaps deposits and settlements, rolling back below either minimu
   const destinationSwap = swap(destination.swapAuthority, usdc, destination.swapUsdc, poolUsdc,
     outputMint, poolOther, receiverOther, 180n, 45n);
   const settlement = {
-    payer: destinationOwner.address, nonce: 1n, quoteId, recipient: recipient.address,
+    payer: destinationOwner.address, quoteId, recipient: recipient.address,
     recipientOutput: receiverOther, amount: 180n, outputMint, swap: destinationSwap,
   };
   const action = { kind: "swapAndFulfil", recipient: recipient.address, amount: 180n, outputMint, routeHash: routeHash(destinationSwap) } as const;
   await send(destinationOwner, [await swapAndFulfil(destination, {
-    ...settlement, minOutput: 46n, signature: sign(destination.vault, quoteId, { ...action, minOutput: 46n }),
+    ...settlement, minOutput: 45n, ...sign(destination.vault, quoteId, { ...action, minOutput: 45n }, TEST_TIME),
+  })], /AuthorizationExpired/);
+  assert.equal(svm.getAccount(await deriveQuoteState(destination, quoteId)).exists, false);
+  await send(destinationOwner, [await swapAndFulfil(destination, {
+    ...settlement, minOutput: 46n, ...sign(destination.vault, quoteId, { ...action, minOutput: 46n }),
   })], /InsufficientOutput/);
   assert.equal(svm.getAccount(await deriveQuoteState(destination, quoteId)).exists, false);
   assert.equal(balance(destination.vaultUsdc), 500n);
@@ -266,7 +292,7 @@ test("Solana v1 swaps deposits and settlements, rolling back below either minimu
   assert.equal(balance(poolOther), 1060n);
 
   await send(destinationOwner, [await swapAndFulfil(destination, {
-    ...settlement, minOutput: 45n, signature: sign(destination.vault, quoteId, { ...action, minOutput: 45n }),
+    ...settlement, minOutput: 45n, ...sign(destination.vault, quoteId, { ...action, minOutput: 45n }),
   })]);
   assert.equal(balance(destination.vaultUsdc), 320n);
   assert.equal(balance(destination.swapUsdc), 0n);

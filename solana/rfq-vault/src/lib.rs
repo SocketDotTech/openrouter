@@ -15,7 +15,7 @@ use solana_secp256k1_recover::secp256k1_recover;
 
 declare_id!("8gS67TJgSWTnExQZxwLmnsv1EBocZgUTqMGvTzbzLYZS");
 
-const DOMAIN: &[u8] = b"BUNGEE_SOLANA_RFQ_V1";
+const DOMAIN: &[u8] = b"BUNGEE_SOLANA_RFQ_V2";
 const FULFIL: u8 = 1;
 const REFUND: u8 = 2;
 const SWAP_AND_FULFIL: u8 = 3;
@@ -97,28 +97,49 @@ pub mod solana_rfq_vault {
         ctx: Context<SettleUsdc>,
         quote_id: [u8; 32],
         nonce: u64,
+        valid_until: u64,
         recipient: Pubkey,
         amount: u64,
         signature: [u8; 65],
     ) -> Result<()> {
-        pay_usdc(ctx, quote_id, nonce, recipient, amount, signature, FULFIL)
+        pay_usdc(
+            ctx,
+            quote_id,
+            nonce,
+            valid_until,
+            recipient,
+            amount,
+            signature,
+            FULFIL,
+        )
     }
 
     pub fn refund(
         ctx: Context<SettleUsdc>,
         quote_id: [u8; 32],
         nonce: u64,
+        valid_until: u64,
         recipient: Pubkey,
         amount: u64,
         signature: [u8; 65],
     ) -> Result<()> {
-        pay_usdc(ctx, quote_id, nonce, recipient, amount, signature, REFUND)
+        pay_usdc(
+            ctx,
+            quote_id,
+            nonce,
+            valid_until,
+            recipient,
+            amount,
+            signature,
+            REFUND,
+        )
     }
 
     pub fn mark_for_refund(
         ctx: Context<MarkForRefund>,
         quote_id: [u8; 32],
         nonce: u64,
+        valid_until: u64,
         signature: [u8; 65],
     ) -> Result<()> {
         ctx.accounts.vault.authorize(
@@ -127,6 +148,7 @@ pub mod solana_rfq_vault {
             MARK_FOR_REFUND,
             &quote_id,
             nonce,
+            valid_until,
             &[],
             &signature,
         )?;
@@ -139,6 +161,7 @@ pub mod solana_rfq_vault {
         ctx: Context<'_, '_, '_, 'info, SwapAndFulfil<'info>>,
         quote_id: [u8; 32],
         nonce: u64,
+        valid_until: u64,
         output_mint: Pubkey,
         usdc_amount: u64,
         min_output: u64,
@@ -181,6 +204,7 @@ pub mod solana_rfq_vault {
             SWAP_AND_FULFIL,
             &quote_id,
             nonce,
+            valid_until,
             &[
                 recipient.as_ref(),
                 output_mint.as_ref(),
@@ -419,10 +443,22 @@ impl Vault {
         action: u8,
         quote_id: &[u8; 32],
         nonce: u64,
+        valid_until: u64,
         fields: &[&[u8]],
         signature: &[u8; 65],
     ) -> Result<()> {
-        let message = action_digest(program_id, vault, action, quote_id, nonce, fields);
+        let now = u64::try_from(Clock::get()?.unix_timestamp)
+            .map_err(|_| VaultError::AuthorizationExpired)?;
+        require!(now < valid_until, VaultError::AuthorizationExpired);
+        let message = action_digest(
+            program_id,
+            vault,
+            action,
+            quote_id,
+            nonce,
+            valid_until,
+            fields,
+        );
         let digest = hashv(&[b"\x19Ethereum Signed Message:\n32", &message]).to_bytes();
         let recovered = secp256k1_recover(&digest, signature[64], &signature[..64])
             .map_err(|_| VaultError::InvalidSignature)?;
@@ -524,6 +560,8 @@ pub enum VaultError {
     InsufficientOutput,
     #[msg("The swap did not spend the authorized USDC amount")]
     UnexpectedUsdcSpend,
+    #[msg("The solver authorization has expired")]
+    AuthorizationExpired,
 }
 
 fn transfer_usdc<'info>(
@@ -559,6 +597,7 @@ fn pay_usdc(
     ctx: Context<SettleUsdc>,
     quote_id: [u8; 32],
     nonce: u64,
+    valid_until: u64,
     recipient: Pubkey,
     amount: u64,
     signature: [u8; 65],
@@ -576,6 +615,7 @@ fn pay_usdc(
         action,
         &quote_id,
         nonce,
+        valid_until,
         &[recipient.as_ref(), &amount.to_le_bytes()],
         &signature,
     )?;
@@ -658,10 +698,12 @@ fn action_digest(
     action: u8,
     quote_id: &[u8; 32],
     nonce: u64,
+    valid_until: u64,
     fields: &[&[u8]],
 ) -> [u8; 32] {
     let action = [action];
     let nonce = nonce.to_le_bytes();
+    let valid_until = valid_until.to_le_bytes();
     let mut parts: Vec<&[u8]> = vec![
         DOMAIN,
         program_id.as_ref(),
@@ -669,6 +711,7 @@ fn action_digest(
         &action,
         quote_id,
         &nonce,
+        &valid_until,
     ];
     parts.extend_from_slice(fields);
     hashv(&parts).to_bytes()

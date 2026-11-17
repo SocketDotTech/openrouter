@@ -56,9 +56,10 @@ export function actionDigest(params: {
   vault: Address;
   quoteId: string;
   nonce: bigint;
+  validUntil: bigint;
   action: SettlementAction;
 }): string {
-  const { program, vault, quoteId, nonce, action } = params;
+  const { program, vault, quoteId, nonce, validUntil, action } = params;
   let fields: Uint8Array[] = [];
   if (action.kind === "swapAndFulfil") {
     fields = [
@@ -72,12 +73,13 @@ export function actionDigest(params: {
     fields = [Uint8Array.from(publicKey.encode(action.recipient)), u64(action.amount)];
   }
   return keccak256(concat([
-    Buffer.from("BUNGEE_SOLANA_RFQ_V1", "ascii"),
+    Buffer.from("BUNGEE_SOLANA_RFQ_V2", "ascii"),
     Uint8Array.from(publicKey.encode(program)),
     Uint8Array.from(publicKey.encode(vault)),
     Uint8Array.of(actionTag[action.kind]),
     bytes32(quoteId),
     u64(nonce),
+    u64(validUntil),
     ...fields,
   ]));
 }

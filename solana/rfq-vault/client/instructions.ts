@@ -64,7 +64,14 @@ export async function deriveVaultAccounts(params: {
 }
 
 type VaultAccounts = Awaited<ReturnType<typeof deriveVaultAccounts>>;
-type Settlement = { payer: Address; quoteId: string; nonce: bigint; signature: string };
+type Settlement = {
+  payer: Address;
+  quoteId: string;
+  nonce: bigint;
+  /** Exclusive Unix timestamp in seconds, signed by the solver. */
+  validUntil: bigint;
+  signature: string;
+};
 
 export async function deriveQuoteState(config: VaultAccounts, quoteId: string) {
   const [quote] = await getProgramDerivedAddress({
@@ -151,7 +158,8 @@ async function payUsdc(config: VaultAccounts, action: "fulfil" | "refund", param
     account(recipientUsdc, WRITABLE),
     account(TOKEN_PROGRAM),
     account(SYSTEM_PROGRAM),
-  ], fixed(params.quoteId, 32), u64(params.nonce), key(params.recipient), u64(params.amount), fixed(params.signature, 65));
+  ], fixed(params.quoteId, 32), u64(params.nonce), u64(params.validUntil),
+  key(params.recipient), u64(params.amount), fixed(params.signature, 65));
 }
 
 export function fulfil(config: VaultAccounts, params: Parameters<typeof payUsdc>[2]) {
@@ -169,7 +177,7 @@ export async function markForRefund(config: VaultAccounts, params: Settlement) {
     account(config.vault),
     account(quote, WRITABLE),
     account(SYSTEM_PROGRAM),
-  ], fixed(params.quoteId, 32), u64(params.nonce), fixed(params.signature, 65));
+  ], fixed(params.quoteId, 32), u64(params.nonce), u64(params.validUntil), fixed(params.signature, 65));
 }
 
 export async function swapAndFulfil(config: VaultAccounts, params: Settlement & {
@@ -197,7 +205,7 @@ export async function swapAndFulfil(config: VaultAccounts, params: Settlement & 
     account(TOKEN_PROGRAM),
     account(SYSTEM_PROGRAM),
     ...route.remainingAccounts,
-  ], fixed(params.quoteId, 32), u64(params.nonce), key(params.outputMint), u64(params.amount),
+  ], fixed(params.quoteId, 32), u64(params.nonce), u64(params.validUntil), key(params.outputMint), u64(params.amount),
   u64(params.minOutput), vector(route.data), vector(route.flags), fixed(params.signature, 65));
 }
 

@@ -24,11 +24,12 @@ test("settlement encoding and DER recovery match the Solana program format", () 
     vault,
     quoteId: two,
     nonce: 2n,
+    validUntil: 0x0102030405060708n,
     action: { kind: "refund", recipient: mint, amount: 3n },
   });
   assert.equal(digest, solidityPackedKeccak256(
-    ["string", "bytes32", "bytes32", "uint8", "bytes32", "bytes8", "bytes32", "bytes8"],
-    ["BUNGEE_SOLANA_RFQ_V1", zero, one, 2, two, "0x0200000000000000", two, "0x0300000000000000"],
+    ["string", "bytes32", "bytes32", "uint8", "bytes32", "bytes8", "bytes8", "bytes32", "bytes8"],
+    ["BUNGEE_SOLANA_RFQ_V2", zero, one, 2, two, "0x0200000000000000", "0x0807060504030201", two, "0x0300000000000000"],
   ));
   const messageHash = settlementDigest(digest);
   const key = new SigningKey(one);

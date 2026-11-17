@@ -8,32 +8,36 @@ fn action_digest_binds_settlement_and_vault_domain() {
     let quote = [4; 32];
     let other_quote = [5; 32];
     let fields: &[&[u8]] = &[b"amount", b"recipient"];
-    let digest = action_digest(&program, &vault, 1, &quote, 6, fields);
+    let digest = action_digest(&program, &vault, 1, &quote, 6, 7, fields);
 
     let changes = [
         (
             "program",
-            action_digest(&other_key, &vault, 1, &quote, 6, fields),
+            action_digest(&other_key, &vault, 1, &quote, 6, 7, fields),
         ),
         (
             "vault",
-            action_digest(&program, &other_key, 1, &quote, 6, fields),
+            action_digest(&program, &other_key, 1, &quote, 6, 7, fields),
         ),
         (
             "action",
-            action_digest(&program, &vault, 2, &quote, 6, fields),
+            action_digest(&program, &vault, 2, &quote, 6, 7, fields),
         ),
         (
             "quote",
-            action_digest(&program, &vault, 1, &other_quote, 6, fields),
+            action_digest(&program, &vault, 1, &other_quote, 6, 7, fields),
         ),
         (
             "nonce",
-            action_digest(&program, &vault, 1, &quote, 7, fields),
+            action_digest(&program, &vault, 1, &quote, 8, 7, fields),
+        ),
+        (
+            "expiry",
+            action_digest(&program, &vault, 1, &quote, 6, 8, fields),
         ),
         (
             "fields",
-            action_digest(&program, &vault, 1, &quote, 6, &[b"amount", b"other"]),
+            action_digest(&program, &vault, 1, &quote, 6, 7, &[b"amount", b"other"]),
         ),
     ];
     for (field, changed_digest) in changes {

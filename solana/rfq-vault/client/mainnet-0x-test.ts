@@ -158,9 +158,11 @@ const solver = new Wallet(state.solverKey);
 const quoteState = await deriveQuoteState(vault, state.fulfilQuote);
 const failureCases = new Set<CaseName>(["refund-after-fulfil", "swap-failure", "deposit-failure"]);
 const sign = (quoteId: string, action: SettlementAction) => {
-  const digest = settlementDigest(actionDigest({ program: RFQ_PROGRAM, vault: vault.vault, quoteId, nonce: 1n, action }));
+  const nonce = 1n;
+  const validUntil = BigInt(Math.floor(Date.now() / 1000)) + 300n;
+  const digest = settlementDigest(actionDigest({ program: RFQ_PROGRAM, vault: vault.vault, quoteId, nonce, validUntil, action }));
   const { r, s, yParity } = Signature.from(solver.signingKey.sign(digest));
-  return r + s.slice(2) + (yParity ? "01" : "00");
+  return { nonce, validUntil, signature: r + s.slice(2) + (yParity ? "01" : "00") };
 };
 
 async function snapshot(minContextSlot?: number): Promise<Snapshot> {
@@ -321,7 +323,7 @@ await runCase("swap-and-fulfil", async before => {
     minOutput: route.minimumOutput, routeHash: routeHash(route.swap) } as const;
   return { instructions: [...route.setup, await swapAndFulfil(vault, {
     ...action, payer: wallet.address, recipientOutput: walletTrump, swap: route.swap, quoteId: state.fulfilQuote,
-    nonce: 1n, signature: sign(state.fulfilQuote, action),
+    ...sign(state.fulfilQuote, action),
   })], minimum: route.minimumOutput };
 }, (logs, before, after, stage) => {
   assert.equal(BigInt(before.vaultUsdc) - BigInt(after.vaultUsdc), oneUsdc);
@@ -336,7 +338,7 @@ await runCase("refund-after-fulfil", async before => {
   assert.equal(before.quoteStatus, 1);
   const action = { kind: "refund", recipient: wallet.address, amount: 1n } as const;
   return { instructions: [await refund(vault, {
-    ...action, payer: wallet.address, nonce: 1n, quoteId: state.fulfilQuote, signature: sign(state.fulfilQuote, action),
+    ...action, payer: wallet.address, quoteId: state.fulfilQuote, ...sign(state.fulfilQuote, action),
   })] };
 }, unchanged);
 
