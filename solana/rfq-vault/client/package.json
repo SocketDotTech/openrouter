@@ -1,0 +1,19 @@
+{
+  "name": "bungee-solana-rfq-client",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --disable-warning=ExperimentalWarning --test client.test.ts",
+    "test:integration": "node --test integration.test.ts"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "dependencies": {
+    "@solana/kit": "^8.0.0",
+    "ethers": "^6.15.0"
+  },
+  "devDependencies": {
+    "litesvm": "^1.6.2"
+  }
+}
